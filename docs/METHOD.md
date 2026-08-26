@@ -89,7 +89,7 @@ sequenceDiagram
   participant G as run_gates.sh
   M->>H: "done — tests pass"
   H->>K: Stop hook
-  K->>K: armed? task.md status implementing<br/>+ .claude/gates.sh present
+  K->>K: armed? task.md status implementing, .claude/gates.sh present
   K->>G: run the gate out of band
   G-->>K: exit 1 (red)
   K-->>H: exit 2 — block the stop
