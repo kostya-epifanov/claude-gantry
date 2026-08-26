@@ -1,0 +1,18 @@
+{
+  "name": "claude-gantry",
+  "description": "gantry — a worktree-to-PR workflow for Claude Code.",
+  "owner": {
+    "name": "Kostya Epifanov",
+    "url": "https://github.com/kostya-epifanov"
+  },
+  "plugins": [
+    {
+      "name": "gantry",
+      "source": "./",
+      "description": "Takes a task from a fresh git worktree to an open pull request, with a script-enforced gate the model cannot skip.",
+      "category": "development",
+      "author": { "name": "Kostya Epifanov" },
+      "homepage": "https://github.com/kostya-epifanov/claude-gantry"
+    }
+  ]
+}

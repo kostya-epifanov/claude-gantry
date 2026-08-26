@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "gantry",
+  "version": "0.1.0",
+  "description": "A worktree-to-PR workflow for Claude Code. Nine skills take a task from a fresh branch through planning, implementation, an unskippable gate, review, and a pull request.",
+  "author": {
+    "name": "Kostya Epifanov",
+    "url": "https://github.com/kostya-epifanov"
+  },
+  "homepage": "https://github.com/kostya-epifanov/claude-gantry",
+  "repository": "https://github.com/kostya-epifanov/claude-gantry",
+  "license": "MIT",
+  "keywords": ["git-worktree", "pull-request", "workflow", "ci-gate", "orchestration", "multi-agent"]
+}

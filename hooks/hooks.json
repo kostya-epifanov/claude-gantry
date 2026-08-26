@@ -1,0 +1,29 @@
+{
+  "description": "gantry's readiness gate. On Stop and SubagentStop, if the repo has a .claude/gates.sh AND a task.md whose frontmatter says status: implementing, re-runs the gate out of band and blocks the stop (exit 2) when it is red. Inert otherwise \u2014 it exits 0 with no checks run and no perceptible delay. Set GANTRY_READINESS_GATE=off to disable entirely.",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/readiness-gate.sh\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/readiness-gate.sh\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}
