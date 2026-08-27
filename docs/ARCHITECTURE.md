@@ -12,7 +12,7 @@ gantry/
 ├── .claude-plugin/
 │   ├── plugin.json          name: gantry  → the /gantry: namespace
 │   └── marketplace.json     name: claude-gantry, one plugin, source "./"
-├── skills/<name>/SKILL.md   → /gantry:<name>          (9)
+├── skills/<name>/SKILL.md   → /gantry:<name>          (7)
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             deterministic work, run not read
 │   └── templates/           the task.md fallback
@@ -49,7 +49,7 @@ flowchart TB
   subgraph shared2 ["shared"]
     G{"run_gates.sh — hard blocker"}
     R["independent review"]
-    S["gantry:ship — commit, upload, PR"]
+    S["gantry:ship — commit, push, PR"]
   end
   W --> autog
   W --> fac
@@ -61,8 +61,8 @@ flowchart TB
 ```
 
 `sync` closes the loop the other way: it returns you to the base branch, then hands off to
-`prune-worktrees` to remove the lanes the merge just made redundant. `status` and `preserve` sit
-outside the pipeline entirely — one reports, one records.
+`prune-worktrees` to remove the lanes the merge just made redundant. `preserve` sits outside the
+pipeline entirely — it records the conversation, not the repo.
 
 ## ship is a stage machine
 
@@ -78,7 +78,7 @@ stateDiagram-v2
   detect --> ondefault: sitting on the mainline
   detect --> commitst: uncommitted changes
   detect --> pushst: ahead of upstream
-  detect --> prst: uploaded, no PR yet
+  detect --> prst: pushed, no PR yet
   detect --> behind: remote moved
   detect --> nodiff: nothing to ship
   detect --> done: PR open and current
@@ -188,23 +188,23 @@ session.
 `sync` resolves the base branch from, in order: an explicit argument, then an **optional external
 profile resolver**, then `ship`'s own detection.
 
-The middle tier is the only place gantry reaches outside itself. The reference implementation is
-`gantry-profile`, a resolver you provide yourself; **gantry
-does not ship it and does not require it.** Absence is the normal case and is never a warning — the
-lookup is skipped entirely and detection takes over.
+The middle tier is the only place gantry reaches outside itself, and it is a **contract, not a
+dependency**: gantry ships no resolver and requires none. Absence is the normal case and is never a
+warning — the lookup is skipped entirely and detection takes over. It exists for teams that already
+keep the base branch in some registry of their own and would rather gantry read it than guess.
 
-To wire your own, put an executable named `gantry-profile` on `PATH` supporting:
+To wire yours in, put an executable named `gantry-profile` on `PATH` supporting:
 
 ```bash
 gantry-profile <project> BASE_BRANCH     # value on stdout
 gantry-profile --task-project <task.md>  # resolve the project from frontmatter
 ```
 
+with exit codes `0` found · `1` known project, field empty · `2` usage/broken · `3` no such
+project. The distinction between 1 and 3 matters: both are silent-normal, but only 2 is worth
+mentioning in the report.
+
 The project name comes from `$GANTRY_PROJECT` when you set it, otherwise from the second call
 above. An empty project name short-circuits the lookup entirely — it is not an error case, and
 forcing it through would produce a broken-profile-looking failure for a repo that simply has no
 profile.
-
-with exit codes `0` found · `1` known project, field empty · `2` usage/broken · `3` no such
-project. The distinction between 1 and 3 matters: both are silent-normal, but only 2 is worth
-mentioning in the report.

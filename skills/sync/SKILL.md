@@ -76,10 +76,9 @@ against stale refs is exactly the silent staleness this skill exists to prevent.
 ## Stage 3 — Resolve the base
 
 **Optional: an external profile resolver.** gantry can ask an external tool for the project's
-`BASE_BRANCH` before falling back to detection. The reference implementation is
-`gantry-profile` — a resolver you provide yourself. **gantry
-does not ship it and does not require it, and its absence is the normal case, never a warning.**
-To wire your own, put an executable named `gantry-profile` on `PATH` supporting the two calls
+`BASE_BRANCH` before falling back to detection. This is a contract, not a dependency: **gantry
+ships no resolver and requires none, and its absence is the normal case, never a warning.**
+To wire yours in, put an executable named `gantry-profile` on `PATH` supporting the two calls
 and exit codes below; see `docs/ARCHITECTURE.md` § "The one external hook".
 
 **Reader resolution.** `command -v gantry-profile`, else `$HOME/.local/bin/gantry-profile`,

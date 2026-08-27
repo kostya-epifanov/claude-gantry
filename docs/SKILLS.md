@@ -1,6 +1,6 @@
 # Skills reference
 
-Nine skills. Each section: what it does, its arguments, what it **refuses** to do, what it invokes,
+Seven skills. Each section: what it does, its arguments, what it **refuses** to do, what it invokes,
 and the scripts it owns. For the design argument see [METHOD.md](METHOD.md); for how they connect,
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -12,7 +12,7 @@ parser, the skill reads them itself and what remains is the task.
 | Flag | Effect |
 |---|---|
 | `--autonomous` | Drop both checkpoints and run unattended. A red gate triggers a capped fix loop instead of stopping. |
-| `--no-pr` | End after the upload; don't open a PR. Passed through to `ship`. |
+| `--no-pr` | End after the push; don't open a PR. Passed through to `ship`. |
 | `--branch <name>` | Use this exact branch name instead of deriving one from the task. |
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. |
 | `--base <branch>` | Override the PR base branch. Passed through to `ship` and its detector. |
@@ -38,7 +38,7 @@ branch** (so `worktree` doesn't ask which parent to use) and keep the task singl
 
 `/gantry:auto <task> [flags]`
 
-Ten stages: parse args → worktree → plan → implement → **gate** → review → commit → upload → PR →
+Ten stages: parse args → worktree → plan → implement → **gate** → review → commit → push → PR →
 report. It doesn't do the work in a special way; it runs the same chain you'd run by hand, in
 order, with one non-negotiable checkpoint.
 
@@ -70,7 +70,7 @@ else the shipped `gantry-<role>`. A run is never blocked on a missing roster.
 - **Detail:** `references/task-contract.md`; flags and modes live in `auto`'s orchestration
   reference and are not duplicated.
 
-## `/gantry:ship` — commit, upload, PR
+## `/gantry:ship` — commit, push, PR
 
 `/gantry:ship [--no-pr] [--base <branch>]`
 
@@ -84,7 +84,7 @@ is exactly why `auto` and `factory` delegate the tail to it instead of imposing 
 
 - **Refuses:** to run on the repo's default branch; to rewrite history on a diverged branch; to
   bundle several unrelated changes without asking how to split them.
-- **Degrades:** with `gh` missing or unauthenticated it still commits and uploads, then prints the
+- **Degrades:** with `gh` missing or unauthenticated it still commits and pushes, then prints the
   `gh pr create` command for you.
 - **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`).
 
@@ -136,16 +136,6 @@ batched in groups of four with **nothing checked by default**, and every selecte
   `git branch -d` line and leaves the decision to you.
 - **Scripts:** `scripts/detect_candidates.sh`.
 
-## `/gantry:status` — where am I
-
-`/gantry:status [focus]`
-
-Strictly read-only. Runs a snapshot script for the git facts, skims any plan files it surfaced,
-then infers process state and reports Where / Sync / In flight / Plans / Next, weighted toward an
-optional focus argument.
-
-- **Scripts:** `scripts/snapshot.sh`.
-
 ## `/gantry:preserve` — session handoff
 
 `/gantry:preserve [label]`
@@ -160,26 +150,8 @@ same file, and it reads an existing doc before overwriting.
 
 The closing check is the point: *could a session with no memory pick up from this file alone?*
 
-- **Deliberately not `status`:** no sync state, no uncommitted-file lists, no commit dumps.
+- **Deliberately not a git report:** no sync state, no uncommitted-file lists, no commit dumps.
 - **Scripts:** `scripts/doc_path.sh`.
-
-## `/gantry:skill` — author a new skill
-
-`/gantry:skill <name>`
-
-Ten steps to add a skill: validate the name → harvest intent from the conversation before asking →
-settle frontmatter → write a body under 500 lines → **validate in a loop** with both
-`claude plugin validate --strict` (manifest) and `validate_skill.py` (frontmatter, which the former
-does not cover) → measure always-on vs on-invoke cost → prove it registered after `/reload-plugins`
-→ document → optionally eval → commit.
-
-It detects where it is running from: an installed plugin cache is read-only in practice, so it
-scaffolds a standalone skill into `~/.claude/skills/` instead and says so.
-
-- **Refuses:** names containing `claude` or `anthropic` (reserved), or a `gantry-` prefix (the
-  plugin already supplies the namespace).
-- **Scripts:** `scripts/validate_skill.py` (`uv run`, PEP 723).
-- **Detail:** `references/authoring.md`.
 
 ---
 
@@ -195,12 +167,11 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 | sync | ~170 | ~3.8k |
 | ship | ~150 | ~1.5k |
 | preserve | ~150 | ~1.5k |
-| status | ~110 | ~470 |
 | prune-worktrees | ~90 | ~1.3k |
 | worktree | ~60 | ~2k |
-| skill | ~60 | ~1.5k |
 | the four agents | ~230 combined | ~390–480 each |
-| **total always-on** | **~1,327** | |
+| **total always-on** | **~1,157** | |
 
-Estimates from the CLI, rounded, and they will drift as the skills change. Re-measure rather than
-trusting this table.
+Per-skill figures are estimates from the CLI, rounded; the total is arithmetic on those figures
+rather than a fresh reading. They will drift as the skills change — re-measure rather than trusting
+this table.

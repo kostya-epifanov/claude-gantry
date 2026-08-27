@@ -66,8 +66,8 @@
 # non-blocking and the stop proceeds regardless. Every exit in this file is
 # therefore 0 or 2 — grep for `exit ` before changing anything.
 #
-# GATE EXIT CODE: 0 = green, ANYTHING ELSE = red. `.claude/gates.sh` in this
-# repo exits 2 for "uv not found" — that is NOT special-cased as
+# GATE EXIT CODE: 0 = green, ANYTHING ELSE = red. A `.claude/gates.sh` that
+# exits 2 because its runner is missing is NOT special-cased as
 # "unrunnable"; a broken environment is a red gate, full stop. Treating exit 2
 # as a distinct non-blocking class is exactly the bug the second review round
 # found (a broken environment blocked once, then exited 0 forever with the

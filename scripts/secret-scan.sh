@@ -2,11 +2,10 @@
 #
 # secret-scan.sh — the publish gate for this repo.
 #
-# gantry was extracted from a private repository that holds real hostnames,
-# keys and device identifiers. Publishing a secret is the one failure in this
-# project that cannot be undone: a force-push does not un-ring the bell once a
-# public repo has been cloned or indexed. So this runs before every push, and
-# again in CI forever.
+# gantry was extracted from a private repository. Publishing a secret is the
+# one failure in this project that cannot be undone: a force-push does not
+# un-ring the bell once a public repo has been cloned or indexed. So this runs
+# before every push, and again in CI forever.
 #
 # Exit 0 = clean. Exit 1 = something matched; read it, do not skip it.
 
@@ -36,7 +35,7 @@ scan "Tailscale / tailnet identifiers" \
   '\.ts\.net|tailnet|taildrop|tailscale'
 
 scan "private-infrastructure vocabulary" \
-  'homebase-setup|HOMEBASE_|projects\.d|homebase-approve|homebase-session|homebase-lanes'
+  'homebase|HOMEBASE_|projects\.d'
 
 scan "personal identifiers" \
   '0xke|/Users/[a-z0-9]|epifanov\.lab|@gmail'
@@ -53,10 +52,9 @@ scan "hosting / deployment specifics" \
 scan "references to private documents" \
   'SECRETS\.local|RECOVERY\.md|ADD-DEVICE|CHEATSHEET|dev-setup\.sh|raw_specs|OPEN-QUESTIONS|SYSTEM\.md|Slice [0-9]'
 
-# One documented exception: docs/ARCHITECTURE.md and skills/sync/SKILL.md name
-# `gantry-profile` on purpose, as the reference implementation of an optional
-# resolver anyone can substitute. Anything else matching the vocabulary rule
-# above is a genuine leak.
+# No exceptions to the vocabulary rule. The optional base-branch resolver is
+# named `gantry-profile` and documented as a contract anyone can implement, so
+# nothing in this repo needs to name a private tool. Any match is a real leak.
 
 echo
 echo "== S3: file-class scan =="

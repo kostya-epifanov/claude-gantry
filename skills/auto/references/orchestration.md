@@ -173,10 +173,10 @@ green or red, and re-dispatch on red is an orchestrator step either way.
   repos), and reports the terminal PR status. Pass `--no-pr` through to it when
   the user gave `--no-pr`.
 
-Both are un-gated (no `disable-model-invocation`) so `auto` can invoke them. As of
-no skill in gantry carries that flag: an agent — a peer session, or a
-project lead dispatching to a lane — cannot invoke a gated skill at all, which made
-the pipeline undelegatable. See the README for the tradeoff that opens up.
+Both are un-gated (no `disable-model-invocation`) so `auto` can invoke them. No skill in
+gantry carries that flag: a gated skill cannot be invoked by an agent at all, only by a
+human typing the command, which would make the pipeline undelegatable. See
+`docs/ARCHITECTURE.md` § "Why no skill is model-gated" for the tradeoff that buys.
 
 ## Failure handling
 

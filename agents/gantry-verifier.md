@@ -1,6 +1,6 @@
 ---
 name: gantry-verifier
-description: Runs the readiness gate. Use to execute the project's lint/test/build (and later e2e) from the profile and task.md's how-to-verify block, then report pass/fail per check with artifact paths. Judges "done"; never fixes.
+description: Runs the readiness gate. Use to execute the project's lint/test/build from its own .claude/gates.sh, the checks gantry auto-detects, and task.md's how-to-verify block, then report pass/fail per check with artifact paths. Judges "done"; never fixes.
 tools: Read, Bash
 model: haiku
 ---

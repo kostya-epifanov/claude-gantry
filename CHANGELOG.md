@@ -6,8 +6,7 @@ First public release. A faithful extraction of a workflow that had been running 
 portable and packaged as a Claude Code plugin.
 
 **Added**
-- Nine skills: `auto`, `factory`, `ship`, `worktree`, `sync`, `prune-worktrees`, `status`,
-  `preserve`, `skill`.
+- Seven skills: `auto`, `factory`, `ship`, `worktree`, `sync`, `prune-worktrees`, `preserve`.
 - A four-agent roster (`gantry-explorer`, `gantry-planner`, `gantry-implementer`,
   `gantry-verifier`), shipped with the plugin so `factory` works with no setup.
 - The readiness hook, registered on `Stop` and `SubagentStop`, inert until armed by a

@@ -1,6 +1,6 @@
 ---
 name: preserve
-description: Writes a session handoff document capturing what exists only in the conversation — decisions and why they were made, alternatives rejected and on what grounds, what exploration established including dead ends, open threads, and the exact next action. Use when the user types "/gantry:preserve", or asks to "save the session", "write this down before we lose it", "preserve context", "hand off", or "checkpoint what we know" — and before a compaction, a break, or handing work to another session. Unlike "/gantry:status", which recomputes git state, this records reasoning git cannot show.
+description: Writes a session handoff document capturing what exists only in the conversation — decisions and why they were made, alternatives rejected and on what grounds, what exploration established including dead ends, open threads, and the exact next action. Use when the user types "/gantry:preserve", or asks to "save the session", "write this down before we lose it", "preserve context", "hand off", or "checkpoint what we know" — and before a compaction, a break, or handing work to another session. Records the reasoning git cannot show, rather than the state git already has.
 argument-hint: [label]
 allowed-tools: Bash, Read, Write, Edit
 ---
@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, Write, Edit
 
 Write down what would be lost if this session ended right now.
 
-`/gantry:status` answers "where are we" from **git** — branch, sync, uncommitted files. All of that
+`git status` and `git log` answer "where are we" — branch, sync, uncommitted files. All of that
 is recomputable, and stale within minutes. This skill captures the opposite: *why* a decision was
 made, which alternative was rejected and on what grounds, what exploration established, and what
 the next concrete action is. None of that is in the repo, and re-deriving it costs a session's
@@ -103,8 +103,8 @@ Rules that decide whether this is worth anything:
   Anything still unresolved goes under **Open threads**; do not quietly resolve it in the write-up.
 - **Negative findings are the highest-value lines in the file.** "The config looks like it's read
   at startup but isn't" is exactly what a fresh session burns an hour rediscovering.
-- **Don't duplicate `/gantry:status`.** No sync state, no uncommitted-file lists, no commit dumps —
-  it goes stale immediately and a command already recomputes it. One line of git context, at most.
+- **Don't duplicate what git already reports.** No sync state, no uncommitted-file lists, no commit
+  dumps — it goes stale immediately and git recomputes it on demand. One line of git context, at most.
 - **Don't summarize the codebase or replay the transcript.** Both are available elsewhere.
 - **Omit an empty section** rather than padding it. A short honest document beats a long one.
 

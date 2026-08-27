@@ -80,14 +80,14 @@ but a human's answer exists nowhere else.
 ## Extending
 
 New event types are fine — keep the envelope, add a shape here, and prefer a new `event`
-value over overloading an existing one. One is designed but not yet emitted: `escalation`
-(a blocked task was escalated to a human). Add it with the privileged-action gate —
-the readiness gate.
+value over overloading an existing one. One is designed but not yet emitted: `escalation`,
+for a blocked task handed to whatever notifies you. Nothing in gantry emits it; the shape is
+reserved so an integration does not have to invent one.
 
 ## Not committed
 
 `journal.jsonl` is a **run artifact, not a deliverable.** `task.md` and `plan.md` travel into
 the PR — they are the human-facing contract a reviewer wants. The journal does not: a
 per-run log in every PR is review noise and conflicts on every rebase. It stays in the
-worktree, where the audit actually happens (you read it there —
-that is why it stays local). The orchestrator excludes it via `.git/info/exclude`.
+worktree, next to the run it describes, for whoever is reading that run back. The
+orchestrator excludes it via `.git/info/exclude`.

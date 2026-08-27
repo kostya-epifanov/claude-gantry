@@ -8,7 +8,7 @@
 #
 # THE CONTRACT (this is all gantry cares about):
 #   exit 0     green — the tree is provably good, work may ship
-#   exit 1+    red   — a check failed; nothing gets uploaded or opened as a PR
+#   exit 1+    red   — a check failed; nothing gets pushed or opened as a PR
 #   exit 2     reserved for "the gate could not run" (bad env, missing tool)
 #
 # Two rules worth internalising:

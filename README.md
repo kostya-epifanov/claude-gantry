@@ -1,6 +1,6 @@
 # gantry
 
-**A worktree-to-PR workflow for Claude Code.** Nine skills that take a task from a fresh branch
+**A worktree-to-PR workflow for Claude Code.** Seven skills that take a task from a fresh branch
 through planning, implementation, an unskippable gate, review, and a pull request.
 
 The design principle, and the reason this is a plugin rather than a prompt:
@@ -27,8 +27,7 @@ command for you to run); `jq` is recommended.
 
 ```mermaid
 flowchart LR
-  A["/gantry:status"] --> B["/gantry:worktree"]
-  B --> C["/gantry:auto<br/>or /gantry:factory"]
+  B["/gantry:worktree"] --> C["/gantry:auto<br/>or /gantry:factory"]
   C --> D{"gate<br/>run_gates.sh"}
   D -- "red" --> C
   D -- "green" --> E["review"]
@@ -36,7 +35,7 @@ flowchart LR
   F --> G["PR open"]
   G --> H["/gantry:sync"]
   H --> I["/gantry:prune-worktrees"]
-  I --> A
+  I --> B
 ```
 
 In practice most work is one command:
@@ -60,9 +59,7 @@ checkpoints and run unattended; add `--no-pr` to stop after the push.
 | `/gantry:worktree` | Create a worktree under `.claude/worktrees/` from an up-to-date parent, and enter it. |
 | `/gantry:sync` | Return to the base branch and bring it up to date. Refuses on a dirty tree. |
 | `/gantry:prune-worktrees` | Review stale or merged worktrees and remove the ones you approve. |
-| `/gantry:status` | A "where are we" snapshot — branch, sync state, what's in flight, plans on record. |
 | `/gantry:preserve` | Write a session handoff doc: decisions and why, dead ends, the exact next action. |
-| `/gantry:skill` | Author a new skill — scaffold, validate, measure its context cost, document, commit. |
 
 Full reference: [docs/SKILLS.md](docs/SKILLS.md). The argument behind the design:
 [docs/METHOD.md](docs/METHOD.md). How the pieces fit: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -128,14 +125,13 @@ you can check the number yourself:
 claude plugin details gantry@claude-gantry
 ```
 
-At v0.1 that is **~1,327 always-on tokens** for all nine skills and four agents combined. Bodies
+At v0.1 that is **~1,157 always-on tokens** for all seven skills and four agents combined. Bodies
 are paid only when a skill actually fires.
 
 ## Extending it
 
-`/gantry:skill <name>` scaffolds a new skill, validates its frontmatter, measures what it adds to
-always-on context, proves it registered, and documents it. See
-[docs/SKILLS.md](docs/SKILLS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+Skills are plain directories under `skills/`, so adding one is writing a `SKILL.md` and validating
+it. See [docs/SKILLS.md](docs/SKILLS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Not included, by design
 

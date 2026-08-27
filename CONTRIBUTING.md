@@ -13,14 +13,17 @@ runs the same script, so a green local run means a green CI run.
 
 ## Adding a skill
 
-Use the plugin's own skill for this — it exists precisely so new skills come out consistent:
+A skill is a directory under `skills/` with a `SKILL.md` in it. The `name:` in the frontmatter must
+match the directory name — `scripts/verify.sh` checks that. Then:
 
-```
-/gantry:skill <name>
+```bash
+claude plugin validate . --strict          # the manifest
+claude plugin details gantry@claude-gantry # what it costs every session
 ```
 
-It scaffolds `skills/<name>/SKILL.md`, validates the frontmatter, measures what the skill adds to
-every session's always-on context, proves it actually registered, and reminds you to document it.
+The `description` is the whole trigger surface and is paid in every session, so write it last, when
+you know exactly what the skill does. Document the new skill in `docs/SKILLS.md` and the README
+table in the same commit.
 
 ## House style
 
