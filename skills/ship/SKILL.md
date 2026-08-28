@@ -1,7 +1,7 @@
 ---
 name: ship
-description: Advances the current branch one clean step closer to a merged PR, doing only what isn't done yet — commits outstanding changes, pushes to the upstream, opens a pull request, and once the PR exists and is up to date, reports its status and waits. Idempotent — it detects the stage and picks up from there, so it's safe to run repeatedly. Pass --no-pr to stop after the push without opening a PR. Use when the user types "/gantry:ship", or asks to ship, to commit and push, to open a PR for this branch, or to "get this out for review". Refuses to run on the repo's default branch.
-argument-hint: [--no-pr] [--base <branch>]
+description: Advances the current branch one clean step closer to a merged PR, doing only what isn't done yet — commits outstanding changes, pushes to the upstream, opens a pull request, and once the PR exists and is up to date, reports its status and waits. Idempotent — it detects the stage and picks up from there, so it's safe to run repeatedly. Pass --no-pr to stop after the push without opening a PR, or --draft to open the PR as a draft. Use when the user types "/gantry:ship", or asks to ship, to commit and push, to open a PR for this branch, or to "get this out for review". Refuses to run on the repo's default branch.
+argument-hint: [--no-pr] [--draft] [--base <branch>]
 allowed-tools: Bash, Read
 ---
 
@@ -25,12 +25,17 @@ integrates somewhere other than what detection would pick. An override that name
 doesn't exist is ignored (the detector warns and auto-detects); a malformed `--base` with no value
 is a usage error (the detector exits non-zero). `/gantry:auto --base <branch>` passes through.
 
+**`--draft`**: open the pull request as a draft (`gh pr create --draft`). Use it when nobody has
+reviewed the change live — which is why `/gantry:auto-unattended` always passes it. A draft doesn't
+request reviewers, so it says "this is finished but unwatched" rather than "please look now". It
+only affects stage 4; with `--no-pr` it does nothing.
+
 ## Steps
 
 ### 1. Detect the stage
 
 `$GANTRY` is this skill's plugin root — resolve it from this file's own location, the same way the
-`status` and `prune-worktrees` skills do, rather than hardcoding a path.
+other gantry skills do, rather than hardcoding a path.
 
 ```bash
 bash "$GANTRY/skills/ship/scripts/detect_state.sh"                 # normal
@@ -99,6 +104,7 @@ Compose from the branch's commits rather than a bare `--fill`:
 
 ```bash
 gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body "<body>"
+gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body "<body>" --draft   # --draft
 ```
 
 Title = the change in one line; body = a short what/why, bulleting the commits when there are
@@ -121,6 +127,6 @@ thing worth flagging here.
 ## Report
 
 State what actually happened this run — which stages ran (committed / pushed / opened PR), the
-commit subject, the PR URL, and the terminal status. If a guard stopped it (on the default branch,
-diverged, nothing to ship, gh unavailable), say which and what the user should do next. Be honest
-about anything skipped or unverified.
+commit subject, the PR URL, **whether the PR is a draft or ready for review**, and the terminal
+status. If a guard stopped it (on the default branch, diverged, nothing to ship, gh unavailable),
+say which and what the user should do next. Be honest about anything skipped or unverified.

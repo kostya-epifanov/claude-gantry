@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# run_gates.sh — the one hard gate for /gantry:auto. Its exit code IS the gate:
+# run_gates.sh — gantry's one hard gate. Its exit code IS the gate:
 # non-zero blocks push and PR, and nothing the model decides can override it.
 # Run with: bash run_gates.sh [--strict]   (from anywhere inside the target repo/worktree)
 #
 #   --strict  Treat "no gates detected" as a hard FAILURE (exit 3) instead of a
-#             pass. /gantry:auto uses this in --autonomous mode: with no human
+#             pass. /gantry:auto-unattended uses this: with no human
 #             watching, pushing code that ran zero checks is exactly what to refuse.
 #
 # Resolution order:
@@ -21,7 +21,25 @@
 #
 # stdout is a transcript; the exit code is the contract:
 #   0 = green · 1+ = a check failed (red) · 2 = usage/environment · 3 = NO-GATES under --strict.
+#
+# 2 AND 3 ARE RESERVED FOR THIS SCRIPT'S OWN CONDITIONS. Callers act on them
+# differently from an ordinary red — exit 2 means "the gate could not run, a
+# broken environment, don't spend a fix attempt on it", exit 3 means "nothing
+# was checked". But a *check* can exit 2 or 3 on its own (pytest exits 2 on a
+# collection error, eslint on a fatal config error, and a repo's own
+# .claude/gates.sh may use any code it likes), and passing that through
+# verbatim would make a genuinely red tree read as a broken environment — the
+# one misclassification that stops the fix loop from ever fixing it. So a
+# failing check's 2 or 3 is normalised to 1 on the way out, with the original
+# code printed. Every other code passes through unchanged.
 set -uo pipefail
+
+normalize_rc() {  # normalize_rc <rc> — collapse a check's 2/3 onto 1 (see above)
+  case "$1" in
+    2|3) echo "== note: check exited $1; reported as 1 (2 and 3 are reserved by run_gates.sh) ==" >&2; echo 1 ;;
+    *)   echo "$1" ;;
+  esac
+}
 
 STRICT=0
 for arg in "$@"; do
@@ -40,7 +58,7 @@ if [ -f "$ROOT/.claude/gates.sh" ]; then
   bash "$ROOT/.claude/gates.sh"
   rc=$?
   echo "== .claude/gates.sh exit $rc =="
-  exit $rc
+  exit "$(normalize_rc "$rc")"
 fi
 
 # --- 2. Auto-detect ----------------------------------------------------------
@@ -180,4 +198,4 @@ if [ $ran -eq 0 ]; then
 fi
 
 echo "== gates ran=$ran result=$([ $fail -eq 0 ] && echo GREEN || echo RED) =="
-exit $fail
+exit "$(normalize_rc "$fail")"

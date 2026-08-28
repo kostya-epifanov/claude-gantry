@@ -86,6 +86,37 @@ while IFS= read -r f; do
 done < <(git ls-files '*.md')
 [ "$badlinks" -eq 0 ] && ok "all resolve"
 
+head2 "the duplicated frontmatter parser has not drifted"
+# hooks/readiness-gate.sh and lib/detect_stage.sh both parse task.md's
+# `status:`. The hook decides whether to BLOCK a stop on it; the detector
+# decides which phase to report. They are duplicated on purpose — the hook must
+# carry no runtime dependency it could fail to resolve — so the guarantee that
+# they agree has to be a check rather than a convention.
+extract_fm() { awk '/^frontmatter_status\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$1"; }
+fm_hook="$(extract_fm hooks/readiness-gate.sh)"
+fm_lib="$(extract_fm lib/detect_stage.sh)"
+if [ -z "$fm_hook" ] || [ -z "$fm_lib" ]; then
+  bad "frontmatter_status() not found in both files"
+elif [ "$fm_hook" = "$fm_lib" ]; then
+  ok "identical"
+else
+  bad "hooks/readiness-gate.sh and lib/detect_stage.sh have diverged"
+  diff <(printf '%s\n' "$fm_hook") <(printf '%s\n' "$fm_lib") || true
+fi
+
+head2 "the task template and its example agree"
+# examples/task.md is the copy a user reads; skills/plan/templates/task.md is the one the skill
+# writes from. They are the same file for a reason — an example that has drifted from the template
+# teaches the wrong shape.
+if [ ! -f examples/task.md ] || [ ! -f skills/plan/templates/task.md ]; then
+  bad "one of examples/task.md or skills/plan/templates/task.md is missing"
+elif diff -q examples/task.md skills/plan/templates/task.md >/dev/null 2>&1; then
+  ok "identical"
+else
+  bad "examples/task.md and skills/plan/templates/task.md have diverged"
+  diff examples/task.md skills/plan/templates/task.md || true
+fi
+
 head2 "secret scan"
 bash scripts/secret-scan.sh >/dev/null 2>&1 && ok "clean" || { bad "see: bash scripts/secret-scan.sh"; }
 

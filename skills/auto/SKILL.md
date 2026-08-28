@@ -1,161 +1,136 @@
 ---
 name: auto
-description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, plans, implements, runs the repo's gates as a hard blocker, reviews the diff, then commits, pushes, and opens a PR. Supervised by default (confirms the plan, then pauses once before anything outward-facing); --autonomous runs unattended with the gate as the only blocker; --no-pr stops after push. Use when the user types "/gantry:auto" with a task description, or asks to take a task end to end, to "just do this and open a PR", or to run a task autonomously.
-argument-hint: "[task] [--autonomous] [--no-pr]"
-allowed-tools: Bash, Read, Edit, Write, Skill, Agent
+description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, grill, implement, review, ship) by invoking each phase skill in turn. Supervised: it confirms the plan once, then pauses once more before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
+argument-hint: "[task] [--no-pr] [--branch <name>] [--here] [--base <branch>]"
+allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion
 ---
 
 # gantry:auto
 
-Take a task from description to open PR without leaving the rails. `auto` doesn't do the
-work in some special way — it runs the *same* chain you'd run by hand, in order, with one
-non-negotiable checkpoint: a gate script whose exit code decides whether anything gets
-pushed.
+One command from a task description to an open pull request, supervised. It creates the branch and
+worktree, then walks the gantry chain — **plan → grill → implement → review → ship** — invoking
+each phase skill in turn and pausing twice for you.
 
-**The principle: model for judgment, script for the guarantee.** Planning, implementing,
-and fixing are yours to reason through. But "never push if the checks are red" is not a
-promise prose can keep — the model can always talk itself past a sentence. So that one
-guarantee lives in `scripts/run_gates.sh`'s exit code, and this skill treats it as law.
+**This skill contains no phase logic.** Planning, grilling, implementing, reviewing, and shipping
+each live in their own skill, and this one invokes them — the same commands you would type. That is
+deliberate: the same phases run whether you type them yourself, run them here, or run them
+unattended, so they cannot drift into three subtly different pipelines.
 
-`auto` is manual-only (you invoke it) and orchestrates two existing gantry skills rather than
-reinventing them: `gantry:worktree` for the branch, `gantry:ship` for commit → push → PR.
+**You do not dispatch sub-agents; the phases do.** `plan` dispatches the explorer when the surface
+warrants it, `grill` always dispatches a fresh critic, `review` dispatches an independent reviewer.
+Each of those is scoped to its own sub-job and is read-only by tool list. `Agent` stays in this
+skill's `allowed-tools` for that reason and no other: a skill's frontmatter restricts what is
+permitted, it does not grant, so a phase cannot dispatch what the driver has not allowed.
 
-`$GANTRY` is this skill's plugin root — resolve it from this file's own location (the way the
-`status` and `ship` skills do), never a hardcoded path.
+For an unattended run to a draft PR, use `gantry:auto-unattended`. To drive it yourself, type the
+phase skills in order.
 
 ## Before you start
 
-Read [references/orchestration.md](references/orchestration.md) once. It has the flag
-rules, the exact difference between the two modes, where the checkpoints fall, and how the
-gate resolves — this body assumes it.
+Read `references/orchestration.md` — flags, the three modes, how a phase is invoked, where the
+checkpoints sit, and how the gate resolves. It is shared with `gantry:auto-unattended` so the two
+cannot drift.
 
-## Stage 0 — Read the arguments and pick the mode
+`$GANTRY` is this skill's plugin root — resolve it from this file's own location rather than
+hardcoding a path.
 
-`$ARGUMENTS` is the task plus optional flags, as one string; there is no parser, so read it
-yourself. Recognise `--autonomous`, `--no-pr`, `--branch <name>`, `--here` (alias
-`--on-current`), `--base <branch>`; strip them out; what remains is the task. Empty task after stripping → ask
-what the task is. `--here` and `--branch` are mutually exclusive — `--here` uses the branch
-you're already on; if both appear, prefer `--here` and note the ignored `--branch`.
+## Stage 0 — Arguments
 
-- **Supervised** (default): checkpoints on, a red gate stops for the user.
-- **Autonomous** (`--autonomous`): no checkpoints, a red gate triggers a capped fix loop.
+`$ARGUMENTS` is one string; there is no parser, so read it yourself. Recognise `--no-pr`,
+`--branch <name>`, `--here` (alias `--on-current`), and `--base <branch>`; strip them; what remains
+is the task. `--here` and `--branch` are mutually exclusive — `--here` wins. If no task text
+remains, ask what the task is.
 
-State the resolved task, mode, and flags back in one line before proceeding, so the run's
-intent is on the record.
+State the task, the mode, and the flags back in one line before doing anything.
 
-## Stage 1 — Worktree + branch
+## Stage 1 — Worktree and branch
 
-**Default (fresh branch).** Derive a branch name from the task (or use `--branch`), then
-**invoke `gantry:worktree`** with it. Let worktree own branch validation, the parent fetch, and
-entering the worktree — don't reimplement any of that. Everything downstream happens inside
-the worktree it creates.
+Derive a branch name from the task (or take `--branch`), then **invoke `gantry:worktree`** with it.
+Let worktree own branch validation, the parent fetch, and entering the worktree — don't reimplement
+any of it.
 
-**`--here` (work on the current branch).** Skip `gantry:worktree` entirely and run the rest of
-the chain in the branch/worktree you're already in — for accumulating onto an existing branch
-(an RC line, a colleague's branch) rather than starting a new one. First confirm it's a valid
-target:
-
-- **Detached HEAD, or on the repo's default mainline** (`origin/HEAD`, i.e. typically
-  `main`/`master`) → **stop**: you'd be committing onto the mainline and there's no branch to
-  PR from against itself. Tell the user to start a branch (`--branch <name>` or
-  `/gantry:worktree <name>`) and re-run. (An integration branch like `develop` is a *valid* target
-  — accumulating onto an RC line is the point of `--here`.) `gantry:ship`'s `ON_DEFAULT` guard is
-  the backstop if this check is ever bypassed.
-- Otherwise use the current branch as-is and continue to Stage 2. Note in the report that the
-  run targeted an existing branch (no worktree was created).
+Under `--here`, skip this entirely and run on the current branch. Stop first if HEAD is detached or
+you are on the repo's mainline (`origin/HEAD`); `develop` is a valid `--here` target.
 
 ## Stage 2 — Plan
 
-Write a short implementation plan: the files you expect to touch and the approach, a handful
-of bullets, not an essay. Keep it proportional to the task.
+**Invoke `/gantry:plan`** with the task.
 
-**Supervised checkpoint.** Show the plan and the branch/worktree, and ask to proceed
-(AskUserQuestion). This is the cheap moment to fix a wrong branch name or redirect the
-approach. **Autonomous:** skip; continue straight to stage 3.
+It writes `task.md` and `plan.md` at the worktree root, and decides for itself whether the surface
+needs the explorer. Read both files back from disk before moving on — a plan you remember writing
+is not the plan on disk, and every later phase reads the file.
 
-## Stage 3 — Implement
+Set `task.md`'s `mode:` to `auto`, so `implement` and `review` resolve the right gate strictness
+without being told.
 
-Make the edits. Freeform — this is ordinary work, no special ceremony. Stay within the
-task's scope; if you discover the task is really several unrelated changes, note it (and in
-supervised mode raise it), rather than quietly ballooning the diff.
+## Stage 3 — Grill
 
-## Stage 4 — Gate (the hard blocker)
+**Invoke `/gantry:grill`.**
 
-Run the gate script from inside the worktree. **In autonomous mode pass `--strict`;**
-supervised runs it without:
+It dispatches a fresh critic against the artifacts on disk and triages what comes back. That
+delegation is the skill's own central rule — it happens in every mode, including this one, and it
+is not yours to arrange or to skip. Read the revised `plan.md` back from disk.
 
-```bash
-bash "$GANTRY/skills/auto/scripts/run_gates.sh"            # supervised
-bash "$GANTRY/skills/auto/scripts/run_gates.sh" --strict   # autonomous
-```
+If grill set `status: blocked`, stop here and surface the reason. A plan that did not survive
+critique is a result, not a failure to route around.
 
-Its **exit code is the contract**: `0` green · `1`+ a check failed (red) · `2` the gate
-couldn't run (bad usage / not a git repo) · `3` NO-GATES under `--strict`. It runs the repo's
-own `.claude/gates.sh` if present, else auto-detects
-checks — at the repo root **and in each subproject** it finds, so a monorepo whose manifests
-live in subdirs (`app/pubspec.yaml`, `landing/package.json`) is covered — else prints
-`NO-GATES`. Do not reimplement its logic, and do not push past a non-zero exit. If the target repo
-registers a readiness-gate hook (see `gantry:factory`), that hook is the blocker and this inline run
-is belt-and-braces; in every other repo this script is the only gate.
+## Stage 4 — Checkpoint: confirm the plan
 
-- **Red (exit 1+), supervised** → stop. Show the failing output; hand it to the user. The run
-  ends here.
-- **Red (exit 1+), autonomous** → read the failure, make a focused fix, re-run the script.
-  **At most 2 fix attempts.** Still red after the second → stop and report; nothing gets pushed.
-- **Exit 2 (couldn't run), either mode** → not a red check but a broken invocation or
-  environment. Stop and report; don't spend an autonomous fix attempt trying to "fix" it.
-- **`NO-GATES`, supervised (exit 0)** → the run had no enforced checks. Continue, but flag it
-  in the report — a weaker guarantee than a green gate.
-- **`NO-GATES`, autonomous (exit 3)** → **stop; do not push.** Unattended, code that ran zero
-  checks must not reach a PR. Report that no gates were found and the run refused to push;
-  suggest adding `.claude/gates.sh`.
+**AskUserQuestion.** Show the plan as grilled, what the critique changed, and the branch and
+worktree that were created. "Proceed with this plan?"
 
-## Stage 5 — Review
+This is also the moment to catch a wrong branch name — cheap to recreate now, before any edits.
 
-Get an **independent** read of the diff — not the same reasoning that wrote it grading its own
-homework. Use the first of these that's available, and **always name in the report which one
-ran**:
+## Stage 5 — Implement
 
-1. **`/code-review` (default).** The purpose-built reviewer — it runs outside the authoring
-   context and verifies its own findings, dropping the ones it can't confirm. Prefer it
-   whenever it's invocable here.
-2. **Independent review subagent.** If `/code-review` isn't available, launch a subagent
-   (**Agent** tool) to review the diff on its own — give it the diff (`git diff <base>...HEAD`)
-   and the task, and ask for correctness/security/scope findings ranked by severity. A fresh
-   context is the point: it catches what the author rationalised past.
-3. **Self-review, last resort.** If neither is available, review the diff yourself against the
-   task — and **disclose in the report that the review was a self-review**, a weaker check.
+**Invoke `/gantry:implement`.**
 
-In supervised mode, surface the findings before the next checkpoint. Address anything clearly
-worth fixing; re-run the gate (stage 4) if a fix could affect it. In autonomous mode, apply the
-clear-cut fixes and note the rest in the report — don't loop on subjective review points.
+`implement` owns the gate. It sets `status: implementing` before editing (which arms the readiness
+hook), carries out the plan, and runs `run_gates.sh`. **Do not run the gate yourself and do not
+route around a red one.** If it comes back red or blocked, stop and hand the failure to the user —
+supervised mode does not iterate on a red gate.
 
-## Stages 6–8 — Commit, push, PR
+Take from its report: the gate's exit code, and whether the hook was **armed or inert**. Both go in
+your final report verbatim.
 
-**Invoke `gantry:ship`.** It is exactly this tail — idempotent, stage-detecting, and it matches
-the *target repo's* commit conventions (which is why `auto` doesn't impose gantry's own
-commit style: it runs in arbitrary repos). Pass `--no-pr` through when the user gave it, to
-stop ship after the push; pass `--base <branch>` through when given, so the PR targets it.
+## Stage 6 — Review
 
-**Supervised checkpoint — before invoking ship.** Gates are green, the review is in hand.
-Ask once: commit, push, and open the PR? (AskUserQuestion.) This is the single gate in front
-of every outward-facing action, since ship won't pause once it's running. **Autonomous:**
-skip the ask; invoke ship directly.
+**Invoke `/gantry:review`.**
 
-Let ship's own guards handle the edge cases — `gh` missing/unauthenticated (it prints the
-manual command), a rejected push (it stops rather than force-pushing). Relay what it reports.
+It gets an independent read of the diff — `/code-review` if available, otherwise a reviewer
+sub-agent it dispatches itself — then fixes what is clearly in scope, re-runs the gate after any
+fix, and invokes `gantry:handover` for anything it deferred. Read back which of its three tiers
+actually ran; if it fell through to self-review, your report must say so.
+
+If review set `status: blocked`, stop and surface it.
+
+## Stage 7 — Checkpoint: confirm the side effects
+
+**AskUserQuestion.** The gate is green and the review is in hand. "Commit, push, and open the PR?"
+
+One gate in front of every side effect, since `gantry:ship` won't pause once invoked.
+
+## Stage 8 — Ship
+
+Set `task.md` to `status: shipped` **first** — ship commits the tree, so a status written
+afterwards would miss the commit and leave the chain reading as unshipped. Then **invoke
+`gantry:ship`.** It is exactly this tail — idempotent, stage-detecting, and it matches the *target
+repo's* commit conventions rather than gantry's. Pass `--no-pr` and `--base` through if they were
+given.
+
+`task.md`, `plan.md`, and any `handover.md` are committed with the change; they are the record of
+what was decided and what was left.
+
+`gantry:auto` opens a **ready-for-review** PR. You were in the room for the review, so it does not
+need to arrive as a draft.
 
 ## Stage 9 — Report
 
-One consolidated summary of what actually happened:
+The task and the mode. The branch and worktree path. Which sub-agents the phases actually
+dispatched — the explorer if `plan` used one, and which critic ran. What the critique changed. The
+gate's exit code and whether the readiness hook was armed or inert. Which review tier ran, plainly
+named. What was deferred and the `handover.md` path if there is one. The commit, the push, and the
+PR URL.
 
-- **Task** and **mode**.
-- **Branch** and **worktree path** (from stage 1).
-- **Gate result** — green / red / no-gates, and for autonomous, how many fix attempts.
-- **Review** — **who reviewed** (`/code-review` / independent subagent / self-review),
-  the key findings, and what you did about them.
-- **Commit SHA**, **push** status, and **PR URL** (from ship), or the last stage reached and
-  why it stopped.
-
-Be honest about anything skipped, unverified, or stopped short. A run that halted at a red
-gate is a *successful* gate doing its job — report it as such, not as a failure.
+Be honest about anything skipped, unverified, or self-reviewed. A report that reads cleaner than the
+run went is the one failure this chain cannot catch.

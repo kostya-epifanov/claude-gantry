@@ -2,7 +2,8 @@
 
 The append-only event log of one orchestrator run. It lives at the **root of the task's
 worktree**, beside `task.md` and `plan.md`, and makes a run auditable after the fact: what
-stage the run reached, what each sub-agent reported, and how the gate decided.
+stage the run reached, what each phase reported and which sub-agents it dispatched, and how the
+gate decided.
 
 **There is no writer engine, and there will not be one.** The orchestrator appends a line with
 `>>` at each transition. That is the whole implementation — deliberately, per
@@ -37,18 +38,22 @@ not editing an earlier one — an edited log is not evidence.
 ```
 
 `from` is `null` on the first line of a run (entering the first stage). Stage names match the
-orchestrator's own: `contract`, `explore`, `plan`, `implement`, `gate`, `review`, `ship`.
+orchestrator's own: `contract`, `plan`, `grill`, `implement`, `gate`, `review`, `ship`.
 
-### `agent` — a sub-agent returned
+### `phase` — a phase skill returned
 
 ```json
-{"ts":"2026-08-16T09:44:22Z","task":"2026-08-16-contact-form","event":"agent","agent":"planner","stage":"plan","result":"ok","summary":"Four steps; the form posts to the existing /api/contact handler.","artifacts":["plan.md"]}
+{"ts":"2026-08-16T09:44:22Z","task":"2026-08-16-contact-form","event":"phase","phase":"plan","agents":["gantry-explorer"],"result":"ok","summary":"Four steps; the form posts to the existing /api/contact handler.","artifacts":["task.md","plan.md"]}
 ```
 
-- `agent` — `explorer` | `planner` | `implementer` | `verifier`.
-- `result` — `ok` | `failed` | `refused` (the agent stopped rather than improvise).
-- `summary` — the agent's **summary**, one or two sentences. Never the raw material it read;
-  that is the whole point of the roster.
+- `phase` — `plan` | `grill` | `implement` | `review`.
+- `agents` — the sub-agents the phase actually dispatched, resolved names, in order. `[]` when it
+  dispatched none (a `plan` that read the code directly, a `review` that used `/code-review`).
+  This is the delegation roll-call the final report is checked against, so record what happened,
+  not what was expected.
+- `result` — `ok` | `failed` | `refused` (the phase stopped rather than improvise).
+- `summary` — the phase's **summary**, one or two sentences. Never the raw material it read;
+  that is the whole point of the delegation.
 - `artifacts` — worktree-relative paths it produced or filled.
 
 ### `gate` — a gate decision
@@ -60,7 +65,7 @@ orchestrator's own: `contract`, `explore`, `plan`, `implement`, `gate`, `review`
 - `result` — `pass` | `fail` | `no-gates`, mirroring the gate script's exit code
   (`0` / `1`+ / `3` under `--strict`).
 - `exit` — the literal exit code, so the log survives a change in vocabulary.
-- `attempt` — 1-based; increments on each autonomous fix-and-retry.
+- `attempt` — 1-based; increments on each unattended fix-and-retry.
 - `artifacts` — paths to captured output. Paths, not logs: the journal stays skimmable.
 
 ### `decision` — a human answered a supervised checkpoint
@@ -73,7 +78,7 @@ orchestrator's own: `contract`, `explore`, `plan`, `implement`, `gate`, `review`
 - `question` / `answer` — one line each, in the user's terms. Record what was *decided*, not the
   full option list you rendered.
 
-Emitted only in supervised mode; autonomous runs have no checkpoints. This is the least
+Emitted only by `gantry:auto`; unattended runs have no checkpoints. This is the least
 recoverable line in the file — every other event can be reconstructed from git and the artifacts,
 but a human's answer exists nowhere else.
 

@@ -3,8 +3,10 @@ id: 2026-07-18-contact-form
 title: Add contact form to marketing site
 project: acme-site
 branch: task/contact-form
-mode: supervised          # supervised | autonomous — matches the --autonomous flag
-status: draft             # draft | planned | implementing | blocked | shipped
+mode: semi-auto           # semi-auto | auto | unattended — which mode is driving
+status: planning          # planning | planned | grilled | implementing | implemented |
+                          # reviewed | shipped | blocked. The readiness hook arms on
+                          # exactly `implementing` and ignores every other value.
 ---
 
 ## Context & goal

@@ -1,194 +1,227 @@
-# gantry:auto orchestration reference
+# gantry driver orchestration reference
 
-Detail behind `SKILL.md`: how to read the arguments, what each mode changes, and
-how the gate resolves. Read this once at the start of a run; the body carries the
-stage-by-stage flow.
+Detail behind the two driver skills, `gantry:auto` and `gantry:auto-unattended`: how to read the
+arguments, what the modes change, where the checkpoints sit, and how a phase is invoked. Read it
+once at the start of a run; the skill bodies carry the phase-by-phase flow.
+
+Both drivers point here rather than duplicating it, so the two cannot drift apart.
 
 ## Contents
 
+- The three modes
 - Arguments and flags
-- The two modes
-- Checkpoints (supervised)
+- Invoking a phase, and where delegation happens
+- Checkpoints (`gantry:auto` only)
 - Gate resolution
 - Reusing worktree and ship
 - Failure handling
 
+## The three modes
+
+gantry runs the same seven-phase chain three ways. The phases are identical; what differs is who
+is driving and how often it stops.
+
+| | Semi-auto | `gantry:auto` | `gantry:auto-unattended` |
+|---|---|---|---|
+| Driver | you, typing each phase | this skill | this skill |
+| Phases run | in your session | invoked by the driver | invoked by the driver |
+| Stops | after every phase | two checkpoints | never |
+| Red gate | you decide | stop and report | fix, capped at 2 attempts |
+| Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
+| No gates found | continue, flagged | continue, flagged | **refuse to push** |
+| PR | ready | ready | **draft** |
+| `mode:` in `task.md` | `semi-auto` | `auto` | `unattended` |
+
+Semi-auto has no driver skill — it *is* the phase skills, typed in order:
+
+```
+/gantry:worktree → /gantry:plan → /gantry:grill → /gantry:implement → /gantry:review
+                 → /gantry:handover (only if something was deferred) → /gantry:ship
+```
+
+**The gate is a hard blocker in all three.** Unattended removes the human checkpoints; it never
+removes the gate. That is the whole design: model for judgment, script for the guarantee.
+
+### Why unattended is a separate skill, not a flag
+
+It was `--autonomous` in v0.1. A flag that silently removes every checkpoint is too easy to add to
+a command you were about to run supervised. Typing `/gantry:auto-unattended` is a deliberate act,
+and the name says what you are getting.
+
 ## Arguments and flags
 
-`$ARGUMENTS` is one string: the task description with optional flags mixed in.
-There is no flag parser — read it yourself. Strip the recognised flags out; what
-remains, cleaned up, is the task.
+`$ARGUMENTS` is one string: the task description with optional flags mixed in. There is no flag
+parser — read it yourself. Strip the recognised flags out; what remains, cleaned up, is the task.
 
 | Flag | Effect |
 |---|---|
-| `--autonomous` | Switch from supervised to autonomous (see below). |
 | `--no-pr` | End after push; don't open a PR. Passed through to `gantry:ship`. |
 | `--branch <name>` | Use this exact branch name instead of deriving one from the task. |
-| `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. Refuses to run on the repo default branch or a detached HEAD. |
-| `--base <branch>` | Override the PR base branch. Passed through to `gantry:ship` (and its detector). Use when the repo integrates somewhere other than the detected default. |
+| `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. Refuses on the repo default branch or a detached HEAD. |
+| `--base <branch>` | Override the PR base branch. Passed through to `gantry:ship` (and its detector). |
 
-Everything not a flag is the task. Example:
-`add a dark-mode toggle to settings --autonomous --branch feat/dark-mode` →
-task = "add a dark-mode toggle to settings", autonomous, branch `feat/dark-mode`.
-
-If no task text remains after removing flags, stop and ask what the task is.
+Everything not a flag is the task. If nothing remains after stripping them, stop and ask what the
+task is — except under `gantry:auto-unattended`, where there is nobody to ask: stop and report.
 
 ### Deriving the branch name
 
-When `--branch` isn't given, derive one from the task: a short kebab-case slug,
-prefixed by type when the task makes it obvious — `feat/` for new capability,
-`fix/` for a bug, else no prefix. "add a dark-mode toggle" → `feat/dark-mode-toggle`.
-Keep it under ~40 chars. `gantry:worktree` validates it and owns the branch/parent
-logic from there.
+When `--branch` isn't given, derive one from the task: a short kebab-case slug, prefixed by type
+when the task makes it obvious — `feat/` for new capability, `fix/` for a bug, else no prefix.
+"add a dark-mode toggle" → `feat/dark-mode-toggle`. Keep it under ~40 chars. `gantry:worktree`
+validates it and owns the branch and parent logic from there.
 
-## The two modes
+## Invoking a phase, and where delegation happens
 
-One axis, not two flags. **Supervised** is the default; `--autonomous` is the
-override. They differ only in checkpoints and in what a red gate does.
+A driver does not reimplement a phase — and it does not wrap one in a sub-agent either. It
+**invokes the phase skill**, the same command you would type:
 
-| | Supervised (default) | Autonomous (`--autonomous`) |
-|---|---|---|
-| Checkpoints | Yes — see below | None; runs unattended |
-| Red gate | Report and stop for the user | Iterate to fix, capped at 2 attempts |
-| Gate invocation | `run_gates.sh` | `run_gates.sh --strict` |
-| No gates found | Continue, flag it (exit 0) | **Stop; refuse to push** (exit 3) |
-| Built for | Interactive session | `claude -p "/gantry:auto <task> --autonomous" --dangerously-skip-permissions`, e.g. on a build box or in CI |
+> Invoke `/gantry:plan` with the task. It writes `task.md` and `plan.md`, and dispatches the
+> explorer itself if the surface needs one.
 
-The gate (stage 4) is a hard blocker in **both** modes. Autonomous removes the
-*human* checkpoints; it never removes the gate. That's the whole design: model
-for judgment, script for the guarantee.
+This is the rule that keeps one procedure in one place:
 
-### Autonomous preconditions — no blocking prompts
+> **Skills carry the procedure. Agents carry the tool boundary.**
 
-Autonomous runs headless (`claude -p … --dangerously-skip-permissions`), so there
-is no human to answer a mid-run question. But the sub-skills `auto` delegates to
-can still ask one, which would hang the run:
+Delegation still happens — one level down, inside each phase, where the sub-job is narrow enough
+that a tool boundary means something:
 
-- **`gantry:worktree`** prompts (AskUserQuestion) when the current branch isn't the
-  base, to confirm the parent. Avoid it: start the autonomous run **from the base
-  branch** (the repo default), so worktree branches from it without asking. Pass
-  `--branch` to fix the name up front too.
-- **`gantry:ship`** pauses to ask how to split when it sees several unrelated changes.
-  Keep the task single and coherent so the diff is one change; a focused task
-  won't trip this.
+| Phase | Dispatches | For what | Repo override |
+|---|---|---|---|
+| plan | `gantry-explorer`, when the surface is unfamiliar or wide | locating files, entry points, patterns → *Affected areas* | `.claude/agents/explorer.md` |
+| grill | `gantry-critic`, **always, in every mode** | reading `task.md` and `plan.md` cold and returning findings | `.claude/agents/critic.md` |
+| implement | — | the phase writes the code; the gate is a script | — |
+| review | `gantry-reviewer`, when `/code-review` is unavailable | reading a diff it did not write | `.claude/agents/reviewer.md` |
 
-If a prompt is unavoidable for a given task, that task isn't a fit for
-`--autonomous` — run it supervised.
+**Every agent gantry ships is read-only.** `gantry-explorer` and `gantry-critic` have `Read, Grep,
+Glob`; `gantry-reviewer` adds `Bash` to read git and run checks; `gantry-verifier` has `Read, Bash`.
+None can write, however it is prompted — a boundary prose cannot enforce. Writing therefore happens
+in the phase skill, in the caller's own context, where it is visible rather than reported.
 
-## Checkpoints (supervised)
+**Resolution is per role, repo first, independently** — and the *phase* does it, not the driver. A
+repo that has tuned one agent to its codebase overrides that one and inherits the rest. A driver's
+job is to say, at the end, which agents the phases reported actually dispatching.
 
-Two, both using **AskUserQuestion** so the user can redirect in one step:
+**Why a driver still carries `Agent` in `allowed-tools`.** Not to dispatch phases. A skill's
+frontmatter *restricts* what is permitted while it is active; it does not grant. So a driver must
+permit every tool the phases it invokes need — `Agent` included, or `grill` cannot dispatch its
+critic.
 
-1. **After the plan (stage 2).** Show the plan and the branch/worktree that were
-   created. "Proceed with this plan?" This is also the moment to catch a wrong
-   branch name — cheap to recreate now, before any edits.
-2. **After review, before anything outward-facing (before stage 6).** Gates are
-   green and the review is in hand. "Commit, push, and open the PR?" One gate in
-   front of every side effect, since `gantry:ship` won't pause once invoked.
+If a dispatch fails with an unknown agent type, the repo's roster was added mid-session and needs a
+restart. **Do not silently fall back to doing the work inline** — a phase whose delegation is
+optional is one you cannot trust to have delegated.
 
-No checkpoint between implement and gate — the gate is the check there, and it's
-automatic. In autonomous mode, skip both: proceed straight through, and on a red
-gate follow the iterate-capped-at-2 rule instead of stopping.
+**All handoff is via disk.** Never assume an agent can see your context or another agent's. Give it
+paths and let it read them; take back a summary, not the payload.
+
+### Preconditions for unattended — no blocking prompts
+
+`gantry:auto-unattended` runs headless, so there is no human to answer a mid-run question, and one
+would hang the run:
+
+- **`gantry:worktree`** asks (AskUserQuestion) when the current branch isn't the base, to confirm
+  the parent. Avoid it: start the run **from the base branch**, and pass `--branch` to fix the name
+  up front.
+- **`gantry:ship`** pauses to ask how to split when it sees several unrelated changes. Keep the task
+  single and coherent so the diff is one change.
+- **`gantry:plan`** asks when a genuine fork would change the work. Under `unattended` it records
+  the fork in *Open questions* and takes the conservative reading instead.
+
+If a prompt is unavoidable for a given task, that task isn't a fit for unattended — run it
+supervised.
+
+## Checkpoints (`gantry:auto` only)
+
+Two, both **AskUserQuestion** so the user can redirect in one step:
+
+1. **After plan and grill.** Show the plan as grilled, the findings that changed it, and the
+   branch and worktree that were created. "Proceed with this plan?" This is also the moment to
+   catch a wrong branch name — cheap to recreate now, before any edits.
+2. **After review, before anything outward-facing.** The gate is green and the review is in hand.
+   "Commit, push, and open the PR?" One gate in front of every side effect, since `gantry:ship`
+   won't pause once invoked.
+
+No checkpoint between implement and gate — the gate is the check there, and it is automatic. There
+is deliberately no checkpoint after grill on its own: grill's whole job is to make the plan worth
+approving, so the approval belongs after it, not either side of it.
 
 ## Gate resolution
 
-Stage 4 runs `scripts/run_gates.sh` in the worktree — with `--strict` in
-autonomous mode, without it supervised. The script, not this skill, decides what
-"the gates" are:
+`gantry:implement` owns the gate now; a driver does not run it directly. What the drivers still
+own is the **mode**, which decides strictness — and that reaches `implement` through `task.md`'s
+`mode:` field, not through the conversation.
 
-1. If the target repo has `.claude/gates.sh`, that file *is* the gate — its exit
-   code is used verbatim. This is how a repo reproduces its real CI and overrides
-   any heuristic.
-2. Otherwise the script auto-detects checks (JS lint/typecheck/build/test,
-   Dart/Flutter analyze+test, Python ruff/pytest, Cargo, Go, a Makefile `test`
-   target) and runs them — at the repo root **and** in each subproject a bounded,
-   depth-limited scan finds (pruning `node_modules`, `build`, `.dart_tool`, etc.).
-   A monorepo whose manifests live in subdirs is therefore covered, not missed.
-3. If it detects nothing, it prints a `NO-GATES` notice — exit 0 by default, or
-   exit 3 under `--strict`.
+The script, not any skill, decides what "the gates" are:
 
-Exit codes: `0` green · non-zero (1+) a check failed · `2` usage/not-a-repo · `3`
-NO-GATES under `--strict`.
+1. If the target repo has `.claude/gates.sh`, that file *is* the gate — its exit code is used as
+   given, except that a `2` or a `3` is reported as `1` (see the exit codes below). This is how a
+   repo reproduces its real CI and overrides any heuristic.
+2. Otherwise it auto-detects checks (JS lint/typecheck/build/test, Dart/Flutter analyze+test,
+   Python ruff/pytest, Cargo, Go, a Makefile `test` target) at the repo root **and** in each
+   subproject a bounded, depth-limited scan finds. A monorepo whose manifests live in subdirs is
+   covered, not missed.
+3. If it detects nothing, it prints `NO-GATES` — exit 0, or exit 3 under `--strict`.
 
-You **run** this script; you never reimplement its logic inline. A non-zero exit
-blocks push and PR — do not commit-then-push past it, and do not rationalise a
-failure as unrelated. If the gate is red (exit 1+):
+Exit codes: `0` green · `1`+ a check failed · `2` usage/not-a-repo · `3` `NO-GATES` under
+`--strict`. **`2` and `3` mean run_gates' own conditions, never a check's.** A check that exits
+`2` or `3` on its own — pytest on a collection error, eslint on a fatal config, a repo gate that
+uses those codes — is reported as `1`, so a genuinely red tree is never read as a broken
+environment and waved past the fix loop.
 
-- **Supervised** → stop, show the failing output, hand it to the user.
-- **Autonomous** → read the failure, make a focused fix, re-run the gate. At most
-  2 fix attempts. Still red after 2 → stop and report; do not push.
-
-Exit `2` is different from red: the gate *couldn't run* (bad argument, not a git
-repo). Don't treat it as a failed check — in autonomous mode it must not consume a
-fix attempt. Stop and report the environment problem in either mode. **This is the
-orchestrator's own accounting for its inline call only** — see "Hook vs. inline"
-below: a registered hook does not carry this exemption, and its block still stands.
-
-`NO-GATES` is handled differently by mode, on purpose:
-
-- **Supervised** (exit 0) → continue, but say so plainly in the report — the run
-  had no enforced checks, a weaker guarantee than a green gate; suggest adding
-  `.claude/gates.sh`.
-- **Autonomous** (exit 3) → **stop and refuse to push.** With no human watching, a
-  push of code that ran zero checks is exactly what the gate exists to prevent.
-  Report it and suggest `.claude/gates.sh`.
+`NO-GATES` is handled differently by mode, on purpose. **Supervised** continues but must say
+plainly that the run had no enforced checks — a weaker guarantee than green — and suggest adding
+`.claude/gates.sh`. **Unattended** stops and refuses to push: with no human watching, a push of
+code that ran zero checks is exactly what the gate exists to prevent.
 
 ### Hook vs. inline
 
-Some repos (see `gantry:factory`) also register `.claude/hooks/readiness-gate.sh` as a
-`Stop`/`SubagentStop` hook. Where one is registered, **the hook is the blocker** —
-but only when **both** `.claude/gates.sh` exists at the repo root **and** the task
-contract says `status: implementing`; a repo that registers the hook without a
-`.claude/gates.sh` gets no enforcement from it. When armed, it runs this same
-`run_gates.sh` out of band, and a red result (including the gate's own exit `2` —
-the hook does not treat that as a distinct "couldn't run" class the way the inline
-call above does) blocks the stop with exit `2` — the model cannot decline it. The
-inline `run_gates.sh` call described above is
-**belt-and-braces** in that case: it gives you the exit code to journal and reason
-about *before* the hook fires, and it is the *only* gate in repos where no hook is
-registered. When the two disagree, the hook wins. Never treat a green inline run as
-permission to ship if the hook has blocked — this is the same rule stated at
-`factory/SKILL.md` stage 6, kept here so both skills point at one place and cannot
-drift apart.
+A repo may also register gantry's `readiness-gate.sh` on `Stop`/`SubagentStop`. Where it is
+registered, **the hook is the blocker** — but only when **both** `.claude/gates.sh` exists at the
+repo root **and** `task.md` says `status: implementing`. A repo that registers the hook without a
+`.claude/gates.sh` gets no enforcement from it.
 
-**The hook holds no state and blocks a given stop at most once** — no attempt
-counter, no lock, nothing written to `task.md`. `stop_hook_active` in the payload is
-what stops it from re-blocking the very stop its own previous block caused; that is
-the whole of its loop termination. **The retry cap (above), the `status: blocked`
-transition, and escalation on repeated failure all live in the orchestrator**, exactly
-as they do in a repo with no hook at all — the hook only ever proves a given attempt
-green or red, and re-dispatch on red is an orchestrator step either way.
+When armed, it runs the same `run_gates.sh` out of band, and a red result blocks the stop with exit
+`2` — the model cannot decline it. Note the asymmetry: the hook does **not** carry the inline call's
+exemption for the gate's own exit `2`, so a gate that could not run blocks the stop rather than
+being reported as an environment problem.
+
+The inline run inside `implement` is belt-and-braces where a hook is registered — it gives an exit
+code to journal and reason about before the hook fires — and it is the **only** gate where none is.
+**When the two disagree, the hook wins.** Never treat a green inline run as permission to ship past
+a hook that blocked.
+
+The hook holds no state and blocks a given stop at most once; `stop_hook_active` is the whole of
+its loop termination. **The retry cap, the `status: blocked` transition, and escalation live in the
+orchestrator**, exactly as they do in a repo with no hook at all.
+
+`lib/detect_stage.sh` reports `HOOK:armed` or `HOOK:inert` so a run can say which it was. A report
+that implies enforcement it did not have is worse than one that admits self-policing.
 
 ## Reusing worktree and ship
 
-`auto` orchestrates two existing gantry skills rather than duplicating them:
+The drivers orchestrate existing skills rather than duplicating them:
 
-- **Stage 1** invokes `gantry:worktree` for the branch + worktree + parent-fetch
-  logic. Don't reimplement worktree creation. The exception is `--here`, which
-  skips this entirely and runs on the current branch (guarding against the default
-  branch and detached HEAD before proceeding).
-- **Stages 6–8** invoke `gantry:ship` for commit → push → PR. Ship is idempotent,
-  detects its own stage, matches the *target repo's* commit conventions (which is
-  why auto doesn't hardcode gantry's no-trailer style — auto runs in arbitrary
-  repos), and reports the terminal PR status. Pass `--no-pr` through to it when
-  the user gave `--no-pr`.
+- **`gantry:worktree`** for the branch, the worktree, and the parent fetch. Don't reimplement any of
+  it. The exception is `--here`, which skips it and runs on the current branch — guarding against
+  the default branch and a detached HEAD first.
+- **`gantry:ship`** for commit → push → PR. It is idempotent, detects its own stage, and matches
+  the *target repo's* commit conventions — which is why the drivers don't hardcode gantry's own
+  no-trailer style, since they run in arbitrary repos. Pass `--no-pr`, `--base`, and (unattended
+  only) `--draft` through.
 
-Both are un-gated (no `disable-model-invocation`) so `auto` can invoke them. No skill in
-gantry carries that flag: a gated skill cannot be invoked by an agent at all, only by a
-human typing the command, which would make the pipeline undelegatable. See
+No skill in gantry carries `disable-model-invocation`: a gated skill cannot be invoked by an agent
+at all, only by a human typing the command, which would make the whole pipeline undelegatable. See
 `docs/ARCHITECTURE.md` § "Why no skill is model-gated" for the tradeoff that buys.
 
 ## Failure handling
 
 Lean on the sub-skills' own guards rather than re-checking everything:
 
-- **Not a git repo / worktree can't be created** → `gantry:worktree` reports it;
-  stop and relay.
-- **`gh` missing or unauthenticated** → `gantry:ship` still commits and pushes, then
-  prints the manual `gh pr create` command. Relay that; don't treat it as fatal.
-- **Push rejected (remote moved)** → `gantry:ship` stops rather than force-pushing.
-  Relay; the user integrates and re-runs.
-- **Branch is the repo default** → without `--here`, auto works on a fresh branch
-  via worktree, so this shouldn't arise. With `--here`, Stage 1 checks for it up
-  front and stops; if one somehow slips through, ship's `on-default` guard is the
-  backstop.
+- **Not a git repo / worktree can't be created** → `gantry:worktree` reports it; stop and relay.
+- **No `plan.md`** → `gantry:implement` refuses. That is correct; don't route around it.
+- **`gh` missing or unauthenticated** → `gantry:ship` still commits and pushes, then prints the
+  manual `gh pr create` command. Relay it; not fatal.
+- **Push rejected (remote moved)** → `gantry:ship` stops rather than force-pushing. Relay; the user
+  integrates and re-runs.
+- **Branch is the repo default** → without `--here`, the drivers work on a fresh branch via
+  worktree, so this shouldn't arise. With `--here`, check up front; ship's `on-default` guard is
+  the backstop.

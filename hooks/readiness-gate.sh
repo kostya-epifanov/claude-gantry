@@ -9,13 +9,12 @@
 # A prompt-level rule is a request the model can talk itself past; this is a
 # refusal it cannot decline. Set GANTRY_READINESS_GATE=off to disable.
 #
-# `SubagentStop` + matcher "*" means EVERY subagent's stop runs this, not just
-# the implementer's — but the gate is only armed while `task.md` says
-# `status: implementing` (see FIRING CONDITION below), and in the gantry:factory
-# pipeline that window only overlaps the implementer's stop: explorer and
-# planner run while status is `draft`/`planned`. Don't widen the matcher
-# casually — a re-dispatched planner or a read-only subagent (e.g. explorer)
-# would also trip it, and a read-only subagent blocked with exit 2 cannot fix
+# `SubagentStop` + matcher "*" means EVERY subagent's stop runs this — but the
+# gate is only armed while `task.md` says `status: implementing` (see FIRING
+# CONDITION below), and no gantry sub-agent runs inside that window:
+# `gantry:implement` dispatches nobody, and the explorer, critic and reviewer
+# run while status is `planning`/`planned`/`implemented`. Don't widen the
+# matcher casually — a read-only subagent blocked with exit 2 cannot fix
 # anything; it can only return the block to whoever dispatched it.
 #
 # THIS SCRIPT HOLDS NO STATE. No attempt counter, no lock, no per-task keying,
@@ -30,7 +29,7 @@
 # again. See docs/METHOD.md, "What we deleted.")
 #
 # THE ATTEMPT CAP AND STATUS:BLOCKED TRANSITION LIVE IN THE ORCHESTRATOR, not
-# here (`gantry:factory` stage 6, already journaled). This hook does not write
+# here (`gantry:auto-unattended` stage 4, already journaled). This hook does not write
 # task.md. Ever.
 #
 # FIRING CONDITION, evaluated in this order, each failure logging one `skip`
@@ -252,9 +251,9 @@ fi
 # ${CLAUDE_PLUGIN_ROOT}, which Claude Code sets for plugin-provided hooks but
 # which is empty when this script is run directly, e.g. by a test harness.
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-run_gates="$HOOK_DIR/../skills/auto/scripts/run_gates.sh"
+run_gates="$HOOK_DIR/../lib/run_gates.sh"
 if [ ! -f "$run_gates" ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-  run_gates="${CLAUDE_PLUGIN_ROOT}/skills/auto/scripts/run_gates.sh"
+  run_gates="${CLAUDE_PLUGIN_ROOT}/lib/run_gates.sh"
 fi
 
 if [ ! -f "$run_gates" ] || [ ! -r "$run_gates" ]; then

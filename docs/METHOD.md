@@ -49,7 +49,7 @@ flowchart TD
   C -- "2 could not run" --> ENV["stop and report<br/>broken environment, not a failed check<br/>never consumes a fix attempt"]
   C -- "3 NO-GATES under --strict" --> REF["stop; refuse to push"]
   M -- "supervised" --> SH["stop; hand the output to the human"]
-  M -- "autonomous" --> FX["read failure, fix, re-run<br/>at most 2 attempts"]
+  M -- "unattended" --> FX["read failure, fix, re-run<br/>at most 2 attempts"]
   FX --> R
 ```
 
@@ -61,17 +61,21 @@ remove. An exit code cannot be argued with. Either it is zero or it is not.
 Three details in that diagram are load-bearing and non-obvious:
 
 **Exit 2 is not a red check.** It means the gate could not run — bad invocation, not a git repo, a
-broken environment. Treating it as a failure would spend an autonomous run's fix attempts trying to
+broken environment. Treating it as a failure would spend an unattended run's fix attempts trying to
 repair a test suite that never executed. It stops the run instead, and says why.
 
 **`NO-GATES` is fatal unattended but merely noted when watched.** A repo with no detectable checks
 gets exit 0 under supervision — you are standing there, you can see there were no checks, you can
-decide. Under `--autonomous` the same repo gets exit 3 and the run refuses to push. With nobody
-watching, shipping code that ran zero checks is precisely the outcome the gate exists to prevent.
+decide. Under `gantry:auto-unattended` the same repo gets exit 3 and the run refuses to push. With
+nobody watching, shipping code that ran zero checks is precisely the outcome the gate exists to
+prevent.
 
 **The repo's own gate always wins.** If `.claude/gates.sh` exists, it *is* the gate and its exit
-code is passed through verbatim. gantry's ecosystem auto-detection is a convenience for repos that
-have not bothered yet — never an override of a repo that has.
+code is the result — passed through as given, except that a `2` or a `3` is reported as `1`, since
+those two codes are reserved for run_gates.sh's own "could not run" and "nothing was checked" and a
+repo gate that happened to use them would otherwise be mistaken for one of those. gantry's
+ecosystem auto-detection is a convenience for repos that have not bothered yet — never an override
+of a repo that has.
 
 ## Why the gate had to leave the prompt
 
@@ -93,12 +97,12 @@ sequenceDiagram
   K->>G: run the gate out of band
   G-->>K: exit 1 (red)
   K-->>H: exit 2 — block the stop
-  H-->>M: you are not done; here is the failure
+  H-->>M: you are not done — here is the failure
   M->>M: fix, then try to stop again
 ```
 
 The difference between this and the inline call is the difference between a promise and a
-mechanism. The inline `run_gates.sh` in `auto` and `factory` gives the orchestrator an exit code to
+mechanism. The inline `run_gates.sh` in `gantry:implement` gives the orchestrator an exit code to
 reason about and journal *before* the hook fires; the hook is what makes skipping it impossible.
 Where both run and they disagree, **the hook wins.**
 
@@ -144,28 +148,49 @@ The general lesson is the one that keeps recurring in agent tooling: **state in 
 layer is where the bugs live.** The enforcement layer should be able to answer exactly one
 question — is this tree provably good right now? — and answer it from scratch every time.
 
-## Two contexts, one pipeline
+## One chain, three ways to run it
 
-`auto` and `factory` run the same stages. The difference is not capability; it is **context
-budget**.
+v0.1 had two pipeline skills that ran the same stages differently. That was one pipeline too many:
+the stages existed twice, in prose, and prose copies drift. v0.2 has **one** chain of phase skills
+and two drivers that invoke them. Typing the phases by hand, running `auto`, and running
+`auto-unattended` all execute the same skill bodies.
 
-`auto` does everything in one context. Simple, portable, no coordination overhead, and the whole
-run is visible in one transcript. For most tasks it is the right choice.
+What is left to differ is only what should differ: who is driving, how often it stops, and how
+strict the gate is.
 
-`factory` delegates exploring, planning, and implementing to scoped sub-agents against an on-disk
-contract. It exists for one reason: an orchestrator that reads the files itself fills its context
-with material it will never need again, and a full context is a stalled run. A sub-agent reads
-10,000 lines and returns a paragraph. The paragraph is what the orchestrator needed.
+The delegation still earns its keep for the same reason it did before — an orchestrator that reads
+files itself fills its context with material it will never need again, and a full context is a
+stalled run. A sub-agent reads 10,000 lines and returns a paragraph. The paragraph is what the
+orchestrator needed.
 
 The rule that follows, and the honest test of whether delegation earned its complexity: **never ask
 an agent to show you a file; ask it for the answer.** Never paste an agent's raw material into
 `task.md` or the journal; paste its summary. If you find yourself holding file dumps and raw logs,
-delegation failed, and the run would have been cheaper as `/gantry:auto`.
+delegation failed.
+
+## A plan should be attacked by someone who did not write it
+
+v0.1 had no critique step. The planning context wrote a plan and the only scrutiny it got was a
+human pressing "proceed" — which is scrutiny of the *summary*, not of the plan.
+
+The obvious fix is to have the planning context check its own work. That does not work, and it is worth
+being precise about why: the context that produced the plan has already made every judgment call in
+it. It knows which alternatives it rejected and why it was comfortable rejecting them. Asked to
+find problems, it re-derives the reasoning that produced the plan and finds it sound. Self-critique
+from the authoring context reliably returns "looks good", and returning "looks good" is exactly the
+outcome that makes the step worthless.
+
+So `gantry:grill` **always** dispatches a fresh sub-agent, in every mode, including when a human
+typed the command. The critic gets the file paths and no planning conversation. It knows what the
+next engineer will know, which is the standard the plan actually has to meet.
+
+The cost is one round-trip per task. The thing it buys is that a defect in the plan costs a
+paragraph to fix instead of an implementation.
 
 ## Handoff goes through disk
 
-`factory` writes `task.md`, `plan.md`, and `journal.jsonl` to the worktree root. Not because
-on-disk state is elegant, but because:
+Every mode writes `task.md` and `plan.md` to the worktree root — in v0.1 only the delegated
+pipeline did. Not because on-disk state is elegant, but because:
 
 - **A contract written before the code is read cannot be quietly redefined by the plan.** `task.md`'s
   goal, acceptance criteria and how-to-verify are filled in *first*, from the task description, and
@@ -175,8 +200,21 @@ on-disk state is elegant, but because:
 - **A run survives a restart.** Context is lost constantly — compaction, a crash, a new session.
   Anything that only existed in the conversation is gone; anything on disk is not.
 
+- **A phase can be resumed by something that was not there.** The skills are individually
+  invocable, so you can leave the chain, work by hand, and come back — and a sub-agent or a fresh
+  session has to reach the same conclusion you would about where things stand. `task.md`'s
+  `status:` is that answer, and `lib/detect_stage.sh` is its single reader.
+
 `plan.md` is the one artifact worth spending orchestrator context on, because you need it to brief
-the implementer and to run the checkpoint.
+the next phase.
+
+There is a second, sharper reason the artifacts now exist in every mode. The readiness hook — the
+thing that makes the gate unskippable — arms on `task.md` saying `status: implementing`. In v0.1
+only `factory` wrote a `task.md`, so under the *headline* skill the hook could never fire. The
+guarantee the README sold was real, and in the most-used path nothing had switched it on. Writing
+the contract everywhere is what closed that, and it is a good illustration of the failure mode
+worth watching for in this kind of tool: **an enforcement mechanism whose trigger is an optional
+convention is not enforcement.**
 
 ## Where this is wrong
 
