@@ -44,7 +44,18 @@ Read the untracked files too. A new file nobody reviewed is the easiest place fo
 Three tiers, in order. **Say which one ran** — the tiers are not equivalent, and the report must
 not imply more independence than the run had.
 
-1. **`/code-review`**, if it is available. It is purpose-built and knows this harness.
+1. **`/code-review`** — purpose-built, and it already knows this harness. **Invoke it; do not
+   survey for it first.** It ships with Claude Code, so present is the default assumption and an
+   invocation that errors is the only evidence that it is absent. Falling through *because you did
+   not check* is the failure this ordering exists to prevent: tier 2 reads like a review in the
+   report, so a silent downgrade costs the better reviewer and leaves no trace.
+
+   Name the effort level — `/code-review high`. With none given it reuses whatever level was typed
+   last in the session, which makes two runs of this phase incomparable for a reason that has
+   nothing to do with the diff. Do **not** pass `ultra`: it is billed and user-triggered, and
+   `gantry:auto-unattended` has nobody present to authorise it. Do **not** pass `--fix` either —
+   it applies every finding, and step 3 below is the whole reason this skill decides which
+   findings the change is allowed to absorb.
 2. **A review sub-agent** (Agent tool): the repo's `.claude/agents/reviewer.md` if it defines one,
    otherwise `gantry-reviewer`. Give it the worktree path, the base branch, and `task.md`'s path —
    let it read the diff itself. Ask for correctness defects first, then reuse and simplification,
@@ -109,6 +120,8 @@ instead, hand it over, and say so. Blocking here is cheap; blocking after the me
 
 ## Report
 
-Which review tier ran — named plainly, self-review disclosed as self-review. How many findings came
-back, how many were addressed, deferred, and dropped. The gate's exit code if you re-ran it. The
-`handover.md` path if one was written. End by naming the next command: `/gantry:ship`.
+Which review tier ran — named plainly, self-review disclosed as self-review. If tier 1 did not run,
+say what happened when you invoked it; "unavailable" with no cause is how a downgrade hides. How
+many findings came back, how many were addressed, deferred, and dropped. The gate's exit code if
+you re-ran it. The `handover.md` path if one was written. End by naming the next command:
+`/gantry:ship`.
