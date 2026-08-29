@@ -181,15 +181,51 @@ hook_payload() {
   printf '{"hook_event_name":"Stop","stop_hook_active":%s,"cwd":"%s"}' "$1" "$2"
 }
 
-# run_hook <repo> [stop_hook_active] — sets HOOK_OUT and HOOK_RC.
-# Runs the plugin's real hook against <repo>, exactly as the harness would.
+# run_hook <cwd> [stop_hook_active] [project_dir] — sets HOOK_OUT and HOOK_RC.
+# Runs the plugin's real hook with the payload's cwd at <cwd>.
+#
+# THE THIRD ARGUMENT IS NOT DECORATION. $CLAUDE_PROJECT_DIR defaults to <cwd>,
+# which is the shape of an ordinary in-place session and was for a long time the
+# ONLY shape this harness could express. That is a blind spot with teeth: the
+# hook resolved its root from $CLAUDE_PROJECT_DIR while lib/detect_stage.sh
+# resolved it from `git rev-parse --show-toplevel`, so the two read different
+# task.md files on any run where the session was launched somewhere other than
+# where the work happens — which is every worktree run, i.e. gantry's own
+# default workflow, everything /gantry:worktree and the drivers produce. With
+# the two pinned together here, a suite written to prove the guarantee passed in
+# full while the guarantee had never once fired in practice.
+#
+# So: pass <project_dir> explicitly whenever the case is about a run whose
+# launch checkout is not the tree being gated. Leaving it unset is a positive
+# claim that the two genuinely coincide, not a default to reach for.
 # shellcheck disable=SC2034
 run_hook() {
-  local repo="$1" active="${2:-false}"
-  HOOK_OUT="$(hook_payload "$active" "$repo" \
-    | CLAUDE_PROJECT_DIR="$repo" bash "$HOOK" 2>&1)"
+  local cwd="$1" active="${2:-false}" projdir="${3:-$1}"
+  HOOK_OUT="$(hook_payload "$active" "$cwd" \
+    | CLAUDE_PROJECT_DIR="$projdir" bash "$HOOK" 2>&1)"
   HOOK_RC=$?
   return 0
+}
+
+# mkworktree <repo> <name> [branch] — a linked worktree of <repo> under
+# $CASE_TMP, echoing its path. The shape a lane actually runs in, and the reason
+# run_hook takes a project_dir: the hook's payload cwd is here while
+# $CLAUDE_PROJECT_DIR still points at <repo>.
+mkworktree() {
+  local repo="$1" name="$2" branch="${3:-$2}" d="$CASE_TMP/$2"
+  git -C "$repo" worktree add -q "$d" -b "$branch" >/dev/null 2>&1
+  printf '%s' "$d"
+}
+
+# commit_all <repo> [message] — stage and commit whatever a case just wrote.
+# A worktree only inherits what is committed, so a fixture that writes
+# .claude/gates.sh and then adds a worktree must commit in between or the
+# worktree is born without a gate — which reads as "correctly inert" and
+# silently passes.
+commit_all() {
+  git -C "$1" add -A >/dev/null 2>&1
+  git -C "$1" -c user.email=test@example.invalid -c user.name=test \
+    commit -qm "${2:-fixture}" >/dev/null 2>&1
 }
 
 # run_hook_script <hook-path> <repo> — as above, against a specific copy of the

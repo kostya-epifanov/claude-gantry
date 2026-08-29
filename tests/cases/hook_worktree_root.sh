@@ -26,31 +26,16 @@ TESTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=tests/lib.sh
 . "$TESTS_DIR/lib.sh"
 
-# run_split <cwd> <project-dir> [stop_hook_active] — the one thing run_hook
-# cannot express: a payload cwd and a CLAUDE_PROJECT_DIR that point at
-# different trees, exactly as a worktree lane sees them.
-# shellcheck disable=SC2034
-run_split() {
-  local cwd="$1" projdir="$2" active="${3:-false}"
-  HOOK_OUT="$(hook_payload "$active" "$cwd" \
-    | CLAUDE_PROJECT_DIR="$projdir" bash "$HOOK" 2>&1)"
-  HOOK_RC=$?
-  return 0
-}
-
 # --- a main checkout at `shipped`, a worktree at `implementing`, red gate -----
 main="$(mkrepo main)"
 write_gates "$main" 1          # always red: if the hook arms at all, it blocks
 write_task "$main" shipped     # the launch checkout is long since done
-git -C "$main" add -A >/dev/null 2>&1
-git -C "$main" -c user.email=test@example.invalid -c user.name=test \
-  commit -qm 'gate and task' >/dev/null 2>&1
+commit_all "$main" 'gate and task'   # a worktree inherits only what is committed
 
-wt="$CASE_TMP/wt"
-git -C "$main" worktree add -q "$wt" -b lane >/dev/null 2>&1
+wt="$(mkworktree "$main" wt lane)"
 write_task "$wt" implementing  # the lane is mid-implement, over a red gate
 
-run_split "$wt" "$main"
+run_hook "$wt" false "$main"
 assert_rc 2 "$HOOK_RC" "a worktree at implementing blocks, though the launch checkout says shipped"
 assert_gate_ran "$wt" "the gate ran against the worktree"
 assert_gate_not_run "$main" "the gate did not run against the launch checkout"
@@ -65,7 +50,7 @@ assert_path_present "$(hooklog "$wt")" "the audit line is written to the worktre
 # --- the inverse: a worktree that is not implementing stays inert ------------
 # Guards against an over-correction that arms on any worktree it can resolve.
 write_task "$wt" shipped
-run_split "$wt" "$main"
+run_hook "$wt" false "$main"
 assert_rc 0 "$HOOK_RC" "a worktree at shipped stays inert"
 
 # --- the fallback chain is untouched -----------------------------------------
@@ -79,7 +64,7 @@ assert_rc 2 "$?" "with no cwd in the payload, the hook still answers from \$CLAU
 # --- a cwd that is not in a repo at all --------------------------------------
 # git rev-parse fails here; the hook must fall back rather than die.
 plain="$(mkdir_plain outside)"
-run_split "$plain" "$main"
+run_hook "$plain" false "$main"
 assert_rc 2 "$HOOK_RC" "a non-repo cwd falls back to \$CLAUDE_PROJECT_DIR"
 
 finish
