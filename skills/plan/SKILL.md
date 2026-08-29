@@ -27,9 +27,16 @@ current data, which surface the change belongs on.
 Do **not** ask about things the repo answers. Read first, then ask about what reading cannot
 settle. One round of questions covering several forks beats a slow drip of one at a time.
 
-If you are running with no human present (a sub-agent dispatched by `gantry:auto-unattended`),
-you cannot ask. Record every such fork under **Open questions** in `task.md`, choose the most
-conservative reading, and say plainly in your report which choices were assumptions.
+If you are running with no human present (a sub-agent dispatched by `gantry:auto-unattended`), you
+cannot ask — and you must not answer it yourself either. Record every such fork under **Open
+questions** in `task.md` as an unchecked item and **leave it open**. Do not pick the conservative
+reading and continue: an assumption written into a plan looks exactly like a decision, and by the
+time it surfaces the implementation is built on it.
+
+An open fork is a **precondition**, not a note. While one is on the page the plan is not
+dispatchable, and step 6 will not mark it so. The driver decides what happens next — supervised
+puts the forks to the user, unattended stops the run — but neither outcome is yours to pre-empt by
+guessing.
 
 ## Steps
 
@@ -78,6 +85,16 @@ sections **from the task and the conversation, before studying code**:
 
 Leave **Affected areas** empty for step 3, and put every unresolved fork under **Open questions**.
 
+Write each entry there as a **checkbox**, because `lib/detect_stage.sh` reads that section and every
+later phase routes off its answer:
+
+- `- [ ] <the fork>` — open. Nothing may be dispatched against it.
+- `- [x] <the fork> — <the decision, and what settled it>` — decided.
+
+A bullet with no box at all reads as **open**, deliberately: a fork someone forgot to mark should
+block rather than pass silently. Anything that is not a list item is prose and is ignored, so an
+empty section, or one that just says `None.`, is settled.
+
 ### 3. Study the code
 
 Fill **Affected areas** — the files, entry points, and patterns a change here touches, and the
@@ -102,15 +119,34 @@ State the test strategy explicitly: what gets a test, what does not, and why.
 ### 5. Ask what is still open
 
 Put the forks from step 2 and anything code study raised to the user in one **AskUserQuestion**
-round. Fold the answers into both files and clear them from **Open questions**.
+round. Fold the answers into both files, then **check each entry off in place** —
+`- [x] <the fork> — <what was decided>`.
+
+Do not delete a settled fork. A deleted entry is indistinguishable from one that was never raised,
+and the next reader cannot tell a decision from an oversight. The record of what was asked and
+answered is most of what this section is for.
 
 ### 6. Record the status
 
-Set `task.md` frontmatter to `status: planned`. That is what tells `/gantry:grill`, and every
-later phase, where this task stands — the phases read it from disk, never from the conversation.
+Run the detector again and read its **`FORKS:`** line. It, not your recollection, decides whether
+this plan may leave the stage:
+
+- **`FORKS:none`** → set `task.md` frontmatter to `status: planned`. That is what tells
+  `/gantry:grill`, and every later phase, where this task stands — the phases read it from disk,
+  never from the conversation.
+- **`FORKS:open`** → **leave `status: planning`** and report the open forks. `planned` is the
+  assertion that an implementer may be dispatched against this plan, and while a fork is open that
+  assertion is false. This is not a failure of the phase; a plan that correctly identifies a
+  decision nobody has made is the phase working.
+- **`FORKS:unknown`** → the file has no *Open questions* heading, so nothing can be checked. Warn,
+  say the section is missing, and continue.
 
 ## Report
 
 The branch and worktree, the two file paths, the acceptance criteria in brief, whether an explorer
-was dispatched or you read the code yourself, and any question you had to answer by assumption
-rather than by asking. End by naming the next command: `/gantry:grill`.
+was dispatched or you read the code yourself, and the **`FORKS:` value with the count of open
+forks** — listing each one, if any survived. A fork left open is the single most important thing in
+this report: it is what stops the chain, and the reader needs to know what decision is waiting.
+
+End by naming the next command: `/gantry:grill` on `FORKS:none`, or the fork itself on
+`FORKS:open` — there is nothing to grill a plan for until someone decides.

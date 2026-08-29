@@ -17,6 +17,21 @@ chain yourself, drop out of it to work by hand, and pick it back up.
 - Two agents: `gantry-critic` and `gantry-reviewer`, both read-only.
 - `lib/detect_stage.sh` — one read-only reader of "where is this task", shared by every phase.
 - `ship --draft`, which `auto-unattended` always passes.
+- **`ship` reviews before it pushes.** A stage between the commit and the push invokes
+  `/code-review --fix` over the branch diff, commits what it applies as its own commit, and
+  re-runs the gate over the result — a red gate there stops the push. It exists for the caller who
+  types `/gantry:ship` directly on a small change: previously that opened a PR nothing had read.
+  Skipped by `--no-pr`, and by the new **`ship --reviewed`**, which both drivers always pass so a
+  chain that already ran `/gantry:review` is not reviewed twice.
+- **An open fork blocks the plan stage.** `lib/detect_stage.sh` reports a new `FORKS:` line
+  (`open` | `none` | `unknown` | `absent`) from `task.md`'s *Open questions*, and the phases route
+  on it: `plan` and `grill` will not mark a task ready while a fork is undecided, `auto` puts the
+  open forks to you in one `AskUserQuestion` round after plan *and* after grill, and
+  `auto-unattended` journals an `escalation`, sets `status: blocked`, and stops. `implement`
+  refuses outright when a driver dispatched it, and warns when you typed it yourself.
+  `scripts/verify.sh` asserts the parser against fixtures.
+- `journal.jsonl`'s `escalation` event, reserved since v0.2's first draft, is now emitted — by the
+  unattended open-fork stop.
 
 **Changed**
 - `factory` is renamed **`auto-unattended`**, and `--autonomous` is gone. A flag that silently
@@ -35,6 +50,12 @@ chain yourself, drop out of it to work by hand, and pick it back up.
 - `journal.jsonl`'s `agent` event becomes **`phase`**, with an `agents` array recording which
   sub-agents the phase actually dispatched. That array is the delegation roll-call the final report
   is checked against.
+- **An unattended run no longer resolves a design fork by guessing.** It used to record the fork
+  under *Open questions* and "take the conservative reading" — but an assumption written into a
+  plan is indistinguishable from a decision, and by the time it surfaced there was an
+  implementation on top of it. A genuine fork now stops the run and escalates. Judgement calls
+  inside a plan still take the conservative reading; the distinction is whether two answers would
+  send the work in materially different directions.
 - **`task.md` and `plan.md` are now written in every mode**, not just the delegated one. This
   closes a real hole: the readiness hook arms on `task.md`, so in v0.1 the hook could never fire
   under `auto` — the headline skill's gate was unenforced. The hook's arming condition is unchanged.

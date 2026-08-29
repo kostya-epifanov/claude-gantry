@@ -56,6 +56,11 @@ not imply more independence than the run had.
    `gantry:auto-unattended` has nobody present to authorise it. Do **not** pass `--fix` either —
    it applies every finding, and step 3 below is the whole reason this skill decides which
    findings the change is allowed to absorb.
+
+   `gantry:ship` **does** pass `--fix`, and that is not a contradiction: its review stage runs only
+   for a caller who has no `task.md` to triage against and no step 3 to protect. The two never both
+   run — the drivers pass `--reviewed` to ship precisely so this phase's deferrals are not
+   reopened and applied by `--fix`.
 2. **A review sub-agent** (Agent tool): the repo's `.claude/agents/reviewer.md` if it defines one,
    otherwise `gantry-reviewer`. Give it the worktree path, the base branch, and `task.md`'s path —
    let it read the diff itself. Ask for correctness defects first, then reuse and simplification,

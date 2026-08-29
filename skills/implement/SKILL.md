@@ -11,16 +11,29 @@ Execute `plan.md`, then prove the tree is green. This phase owns the gate — no
 script is interesting, but because "implemented" and "passes the checks" are the same claim, and
 splitting them lets one be reported without the other.
 
-## Two hard rules
+## Three hard rules
 
-**1. Refuse without a plan.** If there is no `plan.md`, stop and point at `/gantry:plan`. This is
-one of only two hard refusals in the chain — the other is this skill's refusal to move past a
-non-zero gate. Implementing from a task description alone is exactly
-the unplanned work the chain exists to prevent, and it is not recoverable by looking at the result.
+**1. Refuse without a plan.** If there is no `plan.md`, stop and point at `/gantry:plan`.
+Implementing from a task description alone is exactly the unplanned work the chain exists to
+prevent, and it is not recoverable by looking at the result.
 
-**2. Set `status: implementing` before touching a single file.** That frontmatter value is what
+**2. Refuse an open fork when a driver dispatched you.** If `FORKS:open` and `task.md`'s `mode:` is
+`auto` or `unattended`, stop. A fork left open under *Open questions* is a decision nobody made,
+and carrying on means **you** make it — silently, inside code, hours after it would have cost a
+sentence to ask. This is the rule that makes "never dispatch an implementer against an open fork"
+true rather than aspirational.
+
+Under `semi-auto` or no mode at all, a human typed the command and can see the answer: **warn,
+name the remedy, and continue.** A hand-driven run iterates between phases, so a half-finished
+artifact is a normal state there rather than an error, and locking someone out of their own
+worktree over a note they left themselves would be the wrong trade.
+
+**3. Set `status: implementing` before touching a single file.** That frontmatter value is what
 arms the readiness hook. Set it after the edits and the gate was never enforced on them — you get
 the appearance of a guarantee with none of it.
+
+Rules 1 and 2 are refusals to start; this skill's refusal to move past a non-zero gate is the
+third, and together they are the only hard refusals in the chain.
 
 ## Steps
 
@@ -36,6 +49,17 @@ bash "$GANTRY/lib/detect_stage.sh"
 Route on what it prints:
 
 - **`PLAN:absent`** → **stop.** Say a plan is required and name `/gantry:plan`. (Hard rule 1.)
+- **`FORKS:open`** → read `task.md`'s `mode:` and route on it. (Hard rule 2.)
+  - `auto` or `unattended` → **stop.** Name every open entry. A driver is running this, so the
+    remedy is the driver's: supervised asks the user, unattended stops the run.
+  - `semi-auto` or no `mode:` → **warn** and continue. Say which entries are open and that the
+    remedy is to settle each one and mark it `- [x]`.
+- `FORKS:unknown` → `task.md` has no *Open questions* heading, so nothing could be checked. Warn
+  and continue in either mode.
+- `FORKS:absent` → there is no `task.md` at all, though `plan.md` exists. Warn in either mode: this
+  change has no contract, so the fork precondition could not be applied and neither can *Out of
+  scope* later. Continue.
+- `FORKS:none` → nothing is open. Proceed.
 - `PHASE:not-a-repo` → stop.
 - **`STATUS:planned`** → the plan was never grilled. Warn, name `/gantry:grill` as the cheaper
   path, and continue if the user wants to. A warning, not a refusal.
