@@ -202,12 +202,15 @@ you can check the number yourself:
 claude plugin details gantry@claude-gantry
 ```
 
-v0.1 measured **~1,157 always-on tokens** for seven skills and four agents. v0.2 ships twelve
-skills and four agents — five new phase skills, and a roster that swapped its planner and
-implementer for a critic and a reviewer — which works out at roughly **~1,550**, about a third
-more. That number is derived by scaling the v0.1 measurement by the growth in frontmatter
-description text, not measured directly, so treat it as an estimate and trust the command over this
-paragraph.
+v0.3 measures **~1,464 always-on tokens** for twelve skills and three agents. v0.1 measured
+~1,157 for seven skills and four agents; the growth is the five phase skills, less the ~70 saved by
+deleting an agent nothing dispatched.
+
+Unlike v0.2's, that figure is measured rather than derived — a project whose whole argument is that
+a number beats a paragraph should not publish its most-quoted number as a paragraph. And it is
+enforced rather than merely recorded: `scripts/context_budget.sh` fails the build if the
+descriptions grow past a declared ceiling, so this section cannot quietly go stale the way the
+derived one did.
 
 The phase skills carry deliberately short descriptions, because the drivers and the standalone
 skills are what you actually invoke by name. Bodies are paid only when a skill fires.

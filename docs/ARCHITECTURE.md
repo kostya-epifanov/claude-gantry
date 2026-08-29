@@ -216,7 +216,6 @@ however it is prompted.
 | `gantry-explorer` | Read, Grep, Glob | haiku | `gantry:plan`, when the surface is unfamiliar or wide | read-only scout; produces the text for `task.md`'s Affected areas. Physically cannot write it. |
 | `gantry-critic` | Read, Grep, Glob | opus | `gantry:grill`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
 | `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
-| `gantry-verifier` | Read, Bash | haiku | nothing — see below | runs checks and reports pass/fail with artifact paths. Judges done; never fixes. |
 
 There is deliberately no planner or implementer agent. Writing is what those phases *are*, so an
 agent around one is either writable — and then the roster's guarantee is prose again — or unable to
@@ -227,10 +226,13 @@ to the sub-jobs that genuinely only need to read.
 `.claude/agents/<role>.md`, the phase dispatches that; otherwise `gantry-<role>`. A repo that has
 tuned one agent to its codebase overrides that one and inherits the rest.
 
-**`gantry-verifier` is not dispatched by anything.** The gate is a script, and delegating "did it
-pass" back to a model returns exactly the judgment the exit code exists to remove. The agent is
-there for callers who want a scoped read-only check-runner directly. Wiring it in is an open
-question, not a settled one.
+**There is deliberately no verifier agent either.** v0.1 and v0.2 shipped a `gantry-verifier` that
+nothing dispatched, defended as available to callers who wanted a scoped read-only check-runner,
+with wiring it in recorded as an open question. v0.3 deletes it, because the method had already
+settled the question: the gate is a script precisely so that "did it pass" is an exit code rather
+than a model's judgment, and an agent that cannot be wired in without contradicting that is not an
+open question — it is ~70 always-on tokens per session, in every session, for a component with no
+caller.
 
 ## Why no skill is model-gated
 

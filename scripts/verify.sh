@@ -117,6 +117,17 @@ else
   diff examples/task.md skills/plan/templates/task.md || true
 fi
 
+head2 "always-on context budget"
+# Skill and agent descriptions are loaded into every session whether or not
+# anything fires, so the cost is invisible while you write and permanent once
+# you ship. This is that cost as an exit code; see the script's header for why
+# it counts characters rather than asking the CLI for tokens.
+if bash scripts/context_budget.sh >/dev/null 2>&1; then
+  ok "within budget"
+else
+  bad "see: bash scripts/context_budget.sh"
+fi
+
 head2 "gate and hook behaviour"
 # The two scripts that carry this project's one guarantee — lib/run_gates.sh
 # and hooks/readiness-gate.sh — executed against throwaway fixture repos. Every

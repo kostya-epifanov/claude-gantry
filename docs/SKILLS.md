@@ -280,26 +280,30 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 
 | Component | Always-on |
 |---|---|
-| auto | ~145 |
-| auto-unattended | ~140 |
-| plan | ~75 |
-| grill | ~85 |
-| implement | ~75 |
+| auto | ~130 |
+| auto-unattended | ~130 |
+| plan | ~70 |
+| grill | ~90 |
+| implement | ~80 |
 | review | ~80 |
-| handover | ~95 |
+| handover | ~90 |
 | ship | ~160 |
-| sync | ~160 |
+| sync | ~170 |
 | worktree | ~60 |
-| preserve | ~145 |
-| prune-worktrees | ~80 |
-| the four agents | ~245 combined |
-| **total always-on** | **~1,545** |
+| preserve | ~150 |
+| prune-worktrees | ~90 |
+| the three agents | ~190 combined |
+| **total always-on** | **~1,464** |
 
-**These are derived, not measured.** v0.1's total was measured at ~1,157 with the CLI; these
-figures scale that reading by the growth in description text, so they carry its rounding plus a
-model of their own. The v0.2 chain costs roughly **a third more** always-on context than v0.1 — the
-price of five new phase skills. The roster is a wash: still four agents, and their descriptions are
-within a few percent of v0.1's.
+**These are measured, not derived** — `claude --plugin-dir . plugin details gantry`, against the
+v0.3 tree. v0.2 published a figure scaled from v0.1's reading, which is exactly the kind of claim
+this project argues does not belong in prose; the number is now read from the tool and, more to the
+point, **enforced**: `scripts/context_budget.sh` runs in `scripts/verify.sh` and fails the build
+when the descriptions outgrow a declared ceiling.
+
+Against v0.1's measured ~1,157, v0.3 costs about a quarter more — the price of five phase skills,
+partly offset by deleting `gantry-verifier`, an agent nothing dispatched, which was ~70 of every
+session's budget.
 
 The phase skills carry deliberately terse descriptions, because the drivers and the standalone
 skills are what you actually invoke by name; a phase is usually reached by typing the chain or by a

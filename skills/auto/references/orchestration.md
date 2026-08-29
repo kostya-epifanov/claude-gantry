@@ -93,7 +93,7 @@ that a tool boundary means something:
 | review | `gantry-reviewer`, when `/code-review` is unavailable | reading a diff it did not write | `.claude/agents/reviewer.md` |
 
 **Every agent gantry ships is read-only.** `gantry-explorer` and `gantry-critic` have `Read, Grep,
-Glob`; `gantry-reviewer` adds `Bash` to read git and run checks; `gantry-verifier` has `Read, Bash`.
+Glob`; `gantry-reviewer` adds `Bash` to read git and run checks.
 None can write, however it is prompted — a boundary prose cannot enforce. Writing therefore happens
 in the phase skill, in the caller's own context, where it is visible rather than reported.
 

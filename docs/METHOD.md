@@ -237,9 +237,6 @@ convention is not enforcement.**
 Stated plainly, because a tool that only lists its strengths is advertising:
 
 - **The gate's arming condition is model-writable.** See "The honest limit" above.
-- **`gantry-verifier` ships but is never dispatched.** The gate is a script, deliberately. The agent
-  is there for callers who want a scoped read-only check-runner; wiring it into the pipeline is an
-  open question, not a finished decision.
 - **Auto-detection can false-green.** A repo whose real checks the heuristics cannot see gets
   `NO-GATES` — which, supervised, passes. `.claude/gates.sh` is the fix, and the report says so, but
   the default is permissive.

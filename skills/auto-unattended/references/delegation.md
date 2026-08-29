@@ -96,8 +96,8 @@ brief the next phase — and that is the one artifact worth spending orchestrato
 
 ## Resolving the roster
 
-gantry ships `gantry-explorer`, `gantry-critic`, `gantry-reviewer`, and `gantry-verifier` with the
-plugin, so a run is never blocked on a missing roster.
+gantry ships `gantry-explorer`, `gantry-critic` and `gantry-reviewer` with the plugin, so a run is
+never blocked on a missing roster.
 
 Resolution is **per role, repo first**, and the *phase* does it: if `$ROOT/.claude/agents/<role>.md`
 exists it dispatches `<role>`, otherwise `gantry-<role>`. A repo that has tuned one agent to its
@@ -110,5 +110,5 @@ session starts, so a roster added mid-session needs a restart. Stop and say exac
 silently fall back to doing the work inline — an orchestrator whose delegation is optional is an
 orchestrator you cannot trust to have delegated.
 
-**Nothing dispatches `gantry-verifier`**: the gate is a script, and its exit code is deliberately
-not a model's judgment. It ships for callers who want a scoped, read-only check-runner directly.
+**There is no verifier in the roster, and that is the point**: the gate is a script, and its exit
+code is deliberately not a model's judgment. Never delegate "did it pass".
