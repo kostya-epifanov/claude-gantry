@@ -44,7 +44,7 @@ flowchart TD
   GATE -- "red" --> I
   GATE -- "green" --> R["/gantry:review<br/>independent read of the diff"]
   R -- "deferred findings" --> H["/gantry:handover<br/>writes handover.md"]
-  R -- "nothing deferred" --> S["/gantry:ship<br/>commit, push, PR"]
+  R -- "nothing deferred" --> S["/gantry:ship<br/>commit, review, push, PR"]
   H --> S
   S --> PR(["PR open — ready for review"])
   PR --> SY["/gantry:sync"]
@@ -110,7 +110,7 @@ keeps the three ways of running from drifting into three subtly different pipeli
 | `/gantry:implement` | Carry out the plan, then prove it with the gate. |
 | `/gantry:review` | Independent review of the diff: fix what's in scope, hand over what isn't. |
 | `/gantry:handover` | Write `handover.md` — what this change deliberately left, and the next action. |
-| `/gantry:ship` | Advance one step toward a merged PR — commit, push, open PR. Idempotent. |
+| `/gantry:ship` | Advance one step toward a merged PR — commit, review with `/code-review`, push, open PR. Idempotent. |
 | `/gantry:sync` | Return to the base branch and bring it up to date. Refuses on a dirty tree. |
 | `/gantry:prune-worktrees` | Review stale or merged worktrees and remove the ones you approve. |
 | `/gantry:preserve` | Write a session handoff doc: decisions and why, dead ends, the exact next action. |

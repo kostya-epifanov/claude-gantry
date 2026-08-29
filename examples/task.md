@@ -48,5 +48,21 @@ and the risks a change here would hit. Left empty until then.
 
 ## Open questions
 
-Carried from the pre-plan braindump; emptied as they resolve. An unresolved question
-here is a legitimate reason for the orchestrator to stop and ask.
+The forks the implementer must not resolve alone. Carried from the pre-plan
+braindump; each one checked off as it is decided, never deleted — a deleted entry
+reads exactly like one that was never raised.
+
+This section is a **precondition, not a note**. `lib/detect_stage.sh` parses it,
+`plan` and `grill` will not mark the task ready while a fork is open, and
+`implement` refuses outright when a driver dispatched it. Supervised runs put the
+open forks to you; unattended runs stop and escalate rather than guess.
+
+Write each entry as a checkbox — an unchecked box, or a bare bullet with no box at
+all, counts as open:
+
+```
+- [ ] Postgres or SQLite? Changes the migration story and the deploy.
+- [x] Replace the existing endpoint rather than add one — decided: no callers left.
+```
+
+An empty section, or one that just says `None.`, is settled.

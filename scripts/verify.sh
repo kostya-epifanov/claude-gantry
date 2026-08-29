@@ -140,6 +140,99 @@ else
   bad "see: bash tests/run.sh"
 fi
 
+head2 "detect_stage.sh reads Open questions correctly"
+# lib/detect_stage.sh's FORKS: line is the only machine-checkable half of the
+# rule that a fork must be settled before an implementer is dispatched. Two of
+# these cases are load-bearing rather than thorough:
+#   - "unchecked boxes in Acceptance criteria" is the catastrophic failure. A
+#     parser that leaked out of its own section would report every task.md as
+#     open and block every run, forever.
+#   - "unchecked box inside a fence" is what lets the task template show the
+#     convention without every task.md written from it reading as open.
+# Both would ship green without an assertion here.
+LIB="$PWD/lib/detect_stage.sh"
+fixdir="$(mktemp -d)"
+trap 'rm -rf "$fixdir"' EXIT
+(
+  cd "$fixdir" || exit 1
+  git init -q . 2>/dev/null
+  git config user.email f@example.com; git config user.name fixture
+) || bad "could not create the fixture repo"
+
+forks_is() {   # forks_is <expected> <label>; task.md must already be in place
+  local want="$1" label="$2" got
+  got="$(cd "$fixdir" && bash "$LIB" 2>/dev/null | sed -n 's/^FORKS://p')"
+  [ "$got" = "$want" ] && ok "$label -> $want" || bad "$label -> got '$got', want '$want'"
+}
+
+rm -f "$fixdir/task.md"
+forks_is absent "no task.md"
+
+printf '# t\n\n## Context\n\nprose.\n' > "$fixdir/task.md"
+forks_is unknown "task.md with no Open questions heading"
+
+printf '# t\n\n## Open questions\n\n- [ ] which database?\n' > "$fixdir/task.md"
+forks_is open "one unchecked box"
+
+printf '# t\n\n## Open questions\n\n- which database?\n' > "$fixdir/task.md"
+forks_is open "a bare bullet with no box"
+
+printf '# t\n\n## Open questions\n\n- [x] settled: postgres.\n' > "$fixdir/task.md"
+forks_is none "only checked boxes"
+
+printf '# t\n\n## Open questions\n\nNone.\n' > "$fixdir/task.md"
+forks_is none "prose only, no bullets"
+
+printf '# t\n\n## Open questions\n\n```\n- [ ] this is an example, not a fork\n```\n' > "$fixdir/task.md"
+forks_is none "unchecked box inside a fenced block"
+
+printf '# t\n\n## Acceptance criteria\n\n- [ ] not a fork\n- [ ] also not a fork\n\n## Open questions\n\n- [x] settled.\n' > "$fixdir/task.md"
+forks_is none "unchecked boxes in Acceptance criteria, settled Open questions"
+
+printf '# t\n\n## Open questions\n\n- [ ] last section, terminated by EOF\n' > "$fixdir/task.md"
+forks_is open "section last in the file, EOF-terminated"
+
+printf '# t\n\n## OPEN QUESTIONS\n\n- [ ] heading case must not matter\n' > "$fixdir/task.md"
+forks_is open "heading matched case-insensitively"
+
+printf '# t\n\n## Open questions\n\n  - [ ] nested under a parent\n' > "$fixdir/task.md"
+forks_is open "an indented/nested item still counts"
+
+# Every case below reported `none` before /code-review caught them — i.e. an
+# undecided fork reading as settled, which dispatches an implementer against it.
+# The parser must fail closed, so these are the regression net for that.
+printf '# t\n\n## Open questions\n\n1. [ ] an ordered list is still a list\n' > "$fixdir/task.md"
+forks_is open "ordered list, 1. marker"
+
+printf '# t\n\n## Open questions\n\n1) [ ] an ordered list is still a list\n' > "$fixdir/task.md"
+forks_is open "ordered list, 1) marker"
+
+printf '# t\n\n## Open questions\n\n-[ ] no space after the bullet\n' > "$fixdir/task.md"
+forks_is open "a missing space after the marker is a typo, not a decision"
+
+printf '# t\n\n## Open questions\n\n> - [ ] quoted from somewhere else\n' > "$fixdir/task.md"
+forks_is open "a blockquoted item still counts"
+
+printf '# t\n\n## Open questions ##\n\n- [ ] fork\n' > "$fixdir/task.md"
+forks_is open "heading with a closing ATX run"
+
+printf '# t\n\n## Open questions:\n\n- [ ] fork\n' > "$fixdir/task.md"
+forks_is open "heading with a trailing colon"
+
+printf '# t\n\n## **Open questions**\n\n- [ ] fork\n' > "$fixdir/task.md"
+forks_is open "heading wrapped in bold"
+
+printf '# t\n\n## Open questions\n\n---\n\nNone.\n' > "$fixdir/task.md"
+forks_is none "a horizontal rule is not a list item"
+
+printf '# t\n\n## Open questions\n\n1. [x] settled\n' > "$fixdir/task.md"
+forks_is none "a checked ordered item is settled"
+
+cp skills/plan/templates/task.md "$fixdir/task.md"
+forks_is none "a task.md freshly copied from the template"
+
+rm -rf "$fixdir"; trap - EXIT
+
 head2 "secret scan"
 bash scripts/secret-scan.sh >/dev/null 2>&1 && ok "clean" || { bad "see: bash scripts/secret-scan.sh"; }
 

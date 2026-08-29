@@ -52,7 +52,7 @@ flowchart TB
   end
   W["gantry:worktree — branch, worktree, parent fetch"] --> P
   H["gantry:handover → handover.md"]
-  S["gantry:ship — commit, push, PR"]
+  S["gantry:ship — commit, review, push, PR"]
   A --> W
   U --> W
   You["you, typing them"] --> W
@@ -128,6 +128,17 @@ Running `/gantry:ship` twice is safe: the second run detects `done` and reports.
 hard refusals — the repo's default branch, a detached HEAD, and a diverged branch. gantry never
 rewrites remote history on your behalf.
 
+**The review stage is not on this diagram, on purpose.** Every node above stands for a value
+`detect_state.sh` can emit — the node *ids* are mermaid-safe spellings, so `commitst`, `pushst` and
+`prst` are the states the script reports as `commit`, `push` and `pr` (likewise `notarepo`,
+`ondefault` and `nodiff` for `not-a-repo`, `on-default` and `no-diff`). `review` is not among them:
+it is not an entry point, it runs on the way through from `commit`, `push`, or `pr`, and it is
+skipped entirely by `--no-pr` or `--reviewed`. Drawing it in would claim a `STAGE` that does not exist. What it does change is the
+fall-through rule above it: the review stage can create a commit, so the skill **re-detects** after
+it rather than deciding the push from the original read. It is also the one case where a re-run is
+not free — ship records nothing, so a run that stops between the review and the PR (`gh` missing,
+say) should be resumed with `--reviewed`.
+
 ## The artifact contract
 
 Every mode writes artifacts at the **worktree root** — not just the delegated one, as in v0.1. Who
@@ -157,9 +168,14 @@ Its `status` field is the chain's state machine:
 
 ```
 planning → planned → grilled → implementing → implemented → reviewed → shipped
-                                     ↓
-                                  blocked
+    ↓                                ↓
+ blocked                          blocked
 ```
+
+`planning → blocked` is the open-fork stop: `plan` and `grill` will not advance a task whose
+*Open questions* still holds an undecided fork, and an unattended run journals an `escalation` and
+blocks there rather than guessing at the answer. A supervised run resolves the fork with the user
+instead and continues, so it never reaches that edge.
 
 **The readiness hook arms on exactly one of those values, `implementing`, and ignores the rest.**
 That narrowness is deliberate: the hook must not fire while planning is still under way, and

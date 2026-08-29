@@ -69,7 +69,9 @@ read-only, and why the writing stays in the phase skill where you can see it hap
 
 **The gate is never delegated.** `lib/run_gates.sh` is the hard blocker and it stays one — the
 guarantee lives in an exit code, not in an agent's judgement. `gantry:implement` runs it inline;
-journal its decision every time.
+journal its decision every time. `gantry:review` re-runs it after any fix it makes, and
+`gantry:ship` re-runs it in the one case where its review stage changed the tree — same script,
+same exit-code contract, never a delegated judgement.
 
 The `Stop`/`SubagentStop` readiness hook is what removes the model's ability to *skip* that script.
 It is stateless and blocks at most once per stop; the attempt cap and the re-dispatch on a red gate

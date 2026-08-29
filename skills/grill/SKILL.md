@@ -74,7 +74,16 @@ Findings are input, not verdicts. Read each one against the repo and decide:
   useful result, not a failure — say so rather than manufacturing changes to look busy.
 
 Where a finding turns on a decision only the user can make, ask — **AskUserQuestion**, one round.
-With no human present, take the conservative reading and record it as an assumption.
+
+With no human present, the answer depends on what kind of finding it is:
+
+- **A judgement call inside the plan** — how thorough a step should be, which of two equivalent
+  orderings to take — take the conservative reading and record it as an assumption.
+- **A genuine design fork**, where two answers would send the work in materially different
+  directions: **do not take a reading at all.** Add it to `task.md`'s **Open questions** as an
+  unchecked item, exactly as `gantry:plan` would have. A fork found here is the phase succeeding —
+  it is cheaper now than at review — and absorbing it into an assumption is how it reaches the code
+  anyway.
 
 ### 4. Revise `plan.md`
 
@@ -91,7 +100,15 @@ was already considered and not re-raise it — including you, on a second pass.
 
 ### 5. Record the status
 
-Set `task.md` frontmatter to `status: grilled`.
+Run the detector again and read its **`FORKS:`** line before writing anything. This phase can
+*open* a fork that `gantry:plan` never had — step 3 says to record one rather than absorb it — so
+the check that ran at the end of planning is not the check that matters here.
+
+- **`FORKS:none`** → set `task.md` frontmatter to `status: grilled`.
+- **`FORKS:open`** → **leave the status alone** and report the fork. `grilled` means the plan is
+  ready to implement, and it is not: `/gantry:implement` refuses on an open fork when a driver
+  dispatched it, so marking it `grilled` would only move the stop somewhere less informative.
+- **`FORKS:unknown`** → warn that the section is missing, and continue.
 
 If the critique concluded the task itself is wrong — the goal is unachievable as stated, or far
 larger than the contract admits — do not quietly shrink it. Set `status: blocked`, say so, and
@@ -101,5 +118,8 @@ this phase.
 ## Report
 
 Which critic ran, how many findings came back at each severity, what changed in the plan, and what
-was consciously left. Be explicit when nothing needed changing. End by naming the next command:
-`/gantry:implement`.
+was consciously left. Be explicit when nothing needed changing. Say whether the critique **opened a
+fork** — that is the one finding that stops the chain rather than revising it.
+
+End by naming the next command: `/gantry:implement` on `FORKS:none`, or the open fork on
+`FORKS:open`.

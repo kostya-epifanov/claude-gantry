@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # detect_state.sh — read-only snapshot of where a branch is on the ship path
-# (commit -> push -> open PR -> wait), for /gantry:ship.
+# (commit -> review -> push -> open PR -> wait), for /gantry:ship.
+#
+# NB: `review` is a stage of the skill, not a value of STAGE below. It is not an
+# entry point — it runs on the way through from `commit`, `push`, or `pr` — so it
+# has nothing to detect. It can, however, create a commit, which is why the skill
+# re-runs this script after it rather than reusing the first read.
 #
 # Read-only: runs only `git` queries and `gh pr view` (a read). Modifies nothing.
 # Run with: bash detect_state.sh   (from anywhere inside the repo/worktree)

@@ -17,6 +17,9 @@
 #   PLAN:present|absent        plan.md at ROOT
 #   HANDOVER:present|absent    handover.md at ROOT
 #   STATUS:<value>|none        task.md frontmatter status:
+#   FORKS:open|none|unknown|absent
+#                              whether task.md's "Open questions" section still holds a fork
+#                              nobody has decided. See open_questions_forks() for the rules.
 #   GATES:present|absent       .claude/gates.sh — the readiness hook's opt-in
 #   HOOK:armed|inert           GATES present AND STATUS is exactly implementing
 #   DIRTY:clean                or  DIRTY:staged=<n> unstaged=<n> untracked=<n>
@@ -89,6 +92,106 @@ frontmatter_status() {
   printf '%s' "$raw"
 }
 
+# --- open questions (the fork precondition) ---------------------------------
+# Reports whether task.md's "Open questions" section still holds a fork nobody
+# has decided. A fork left open there is a decision the implementer would end
+# up making alone, so the phase skills refuse to advance past it — which means
+# this answer has to be a fact rather than a reading, and the rules have to be
+# written down rather than inferred:
+#
+#   heading      an ATX heading at any level whose text is "Open questions",
+#                matched case-insensitively and tolerant of a closing "##" run,
+#                a trailing colon, and bold/italic wrappers.
+#   section end  the next ATX heading at any level, or end of file. In this
+#                repo's own task.md the section is last, so EOF must terminate.
+#   fences       ``` and ~~~ blocks are invisible everywhere in the file. The
+#                task template shows the checkbox convention inside a fence for
+#                exactly this reason: a literal unchecked box in the template
+#                would otherwise make every freshly written task.md read as
+#                open, and block every unattended run forever.
+#   list item    a -, * or + bullet OR an ordered "1." / "1)" marker, at any
+#                indentation and through any depth of blockquote, with or
+#                without a space after the marker. A horizontal rule is not one.
+#   settled      the item's text begins with [x] or [X]. An unchecked box, or a
+#                bare bullet with no box at all, reads as OPEN — a fork someone
+#                forgot to mark blocks rather than passing silently.
+#
+# Everywhere the rules above are permissive, they are permissive in the
+# direction of reporting `open`. Reading a real fork as settled dispatches an
+# implementer against a decision nobody made, which is the failure this exists
+# to prevent; reading a stray bullet as a fork costs one checkbox. The fixtures
+# in scripts/verify.sh pin the cases that used to fail the other way.
+#
+# Four values, because "task.md exists but has no such section" is a real state
+# and must not be guessed at: collapsing it into `none` would let a mistyped
+# heading silently disable the whole guarantee, and collapsing it into `open`
+# would permanently block every hand-written task.md with no remedy. It gets
+# its own value, `unknown`, and every consumer warns rather than assumes.
+#
+# NOT part of the frontmatter parser below — it shares no code with
+# frontmatter_status(), so the byte-for-byte diff scripts/verify.sh runs
+# between that function and the hook's copy is unaffected.
+open_questions_forks() {
+  local f="$1"
+  [ -f "$f" ] || { printf 'absent'; return 0; }
+  awk '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s
+    }
+    BEGIN { insec = 0; fence = ""; found = 0; open = 0 }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+
+      # Fenced blocks are invisible, wherever they appear. Tracked globally so
+      # a fence opened before the section cannot leak a heading into it.
+      if (line ~ /^[[:space:]]*(```|~~~)/) {
+        tok = trim(line); tok = substr(tok, 1, 3)
+        if (fence == "") { fence = tok } else if (tok == fence) { fence = "" }
+        next
+      }
+      if (fence != "") next
+
+      # Strip indentation, then any blockquote markers. Both are formatting; a
+      # fork does not stop being a fork for being indented or quoted.
+      b = line
+      sub(/^[[:space:]]+/, "", b)
+      while (b ~ /^>/) { sub(/^>[[:space:]]*/, "", b) }
+
+      if (b ~ /^#+([[:space:]]|$)/) {
+        h = b
+        sub(/^#+[[:space:]]*/, "", h)          # opener
+        sub(/[[:space:]]*#+[[:space:]]*$/, "", h)   # optional ATX closer
+        h = trim(h)
+        sub(/:+$/, "", h)                      # "Open questions:"
+        gsub(/^[*_]+/, "", h); gsub(/[*_]+$/, "", h)  # "**Open questions**"
+        if (tolower(trim(h)) == "open questions") { insec = 1; found = 1 }
+        else { insec = 0 }
+        next
+      }
+
+      if (!insec) next
+
+      # A horizontal rule is not a list item, however much it looks like one.
+      if (b ~ /^[-*_][[:space:]]*[-*_][[:space:]]*[-*_][[:space:]]*$/) next
+
+      # Bulleted or numbered, with or without a space after the marker. The
+      # space is optional on purpose: "-[ ] fork" is a typo, not a decision,
+      # and reading it as settled is the one direction this must never fail in.
+      if (b ~ /^[-*+]/ || b ~ /^[0-9]+[.)]/) {
+        t = b
+        sub(/^([-*+]|[0-9]+[.)])[[:space:]]*/, "", t)
+        if (t !~ /^\[[xX]\]/) { open = 1 }
+      }
+    }
+    END {
+      if (!found)   { print "unknown" }
+      else if (open) { print "open" }
+      else           { print "none" }
+    }
+  ' "$f" 2>/dev/null
+}
+
 # --- artifacts --------------------------------------------------------------
 present_or_absent() { [ -f "$1" ] && echo present || echo absent; }
 
@@ -102,6 +205,10 @@ echo "HANDOVER:$HANDOVER"
 
 STATUS="$(frontmatter_status "$ROOT/task.md")"
 echo "STATUS:${STATUS:-none}"
+
+FORKS="$(open_questions_forks "$ROOT/task.md")"
+echo "FORKS:${FORKS:-unknown}"
+
 echo "GATES:$GATES"
 
 # The hook's firing condition, reported so a skill can say plainly whether the
