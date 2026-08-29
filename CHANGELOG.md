@@ -1,6 +1,60 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.3.0
+
+**The first released version.** 0.1.0 and 0.2.0 were developed in the open but never tagged or
+published, so there is no upgrade path from them and nothing to migrate; they are recorded below as
+history.
+
+The theme is that the plugin's one claim is now demonstrable rather than argued. gantry says a
+guarantee belongs in a script's exit code rather than in prose — and until this release, prose was
+the only thing that had ever checked the two scripts carrying that guarantee.
+
+**Added**
+- `tests/` — a fixture-repo suite over `lib/run_gates.sh`, `hooks/readiness-gate.sh` and
+  `lib/detect_stage.sh`. Ten cases, no framework: build a throwaway repo, run the script, compare
+  one integer. Covers the block-on-red dispatch, all three firing conditions against every status
+  value, `stop_hook_active` and its jq-failure path, the frontmatter parser's six documented
+  tolerances and its rejections, a broken install failing red, the kill switch, gate resolution
+  order, the 2-and-3-normalise-to-1 rule, `NO-GATES` lenient versus `--strict`, and a monorepo
+  subproject failure. Run with `bash tests/run.sh`; `scripts/verify.sh` runs it too, so CI needs no
+  change. Confirmed non-vacuous: changing the hook's red dispatch from `exit 2` to `exit 0` is
+  caught by five of the ten cases.
+- `scripts/context_budget.sh` — the always-on context cost as an exit code, wired into
+  `verify.sh`. It counts description characters as a proxy (stated as one) because the enforced
+  check cannot depend on the `claude` CLI that CI runners lack; the CLI remains the authority.
+- A CI job on tags asserting the tag matches `plugin.json`'s `version`, so a release and its
+  manifest cannot disagree.
+
+**Fixed**
+- **The readiness hook logged nothing on the one path where the gate is silently bypassed.** Every
+  `log_line` on the firing path ran after `run_gates.sh` returned, while the hook's own header
+  documents that a hung gate is killed by the harness at its 300s limit with no `exit 2` produced
+  and the stop proceeding un-gated. The single case the audit trail exists for was the single case
+  it missed. An `arm` line is now written before the gate starts, so a killed hook leaves a dangling
+  `arm` with no outcome. The claims in `README.md` and `docs/METHOD.md` are corrected to match.
+- **The readiness hook created `.claude/artifacts/` in every repo you opened.** `mkdir -p` ran
+  before any firing condition, and the hook is registered on `Stop` and `SubagentStop` with matcher
+  `*` — so installing gantry meant every repository acquired a directory and a skip line per stop,
+  once per sub-agent, for a plugin it never opted into. The `task.md` and `.claude/gates.sh` tests
+  now run first and a repo failing either exits inert and silent. Ordering them ahead of
+  `stop_hook_active` is safe: a repo that never runs the gate cannot produce the block a later stop
+  would be caused by.
+
+**Removed**
+- **`gantry-verifier`.** It shipped in both prior versions and nothing ever dispatched it, which
+  three documents said while defending it as an open question. It was not one: the gate is a script
+  so that "did it pass" is an exit code rather than a model's judgment, and an agent that cannot be
+  wired in without contradicting that argument is just ~70 always-on tokens per session with no
+  caller. The roster is now `gantry-explorer`, `gantry-critic` and `gantry-reviewer`, all read-only.
+
+**Changed**
+- Always-on context is **measured** at ~1,464 tokens rather than derived — twelve skills and three
+  agents, read from `claude --plugin-dir . plugin details gantry`. v0.2 published ~1,545 scaled from
+  v0.1's reading. `README.md` and `docs/SKILLS.md` carry the read figures, and the budget script now
+  enforces them.
+
+## 0.2.0 — developed, never released
 
 The pipeline comes apart into phases. v0.1 had two monolithic pipeline skills; v0.2 has one chain
 of individually invocable phase skills and two drivers that invoke them. You can now type the
@@ -60,10 +114,10 @@ for workflow-spawned agents is undocumented. If they don't, the unattended mode 
 unskippable gate in the one mode where nobody is watching. See `docs/ARCHITECTURE.md` § "Why the
 unattended runner isn't a Workflow".
 
-## 0.1.0 — unreleased
+## 0.1.0 — developed, never released
 
-First public release. A faithful extraction of a workflow that had been running privately, made
-portable and packaged as a Claude Code plugin.
+The extraction itself: a workflow that had been running privately, made portable and packaged as a
+Claude Code plugin.
 
 **Added**
 - Seven skills: `auto`, `factory`, `ship`, `worktree`, `sync`, `prune-worktrees`, `preserve`.
