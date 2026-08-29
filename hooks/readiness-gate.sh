@@ -163,14 +163,35 @@ payload_cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)"
 hook_event="$(printf '%s' "$payload" | jq -r '.hook_event_name // empty' 2>/dev/null)"
 hook_event="${hook_event:-unknown}"
 
-# --- resolve ROOT: $CLAUDE_PROJECT_DIR, falling back to the payload's cwd ---
-ROOT="${CLAUDE_PROJECT_DIR:-$payload_cwd}"
+# --- resolve ROOT: the worktree the session is actually in ------------------
+# The payload's cwd is where the session is working; the *worktree root* over
+# it is where task.md and .claude/gates.sh live. Ask git for that first.
+#
+# $CLAUDE_PROJECT_DIR is the wrong answer whenever the two differ, and they
+# differ on exactly the workflow gantry itself recommends: /gantry:worktree
+# puts the session in .claude/worktrees/<branch> while CLAUDE_PROJECT_DIR
+# stays pinned to the checkout the session was launched from. The hook then
+# read the *main* repo's task.md — whose status is whatever that branch last
+# left behind — and skipped, forever, on every worktree run. The gate could
+# not arm on gantry's own default workflow.
+#
+# lib/detect_stage.sh resolves the same question with `git rev-parse
+# --show-toplevel` and always has, which is why a run could look
+# `implementing` to the detector and `shipped` to the hook at the same moment.
+# Same question, same answer, both sides.
+ROOT=""
+if [ -n "$payload_cwd" ]; then
+  ROOT="$(git -C "$payload_cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+# Fall back to the original chain: a payload with no cwd, a cwd that is not in
+# a git repo, or a git that cannot run at all must behave exactly as before.
+ROOT="${ROOT:-${CLAUDE_PROJECT_DIR:-$payload_cwd}}"
 
 if [ -z "$ROOT" ]; then
   # Nothing to gate, nowhere to log. This is not one of the firing-order
   # skips below (there is no repo to even test them against); it is a bare
   # inert exit.
-  printf 'readiness-gate: cannot resolve ROOT from $CLAUDE_PROJECT_DIR or payload cwd — exiting inert (exit 0)\n' >&2
+  printf 'readiness-gate: cannot resolve ROOT from the payload cwd, $CLAUDE_PROJECT_DIR, or a git worktree — exiting inert (exit 0)\n' >&2
   exit 0
 fi
 
