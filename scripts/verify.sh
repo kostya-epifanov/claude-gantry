@@ -117,6 +117,63 @@ else
   diff examples/task.md skills/plan/templates/task.md || true
 fi
 
+head2 "the readiness hook resolves the same ROOT the detector does"
+# The parser these two share is diffed above, because "if the two ever
+# disagreed ... the gate would silently stop arming". They can disagree without
+# the parser drifting at all: read the same field out of two different files
+# and you get the same failure. That is what happened -- the hook took ROOT
+# from $CLAUDE_PROJECT_DIR while lib/detect_stage.sh took it from `git
+# rev-parse --show-toplevel`, so on a worktree run the hook read the MAIN
+# checkout's task.md and skipped forever, on gantry's own default workflow.
+#
+# So this asserts the behaviour rather than the line: build a repo whose main
+# checkout says `shipped` and whose worktree says `implementing` over a red
+# gate, point $CLAUDE_PROJECT_DIR at the main checkout the way a session
+# launched there would, and require the hook to block.
+hookdir="$(mktemp -d)"
+trap 'rm -rf "$hookdir"' EXIT
+(
+  cd "$hookdir" || exit 1
+  mkdir -p main && cd main || exit 1
+  git init -q .
+  git config user.email v@example.com
+  git config user.name verify
+  mkdir -p .claude
+  printf '#!/usr/bin/env bash\nexit 1\n' > .claude/gates.sh   # always red
+  printf -- '---\nstatus: shipped\n---\n' > task.md
+  git add -A && git commit -qm base
+  git worktree add -q ../wt -b wt
+  printf -- '---\nstatus: implementing\n---\n' > ../wt/task.md
+) >/dev/null 2>&1 || bad "could not build the hook fixture"
+
+hook_rc() {  # hook_rc <cwd> ; echoes the hook's exit code
+  printf '{"cwd":"%s","hook_event_name":"Stop","stop_hook_active":false}' "$1" \
+    | CLAUDE_PROJECT_DIR="$hookdir/main" bash "$PWD/hooks/readiness-gate.sh" >/dev/null 2>&1
+  echo $?
+}
+
+got="$(hook_rc "$hookdir/wt")"
+[ "$got" = "2" ] \
+  && ok "blocks on a worktree whose task.md says implementing (exit 2)" \
+  || bad "worktree run: got exit $got, want 2 — the hook is reading the wrong root again"
+
+printf -- '---\nstatus: shipped\n---\n' > "$hookdir/wt/task.md"
+got="$(hook_rc "$hookdir/wt")"
+[ "$got" = "0" ] \
+  && ok "stays inert on a worktree whose task.md says shipped (exit 0)" \
+  || bad "worktree inert case: got exit $got, want 0"
+
+# The fallback chain must be untouched: no cwd in the payload means the hook
+# still answers from $CLAUDE_PROJECT_DIR exactly as it did before.
+printf -- '---\nstatus: implementing\n---\n' > "$hookdir/main/task.md"
+got="$(printf '{"hook_event_name":"Stop","stop_hook_active":false}' \
+  | CLAUDE_PROJECT_DIR="$hookdir/main" bash "$PWD/hooks/readiness-gate.sh" >/dev/null 2>&1; echo $?)"
+[ "$got" = "2" ] \
+  && ok "falls back to \$CLAUDE_PROJECT_DIR when the payload carries no cwd" \
+  || bad "fallback case: got exit $got, want 2"
+
+rm -rf "$hookdir"; trap - EXIT
+
 head2 "secret scan"
 bash scripts/secret-scan.sh >/dev/null 2>&1 && ok "clean" || { bad "see: bash scripts/secret-scan.sh"; }
 

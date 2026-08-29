@@ -17,6 +17,10 @@ chain yourself, drop out of it to work by hand, and pick it back up.
 - Two agents: `gantry-critic` and `gantry-reviewer`, both read-only.
 - `lib/detect_stage.sh` — one read-only reader of "where is this task", shared by every phase.
 - `ship --draft`, which `auto-unattended` always passes.
+- `.claude/gates.sh` for this repo, execing `scripts/verify.sh`. gantry shipped a hard gate and did
+  not apply it to itself: with nothing to auto-detect here, `run_gates.sh --strict` reported
+  NO-GATES and refused to push, so an unattended run on gantry had to drop `--strict` or supply the
+  file by hand. It also arms the readiness hook on this repo.
 
 **Changed**
 - `factory` is renamed **`auto-unattended`**, and `--autonomous` is gone. A flag that silently
@@ -53,6 +57,24 @@ chain yourself, drop out of it to work by hand, and pick it back up.
 - `ship` pointed at a `status` skill that had already been removed.
 - `scripts/verify.sh` now proves the frontmatter parser duplicated between the hook and
   `detect_stage.sh` has not drifted, and that the task template and its example stay identical.
+- **The readiness hook could never arm on a worktree run** — which is gantry's own default
+  workflow, and every shape `/gantry:worktree` and the drivers produce. `hooks/readiness-gate.sh`
+  took its `ROOT` from `$CLAUDE_PROJECT_DIR`, which stays pinned to the checkout the session
+  launched from, while `lib/detect_stage.sh` took it from `git rev-parse --show-toplevel`. The two
+  therefore read *different* `task.md` files, so the hook saw whatever status the main checkout was
+  left on, skipped, and logged `decision=skip reason=status:shipped` forever. The hook now resolves
+  the worktree containing the payload's `cwd` first, falling back to the old chain when there is no
+  cwd or it is not in a repo.
+
+  This also fixes `detect_stage.sh`'s `HOOK:` line, which was reporting `armed` on exactly the runs
+  where the hook could not fire — the detector resolved to the worktree and saw `implementing`
+  while the hook resolved elsewhere and saw something else. That line exists so a skill can say
+  whether the gate is really enforced rather than imply it; it was doing the implying. One root,
+  one answer, both sides.
+
+  `scripts/verify.sh` now asserts the behaviour: a worktree marked `implementing` over a red gate
+  must block, the same worktree marked `shipped` must stay inert, and a payload with no cwd must
+  still fall back to `$CLAUDE_PROJECT_DIR`.
 
 **Not done, deliberately** — `auto-unattended` was considered for rebuild on Claude Code's Workflow
 tool and rejected for now: workflows are plan-gated, and whether `Stop`/`SubagentStop` hooks fire
