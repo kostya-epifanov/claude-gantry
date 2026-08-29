@@ -117,6 +117,18 @@ else
   diff examples/task.md skills/plan/templates/task.md || true
 fi
 
+head2 "gate and hook behaviour"
+# The two scripts that carry this project's one guarantee — lib/run_gates.sh
+# and hooks/readiness-gate.sh — executed against throwaway fixture repos. Every
+# check above this line proves the shell *parses*; only this one proves the gate
+# ever blocked anything. Run `bash tests/run.sh` directly for the per-case
+# detail; here we only need the verdict.
+if bash tests/run.sh >/dev/null 2>&1; then
+  ok "all cases pass"
+else
+  bad "see: bash tests/run.sh"
+fi
+
 head2 "secret scan"
 bash scripts/secret-scan.sh >/dev/null 2>&1 && ok "clean" || { bad "see: bash scripts/secret-scan.sh"; }
 
