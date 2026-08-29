@@ -27,6 +27,7 @@ is driving and how often it stops.
 | Phases run | in your session | invoked by the driver | invoked by the driver |
 | Stops | after every phase | two checkpoints | never |
 | Red gate | you decide | stop and report | fix, capped at 2 attempts |
+| Open fork | `implement` warns; you decide | **AskUserQuestion**, after plan and after grill | **stop**, journal `escalation`, `blocked` |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
 | No gates found | continue, flagged | continue, flagged | **refuse to push** |
 | PR | ready | ready | **draft** |
@@ -93,7 +94,7 @@ that a tool boundary means something:
 | review | `gantry-reviewer`, when `/code-review` is unavailable | reading a diff it did not write | `.claude/agents/reviewer.md` |
 
 **Every agent gantry ships is read-only.** `gantry-explorer` and `gantry-critic` have `Read, Grep,
-Glob`; `gantry-reviewer` adds `Bash` to read git and run checks; `gantry-verifier` has `Read, Bash`.
+Glob`; `gantry-reviewer` adds `Bash` to read git and run checks.
 None can write, however it is prompted — a boundary prose cannot enforce. Writing therefore happens
 in the phase skill, in the caller's own context, where it is visible rather than reported.
 
@@ -124,10 +125,31 @@ would hang the run:
 - **`gantry:ship`** pauses to ask how to split when it sees several unrelated changes. Keep the task
   single and coherent so the diff is one change.
 - **`gantry:plan`** asks when a genuine fork would change the work. Under `unattended` it records
-  the fork in *Open questions* and takes the conservative reading instead.
+  the fork in *Open questions*, leaves it open, and does **not** mark the plan `planned`. It does
+  not take a reading of its own — see below.
 
 If a prompt is unavoidable for a given task, that task isn't a fit for unattended — run it
 supervised.
+
+### The one prompt unattended cannot route around
+
+A genuine design fork is the exception to everything above, and it is deliberate. Unattended does
+not avoid the question by answering it conservatively; it **stops**:
+
+- `lib/detect_stage.sh` reports `FORKS:open|none|unknown|absent` from `task.md`'s *Open questions*.
+  An unchecked box, or a bare bullet with no box, is open.
+- Both drivers check it **twice** — after plan, and again after grill, because a critique can open
+  a fork that planning never had.
+- **Supervised** puts the open forks to the user in one `AskUserQuestion` round at each point.
+  Planning is the cheap moment: the same fork found at review has an implementation on top of it.
+- **Unattended** journals an `escalation` event, sets `status: blocked`, hands over, and stops.
+- `gantry:implement` refuses on `FORKS:open` when `mode:` is `auto` or `unattended`, so the
+  guarantee holds even if a driver's own check were skipped. Typed by hand it warns instead — a
+  hand-driven run iterates between phases, and a note to yourself should not lock you out.
+
+The reasoning is the same as the gate's. A conservative reading of a fork is still a decision
+nobody made, and once it is written into a plan it is indistinguishable from one somebody did. A
+blocked run costs a re-run; a wrong assumption costs the work built on it.
 
 ## Checkpoints (`gantry:auto` only)
 
@@ -203,10 +225,15 @@ The drivers orchestrate existing skills rather than duplicating them:
 - **`gantry:worktree`** for the branch, the worktree, and the parent fetch. Don't reimplement any of
   it. The exception is `--here`, which skips it and runs on the current branch — guarding against
   the default branch and a detached HEAD first.
-- **`gantry:ship`** for commit → push → PR. It is idempotent, detects its own stage, and matches
-  the *target repo's* commit conventions — which is why the drivers don't hardcode gantry's own
-  no-trailer style, since they run in arbitrary repos. Pass `--no-pr`, `--base`, and (unattended
+- **`gantry:ship`** for commit → review → push → PR. It is idempotent, detects its own stage, and
+  matches the *target repo's* commit conventions — which is why the drivers don't hardcode gantry's
+  own no-trailer style, since they run in arbitrary repos. Pass `--no-pr`, `--base`, and (unattended
   only) `--draft` through.
+
+  **Always pass `--reviewed` as well.** Ship has its own `/code-review --fix` stage for callers who
+  reach it directly; the chain has already run `/gantry:review` by then, and a second pass would
+  let `--fix` apply findings that phase deliberately deferred to `handover.md`. This is not
+  optional and it is not conditional on the mode.
 
 No skill in gantry carries `disable-model-invocation`: a gated skill cannot be invoked by an agent
 at all, only by a human typing the command, which would make the whole pipeline undelegatable. See

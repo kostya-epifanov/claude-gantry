@@ -82,12 +82,32 @@ Emitted only by `gantry:auto`; unattended runs have no checkpoints. This is the 
 recoverable line in the file — every other event can be reconstructed from git and the artifacts,
 but a human's answer exists nowhere else.
 
+### `escalation` — the run stopped and needs a person
+
+```json
+{"ts":"2026-08-16T09:45:31Z","task":"2026-08-16-contact-form","event":"escalation","stage":"plan","reason":"open-fork","detail":["Postgres or SQLite? Changes the migration story and the deploy."],"status":"blocked"}
+```
+
+- `stage` — where the run stopped: `plan` or `grill` for an open fork.
+- `reason` — why. `open-fork` is the one `gantry:auto-unattended` emits today.
+- `detail` — one string per thing needing a decision, in the terms the reader has to answer in.
+  For an open fork, the entries from `task.md`'s *Open questions*, verbatim. This is the payload
+  that makes the escalation actionable, so it carries the question rather than a count of them.
+- `status` — what `task.md` was set to, so the journal and the artifact cannot disagree.
+
+An unattended run that meets an open fork **stops here**: it has nobody to ask, and the only
+alternative to stopping is guessing at a decision that would then be indistinguishable from one
+somebody made. The line exists so that "why did this run stop" is answerable from the journal
+alone, without reopening the worktree.
+
 ## Extending
 
 New event types are fine — keep the envelope, add a shape here, and prefer a new `event`
-value over overloading an existing one. One is designed but not yet emitted: `escalation`,
-for a blocked task handed to whatever notifies you. Nothing in gantry emits it; the shape is
-reserved so an integration does not have to invent one.
+value over overloading an existing one.
+
+`escalation` was reserved-but-unemitted until `gantry:auto-unattended` gained the open-fork stop;
+it is now a real event with the shape above. Its `reason` field is the extension point — a new kind
+of stop adds a `reason` value rather than a new event type.
 
 ## Not committed
 

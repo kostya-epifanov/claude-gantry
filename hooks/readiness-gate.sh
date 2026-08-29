@@ -32,14 +32,21 @@
 # here (`gantry:auto-unattended` stage 4, already journaled). This hook does not write
 # task.md. Ever.
 #
-# FIRING CONDITION, evaluated in this order, each failure logging one `skip`
-# line to gate-hook.log with its reason and exiting 0:
-#   1. `stop_hook_active` is true in the payload (this stop was itself caused
+# FIRING CONDITION, evaluated in this order:
+#   1. `task.md` exists at ROOT.
+#   2. `.claude/gates.sh` exists at ROOT.
+#      These two are pure file tests and they come FIRST, before this script
+#      writes anything at all. Together they are the opt-in; a repo failing
+#      either has nothing to do with gantry, and exits 0 having created no
+#      directory and logged no line. Anything else would mean every repo the
+#      user opens acquires an artifacts directory and a log line per stop.
+#      Ordering them ahead of `stop_hook_active` is safe — an un-opted-in repo
+#      never runs the gate, so it can never produce the block that a later stop
+#      would be caused by.
+#   3. `stop_hook_active` is true in the payload (this stop was itself caused
 #      by a previous block from this hook — see LOOP TERMINATION below). A jq
 #      failure while parsing this field is treated the SAME as true — see
 #      JQ FAILURE MODES below; this is not optional.
-#   2. `task.md` exists at ROOT.
-#   3. `.claude/gates.sh` exists at ROOT.
 #   4. `task.md`'s frontmatter `status:` is exactly `implementing`, after
 #      trimming trailing whitespace/CR, a trailing `# comment`, and one layer
 #      of surrounding quotes (tolerates a `---\r` fence, a CRLF file, a
@@ -50,9 +57,12 @@
 # Everything outside this window is inert: exit 0, no checks run, no
 # perceptible delay. The trigger is a file the model can write (`task.md`'s
 # `status:`), so "the model cannot bypass it" is approximately, not exactly,
-# true — see docs/METHOD.md, "The honest limit". The mitigation is that EVERY invocation,
-# fire or skip, appends one line to gate-hook.log, so a bypass is visible in
-# the audit trail rather than silent.
+# true — see docs/METHOD.md, "The honest limit". The mitigation is the audit
+# trail: once a repo has opted in (conditions 1 and 2), EVERY invocation is
+# recorded — every skip with its reason, and every fire twice, once on the way
+# in and once on the way out. A bypass is not prevented; it is left visible.
+# Conditions 1 and 2 themselves are deliberately silent, because a repo that
+# never opted in has nothing to audit and must not be written to.
 #
 # LOOP TERMINATION IS `stop_hook_active`. When true (or unreadable — see
 # below), this hook exits 0 and defers, unconditionally. This hook therefore
@@ -95,14 +105,28 @@
 # timeout-with-cleanup is exactly the kind of machinery this rewrite is
 # removing. Residual hazard: a hung gate hangs the hook up to the harness's
 # own 300s hook timeout (declared in `hooks/hooks.json`); if the harness kills this
-# process, no exit 2 is produced and the stop proceeds un-gated, un-logged.
-# Not handled here; flagged, not silently accepted.
+# process, no exit 2 is produced and the stop proceeds un-gated. It does NOT
+# proceed unlogged — the `arm` line is written before the gate starts precisely
+# so this case leaves a trace, and a dangling `arm` with no outcome line is how
+# you find it afterwards. The hang itself is not handled here; it is flagged
+# and made visible, not silently accepted.
 #
 # ARTIFACT CONTRACT:
 #   .claude/artifacts/gate-<timestamp>-<pid>.log — run_gates.sh stdout+stderr,
 #                                                   verbatim, for THIS run only
-#   .claude/artifacts/gate-hook.log              — one line per invocation,
-#                                                   including every skip
+#   .claude/artifacts/gate-hook.log              — one line per invocation in
+#                                                   an opted-in repo, including
+#                                                   every skip; and for a fire,
+#                                                   an `arm` line before the
+#                                                   gate starts plus the
+#                                                   outcome line after it ends.
+#                                                   A dangling `arm` with no
+#                                                   outcome is the signature of
+#                                                   a hook killed mid-gate —
+#                                                   the one way a stop proceeds
+#                                                   un-gated (see TIMEOUT).
+#                                                   Neither file is created in
+#                                                   a repo that never opted in.
 # If neither a real artifacts-dir path nor `mktemp` can produce a usable log
 # path, the gate still runs (output goes to /dev/null so the redirect itself
 # never fails and `rc` is still the real result) and the verdict says plainly
@@ -139,16 +163,56 @@ payload_cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)"
 hook_event="$(printf '%s' "$payload" | jq -r '.hook_event_name // empty' 2>/dev/null)"
 hook_event="${hook_event:-unknown}"
 
-# --- resolve ROOT: $CLAUDE_PROJECT_DIR, falling back to the payload's cwd ---
-ROOT="${CLAUDE_PROJECT_DIR:-$payload_cwd}"
+# --- resolve ROOT: the worktree the session is actually in ------------------
+# The payload's cwd is where the session is working; the *worktree root* over
+# it is where task.md and .claude/gates.sh live. Ask git for that first.
+#
+# $CLAUDE_PROJECT_DIR is the wrong answer whenever the two differ, and they
+# differ on exactly the workflow gantry itself recommends: /gantry:worktree
+# puts the session in .claude/worktrees/<branch> while CLAUDE_PROJECT_DIR
+# stays pinned to the checkout the session was launched from. The hook then
+# read the *main* repo's task.md — whose status is whatever that branch last
+# left behind — and skipped, forever, on every worktree run. The gate could
+# not arm on gantry's own default workflow.
+#
+# lib/detect_stage.sh resolves the same question with `git rev-parse
+# --show-toplevel` and always has, which is why a run could look
+# `implementing` to the detector and `shipped` to the hook at the same moment.
+# Same question, same answer, both sides.
+ROOT=""
+if [ -n "$payload_cwd" ]; then
+  ROOT="$(git -C "$payload_cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+# Fall back to the original chain: a payload with no cwd, a cwd that is not in
+# a git repo, or a git that cannot run at all must behave exactly as before.
+ROOT="${ROOT:-${CLAUDE_PROJECT_DIR:-$payload_cwd}}"
 
 if [ -z "$ROOT" ]; then
   # Nothing to gate, nowhere to log. This is not one of the firing-order
   # skips below (there is no repo to even test them against); it is a bare
   # inert exit.
-  printf 'readiness-gate: cannot resolve ROOT from $CLAUDE_PROJECT_DIR or payload cwd — exiting inert (exit 0)\n' >&2
+  printf 'readiness-gate: cannot resolve ROOT from the payload cwd, $CLAUDE_PROJECT_DIR, or a git worktree — exiting inert (exit 0)\n' >&2
   exit 0
 fi
+
+# --- is this repo opted in at all? -------------------------------------------
+# Two pure file tests, evaluated BEFORE anything is written. This hook is
+# registered for every Stop and SubagentStop in every session, in every
+# repository — so creating an artifacts directory before knowing whether the
+# repo has anything to do with gantry would mean installing the plugin littered
+# every repo the user ever opened, with a log line per stop, for a feature they
+# never switched on.
+#
+# Creating .claude/gates.sh is the opt-in. Until both files exist there is
+# nothing to enforce, nothing worth recording and nothing to say: exit inert,
+# silently, having touched nothing.
+#
+# Testing these before stop_hook_active is safe for loop termination. An
+# un-opted-in repo exits 0 without ever running the gate, so it can never
+# produce the block that a later stop would be caused by; and once the repo IS
+# opted in, stop_hook_active is still read before the gate can run — see below.
+if [ ! -f "$ROOT/task.md" ]; then exit 0; fi
+if [ ! -f "$ROOT/.claude/gates.sh" ]; then exit 0; fi
 
 # --- artifacts dir + the durable audit log -----------------------------------
 ARTIFACTS="$ROOT/.claude/artifacts"
@@ -228,17 +292,10 @@ frontmatter_status() {
   printf '%s' "$raw"
 }
 
-# --- firing condition, in order (§ FIRING CONDITION of the header) ----------
-if [ ! -f "$ROOT/task.md" ]; then
-  log_line skip - 0 "no task.md at ROOT"
-  exit 0
-fi
-
-if [ ! -f "$ROOT/.claude/gates.sh" ]; then
-  log_line skip - 0 "no .claude/gates.sh at ROOT"
-  exit 0
-fi
-
+# --- firing condition: the status (§ FIRING CONDITION of the header) --------
+# task.md and .claude/gates.sh were confirmed above, before anything was
+# written. Only the status is left to check, and from here the repo has opted
+# in — so every remaining outcome, fire or skip, is recorded.
 status="$(frontmatter_status "$ROOT/task.md")"
 if [ "$status" != "implementing" ]; then
   log_line skip - 0 "status:${status:-<none>}"
@@ -287,6 +344,16 @@ if [ -z "$log" ]; then
   rel_log=""
   log_missing=1
 fi
+
+# The start is logged BEFORE the gate runs, not only after it returns. This
+# hook wraps run_gates.sh in no timeout (see TIMEOUT above), so a hung gate
+# hangs the hook until the harness kills it at the 300s limit declared in
+# hooks/hooks.json — no exit 2 is produced and the stop proceeds un-gated. That
+# is the one path where the guarantee silently fails, which makes it the one
+# path the audit trail most needs to cover. An `arm` line with no matching
+# `fire` line is exactly what a killed hook leaves behind: grep for a dangling
+# arm and you have found a stop that was never gated.
+log_line arm - - "gate starting: ${rel_log:-<no artifact>}"
 
 ( cd "$ROOT" && bash "$run_gates" ) >"$log" 2>&1
 rc=$?

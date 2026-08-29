@@ -52,14 +52,20 @@ Each is invocable on its own and each works out where things stand by running
 state. **None of them reads the conversation**, which is what lets you drop out of the chain, work
 by hand, and pick it back up.
 
-**Two hard refusals, and only two — both `implement`'s:** it refuses to start without a `plan.md`,
-and it refuses to move past a non-zero gate. Everything else warns and proceeds, naming what was
-missing. Since you may iterate by hand between phases, a stale or absent artifact is a normal state
-rather than an error.
+**Three hard refusals, and only three — all `implement`'s:** it refuses to start without a
+`plan.md`, it refuses to start while `task.md`'s *Open questions* still holds an undecided fork
+**and a driver dispatched it**, and it refuses to move past a non-zero gate. Everything else warns
+and proceeds, naming what was missing. Since you may iterate by hand between phases, a stale or
+absent artifact is a normal state rather than an error — which is exactly why the fork refusal is
+conditioned on the mode. Typed by hand, an open fork is a warning; dispatched by a driver, it is a
+decision nobody would be present to make.
 
-`ship` does **not** re-check the gate — it commits, pushes, and opens the PR from wherever the
-branch is. What stops a red tree reaching a PR is `implement` (and, where the repo has registered
-it, the readiness hook), not `ship`.
+`ship` re-checks the gate in **one** case: its review stage passed `--fix` to `/code-review` and
+that changed the tree. Fixes made after the gate went green are unproven code, so a red result
+there stops the push. Ship runs no gate otherwise — it commits, pushes, and opens the PR from
+wherever the branch is. What stops a red tree reaching a PR is still `implement` (and, where the
+repo has registered it, the readiness hook); ship's re-run covers only the edits ship itself
+caused.
 
 ## `/gantry:plan` — the contract and the plan
 
@@ -188,13 +194,22 @@ ran, the gate's exit code on every run, and whether the hook was armed.
 
 # Maintenance
 
-## `/gantry:ship` — commit, push, PR
+## `/gantry:ship` — commit, review, push, PR
 
-`/gantry:ship [--no-pr] [--draft] [--base <branch>]`
+`/gantry:ship [--no-pr] [--draft] [--reviewed] [--base <branch>]`
 
 An idempotent stage machine. It runs `detect_state.sh` once, routes on the reported stage, and
-falls through the remaining steps without re-detecting. Safe to run repeatedly from wherever the
-branch already is.
+falls through the remaining steps without re-detecting — **except** after its review stage, which
+can create a commit and therefore forces a re-detect before the push.
+
+Between the commit and the push it invokes `/code-review --fix` over the branch diff: the last
+point at which a fix is still cheap, and the only review a caller who types `/gantry:ship` directly
+would otherwise get. Findings are applied, committed separately, and the gate is re-run over them;
+a red gate stops the push. `--reviewed` skips that stage, and **both drivers always pass it** —
+the chain has already run `/gantry:review`, whose deferrals `--fix` would otherwise reopen.
+
+Unlike `/gantry:review`, this stage passes `--fix` and does no triage. That is the point: it exists
+for the case with no `task.md` to triage against, and the two never both run.
 
 Typing `/gantry:ship` **is** the go-ahead — it does not ask for stage-by-stage confirmation. It
 matches the *target repo's* commit conventions, including whether that repo uses trailers, which is
@@ -280,26 +295,30 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 
 | Component | Always-on |
 |---|---|
-| auto | ~145 |
-| auto-unattended | ~140 |
-| plan | ~75 |
-| grill | ~85 |
-| implement | ~75 |
+| auto | ~130 |
+| auto-unattended | ~130 |
+| plan | ~70 |
+| grill | ~90 |
+| implement | ~80 |
 | review | ~80 |
-| handover | ~95 |
+| handover | ~90 |
 | ship | ~160 |
-| sync | ~160 |
+| sync | ~170 |
 | worktree | ~60 |
-| preserve | ~145 |
-| prune-worktrees | ~80 |
-| the four agents | ~245 combined |
-| **total always-on** | **~1,545** |
+| preserve | ~150 |
+| prune-worktrees | ~90 |
+| the three agents | ~190 combined |
+| **total always-on** | **~1,464** |
 
-**These are derived, not measured.** v0.1's total was measured at ~1,157 with the CLI; these
-figures scale that reading by the growth in description text, so they carry its rounding plus a
-model of their own. The v0.2 chain costs roughly **a third more** always-on context than v0.1 — the
-price of five new phase skills. The roster is a wash: still four agents, and their descriptions are
-within a few percent of v0.1's.
+**These are measured, not derived** — `claude --plugin-dir . plugin details gantry`, against the
+v0.3 tree. v0.2 published a figure scaled from v0.1's reading, which is exactly the kind of claim
+this project argues does not belong in prose; the number is now read from the tool and, more to the
+point, **enforced**: `scripts/context_budget.sh` runs in `scripts/verify.sh` and fails the build
+when the descriptions outgrow a declared ceiling.
+
+Against v0.1's measured ~1,157, v0.3 costs about a quarter more — the price of five phase skills,
+partly offset by deleting `gantry-verifier`, an agent nothing dispatched, which was ~70 of every
+session's budget.
 
 The phase skills carry deliberately terse descriptions, because the drivers and the standalone
 skills are what you actually invoke by name; a phase is usually reached by typing the chain or by a

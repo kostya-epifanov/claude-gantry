@@ -46,3 +46,14 @@ claude --plugin-dir .          # load without installing
 
 For the gate and hook, exercise them in a throwaway repo rather than a real one — both are
 designed to refuse things, and you want to see them refuse.
+
+The suite already does that against fixture repos, and is the fastest way to see a change land:
+
+```bash
+bash tests/run.sh                 # every case, one line each
+bash tests/run.sh hook_           # just the cases whose name matches
+```
+
+Each case is standalone — `bash tests/cases/<name>.sh` runs one on its own. A change to
+`lib/run_gates.sh` or `hooks/readiness-gate.sh` should arrive with a case, and the honest check on a
+new one is that it fails before your fix and passes after.

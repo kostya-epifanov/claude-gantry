@@ -44,7 +44,7 @@ flowchart TD
   GATE -- "red" --> I
   GATE -- "green" --> R["/gantry:review<br/>independent read of the diff"]
   R -- "deferred findings" --> H["/gantry:handover<br/>writes handover.md"]
-  R -- "nothing deferred" --> S["/gantry:ship<br/>commit, push, PR"]
+  R -- "nothing deferred" --> S["/gantry:ship<br/>commit, review, push, PR"]
   H --> S
   S --> PR(["PR open — ready for review"])
   PR --> SY["/gantry:sync"]
@@ -110,7 +110,7 @@ keeps the three ways of running from drifting into three subtly different pipeli
 | `/gantry:implement` | Carry out the plan, then prove it with the gate. |
 | `/gantry:review` | Independent review of the diff: fix what's in scope, hand over what isn't. |
 | `/gantry:handover` | Write `handover.md` — what this change deliberately left, and the next action. |
-| `/gantry:ship` | Advance one step toward a merged PR — commit, push, open PR. Idempotent. |
+| `/gantry:ship` | Advance one step toward a merged PR — commit, review with `/code-review`, push, open PR. Idempotent. |
 | `/gantry:sync` | Return to the base branch and bring it up to date. Refuses on a dirty tree. |
 | `/gantry:prune-worktrees` | Review stale or merged worktrees and remove the ones you approve. |
 | `/gantry:preserve` | Write a session handoff doc: decisions and why, dead ends, the exact next action. |
@@ -180,12 +180,16 @@ was real, but nothing had switched it on.
 
 Two things you should know before you install it, both of which the hook documents about itself:
 
-- **It writes to your repo.** Every invocation, fire *or* skip, appends one line to
-  `.claude/artifacts/gate-hook.log`, and a fire also writes the gate's full output to
+- **It writes to your repo — but only once that repo has opted in.** A repo with no `task.md` or no
+  `.claude/gates.sh` is left completely alone: no directory, no log line, nothing. Once both exist,
+  every invocation appends one line to `.claude/artifacts/gate-hook.log`, and a fire writes two —
+  one when the gate starts and one when it ends — plus the gate's full output to
   `.claude/artifacts/gate-<timestamp>-<pid>.log`. Add `.claude/artifacts/` to your `.gitignore`.
 - **Its own honest limit.** The trigger is `task.md`'s `status:` — a file the model can write. So
   *"the model cannot bypass the gate"* is approximately, not exactly, true. The mitigation is that
-  every invocation is logged, so a bypass is visible after the fact rather than silent.
+  every invocation in an armed repo is logged, so a bypass is visible after the fact rather than
+  silent. A start line with no matching outcome is the signature of the one remaining hole: a gate
+  that hung until the harness killed the hook, letting the stop through un-gated.
 
 Turning it off: `export GANTRY_READINESS_GATE=off`.
 
@@ -198,12 +202,15 @@ you can check the number yourself:
 claude plugin details gantry@claude-gantry
 ```
 
-v0.1 measured **~1,157 always-on tokens** for seven skills and four agents. v0.2 ships twelve
-skills and four agents — five new phase skills, and a roster that swapped its planner and
-implementer for a critic and a reviewer — which works out at roughly **~1,550**, about a third
-more. That number is derived by scaling the v0.1 measurement by the growth in frontmatter
-description text, not measured directly, so treat it as an estimate and trust the command over this
-paragraph.
+v0.3 measures **~1,464 always-on tokens** for twelve skills and three agents. v0.1 measured
+~1,157 for seven skills and four agents; the growth is the five phase skills, less the ~70 saved by
+deleting an agent nothing dispatched.
+
+Unlike v0.2's, that figure is measured rather than derived — a project whose whole argument is that
+a number beats a paragraph should not publish its most-quoted number as a paragraph. And it is
+enforced rather than merely recorded: `scripts/context_budget.sh` fails the build if the
+descriptions grow past a declared ceiling, so this section cannot quietly go stale the way the
+derived one did.
 
 The phase skills carry deliberately short descriptions, because the drivers and the standalone
 skills are what you actually invoke by name. Bodies are paid only when a skill fires.

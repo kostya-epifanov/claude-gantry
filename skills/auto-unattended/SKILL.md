@@ -29,6 +29,9 @@ It removes the **human** checkpoints. It does not remove the gate, and it does n
 for shipping:
 
 - A red gate is fixed at most **twice**, then the run stops `blocked`. It is never pushed past.
+- An **open fork** stops the run. With nobody to ask, a genuine design decision is escalated, not
+  guessed at — see stage 2. This is the one place unattended does *less* than supervised on
+  purpose.
 - `NO-GATES` under `--strict` is exit 3 and **refuses to push**. With nobody watching, code that ran
   zero checks must not reach a PR — this is the case the strictness exists for.
 - The PR is a **draft**. Nobody reviewed this live, so it must not page reviewers as if someone had.
@@ -91,11 +94,27 @@ Set `task.md`'s `mode:` to `unattended` — that is how `implement` and `review`
 `--strict` without being told. **Never clobber an existing `task.md`**: under `--here` a task
 already in flight means stop and report, not overwrite.
 
-With no human to ask, `plan` records every genuine fork under *Open questions* and takes the
-conservative reading. Carry those forward into your report — they are assumptions, and the reader
-of the draft PR needs to know which decisions nobody made.
-
 Journal a `phase` event, naming any sub-agent the phase dispatched. Read `plan.md` back from disk.
+
+### An open fork ends the run
+
+Run `bash "$GANTRY/lib/detect_stage.sh"` and read `FORKS:`. On **`FORKS:open`** this run is over:
+
+1. Journal an `escalation` event naming every open entry.
+2. Set `task.md` to `status: blocked`.
+3. Invoke `gantry:handover` so the fork reaches whoever picks this up.
+4. **Stop.** Report the forks as the result.
+
+There is no fourth option and nothing further to try. With nobody to ask, the only ways past a fork
+are to guess or to stop, and guessing is what this exists to prevent: an assumption written into a
+plan is indistinguishable from a decision, and by the time it surfaces there is an implementation
+built on it. A blocked run costs a re-run once someone answers; a wrong assumption costs the work.
+
+Do not dispatch `/gantry:implement`. It refuses on an open fork under `mode: unattended` anyway,
+but reaching that refusal means dying mid-chain with no escalation event and no `blocked` status —
+a stop nobody can act on.
+
+On `FORKS:unknown` the file has no such section: say so and continue.
 
 ## Stage 3 — Grill
 
@@ -105,6 +124,11 @@ contents — and triages what comes back.
 This phase matters more here than anywhere else: it is the only scrutiny the plan will get before
 implementation, because there is no checkpoint behind it. If grill sets `status: blocked`, **stop**
 — journal it, hand over, and report. Do not proceed on a plan that did not survive.
+
+**Check `FORKS:` again, on the same terms as stage 2.** A critique that surfaces a genuine design
+fork records it rather than absorbing it, so grill can open one that planning never had — and the
+stage 2 check ran before the critic did. `FORKS:open` here ends the run exactly as it does there:
+journal the `escalation`, set `status: blocked`, hand over, stop.
 
 Journal a `phase` event, naming the critic that ran.
 
@@ -141,10 +165,14 @@ Journal a `phase` event, naming the tier and any sub-agent it dispatched.
 
 ## Stage 6 — Ship
 
-Set `task.md` to `status: shipped` **first**, then **invoke `gantry:ship --draft`**, passing
-`--no-pr` and `--base` through if given. That order matters: ship commits the tree, so a status
-written afterwards would miss the commit — the PR would carry a stale `status:` and the worktree
-would be left dirty.
+Set `task.md` to `status: shipped` **first**, then **invoke `gantry:ship --draft --reviewed`**,
+passing `--no-pr` and `--base` through if given. That order matters: ship commits the tree, so a
+status written afterwards would miss the commit — the PR would carry a stale `status:` and the
+worktree would be left dirty.
+
+`--reviewed` is not optional here. Ship runs its own `/code-review --fix` stage for callers who
+reach it directly; stage 5 already reviewed this change, and a second pass would let `--fix` apply
+findings `/gantry:review` deliberately deferred to `handover.md`.
 
 `task.md`, `plan.md`, and any `handover.md` are committed with the change. `journal.jsonl` and the
 gate logs stay excluded.
@@ -162,10 +190,14 @@ Written for someone who was not here, because nobody was:
 - Whether the readiness hook was **armed or inert**. An unattended run with an inert hook was
   self-policed by a script it could have skipped; say so.
 - Which review tier ran, named plainly.
-- **Every assumption `plan` had to make** because there was nobody to ask.
+- **Every assumption `plan` or `grill` had to make** because there was nobody to ask. Genuine
+  design forks are not on this list — those stop the run rather than becoming assumptions — but
+  the judgement calls inside a plan still are, and the reader of a draft PR needs them.
 - What was deferred, and the `handover.md` path.
 - The artifact paths, including `journal.jsonl` for the full trail.
 
-If the run stopped early — blocked gate, blocked plan, `NO-GATES`, broken environment — lead with
-that and what would unblock it. A stopped run reported plainly is worth more than a finished one
-reported vaguely.
+If the run stopped early — blocked gate, blocked plan, **an open fork**, `NO-GATES`, broken
+environment — lead with that and what would unblock it. For a fork, "what would unblock it" is the
+decision itself: state the question and the options, so answering it is one message rather than a
+re-investigation. A stopped run reported plainly is worth more than a finished one reported
+vaguely.
