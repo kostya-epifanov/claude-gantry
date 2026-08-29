@@ -57,9 +57,14 @@ assert_rc 0 "$HOOK_RC" "a worktree at shipped stays inert"
 # No cwd in the payload: the hook must still answer from CLAUDE_PROJECT_DIR
 # exactly as it did before, or this fix breaks every non-worktree run.
 write_task "$main" implementing
-HOOK_OUT="$(printf '{"hook_event_name":"Stop","stop_hook_active":false}' \
-  | CLAUDE_PROJECT_DIR="$main" bash "$HOOK" 2>&1)"
-assert_rc 2 "$?" "with no cwd in the payload, the hook still answers from \$CLAUDE_PROJECT_DIR"
+# Not run_hook: this case needs a payload with NO cwd key at all, which is the
+# one shape the helper cannot build. Capture only the status — assigning the
+# output to HOOK_OUT here would leave it genuinely unread, which shellcheck is
+# right to flag (the helper's own assignment is read by the calling case).
+nocwd_rc=0
+printf '{"hook_event_name":"Stop","stop_hook_active":false}' \
+  | CLAUDE_PROJECT_DIR="$main" bash "$HOOK" >/dev/null 2>&1 || nocwd_rc=$?
+assert_rc 2 "$nocwd_rc" "with no cwd in the payload, the hook still answers from \$CLAUDE_PROJECT_DIR"
 
 # --- a cwd that is not in a repo at all --------------------------------------
 # git rev-parse fails here; the hook must fall back rather than die.
