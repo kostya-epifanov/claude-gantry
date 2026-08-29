@@ -180,12 +180,16 @@ was real, but nothing had switched it on.
 
 Two things you should know before you install it, both of which the hook documents about itself:
 
-- **It writes to your repo.** Every invocation, fire *or* skip, appends one line to
-  `.claude/artifacts/gate-hook.log`, and a fire also writes the gate's full output to
+- **It writes to your repo — but only once that repo has opted in.** A repo with no `task.md` or no
+  `.claude/gates.sh` is left completely alone: no directory, no log line, nothing. Once both exist,
+  every invocation appends one line to `.claude/artifacts/gate-hook.log`, and a fire writes two —
+  one when the gate starts and one when it ends — plus the gate's full output to
   `.claude/artifacts/gate-<timestamp>-<pid>.log`. Add `.claude/artifacts/` to your `.gitignore`.
 - **Its own honest limit.** The trigger is `task.md`'s `status:` — a file the model can write. So
   *"the model cannot bypass the gate"* is approximately, not exactly, true. The mitigation is that
-  every invocation is logged, so a bypass is visible after the fact rather than silent.
+  every invocation in an armed repo is logged, so a bypass is visible after the fact rather than
+  silent. A start line with no matching outcome is the signature of the one remaining hole: a gate
+  that hung until the harness killed the hook, letting the stop through un-gated.
 
 Turning it off: `export GANTRY_READINESS_GATE=off`.
 

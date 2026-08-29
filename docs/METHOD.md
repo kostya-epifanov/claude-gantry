@@ -122,10 +122,26 @@ Two reasons this is stated here rather than smoothed over. First, it is true, an
 property you have overclaimed is worse than one you have scoped honestly — someone will eventually
 find the gap, and it should be documented by the author rather than discovered by a stranger.
 Second, the mitigation only makes sense once you have admitted the gap: **every invocation of the
-hook, fire or skip, appends one line to `.claude/artifacts/gate-hook.log` with its reason.** A
-bypass is not prevented; it is made visible after the fact. For a tool whose whole point is that
-you can trust what it reports, an audit trail you can grep is worth more than a stronger claim you
-cannot back.
+hook in an armed repo, fire or skip, appends one line to `.claude/artifacts/gate-hook.log` with its
+reason.** A bypass is not prevented; it is made visible after the fact. For a tool whose whole point
+is that you can trust what it reports, an audit trail you can grep is worth more than a stronger
+claim you cannot back.
+
+Two details of that trail are load-bearing, and both were wrong until v0.3.
+
+**A fire is logged twice — once before the gate starts, once after it ends.** The hook wraps
+`run_gates.sh` in no timeout, so a gate that hangs hangs the hook until the harness kills it at its
+300s limit, and a killed hook produces no exit 2: the stop proceeds un-gated. That is the one
+remaining path where the guarantee silently fails, which makes it the one path the trail most needs
+to cover — and logging only after the gate returned meant it was the one path that left no evidence
+at all. A start line with no matching outcome is now what a killed hook leaves behind.
+
+**A repo that never opted in is not written to.** The hook is registered for `Stop` and
+`SubagentStop` on matcher `*`, so it runs on every stop of every session in every repository. It
+creates its artifacts directory only after confirming `task.md` and `.claude/gates.sh` both exist —
+otherwise installing the plugin would mean every repo you open acquires a directory and a log line
+for a feature it never switched on. Checking those two before `stop_hook_active` is safe: a repo
+that never runs the gate can never produce the block that a later stop would be caused by.
 
 ## What we deleted
 
