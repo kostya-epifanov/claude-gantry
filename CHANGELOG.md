@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+**Fixed**
+- `lib/journal_append.sh` — the documented journal idiom was a `printf` of a command substitution
+  wrapping `jq`, with a nested one supplying the timestamp. A worktree-isolated session refuses to
+  run that: the harness cannot verify such a command stays inside the worktree, and five of six
+  lanes in one parallel batch hit the refusal. The retries were not the damage — one lane worked
+  around it by calling `date -u` once and hand-writing the rest of its timestamps as estimates,
+  producing an accurate event ordering with a fictional clock that nothing downstream could
+  detect. The substitution now lives inside a script, so the caller's argv stays flat, and `ts` is
+  no longer a parameter: `--ts` is refused rather than ignored. The script validates each of the
+  five event shapes, so a field the shape does not carry, or a required one left out, is exit 2
+  instead of a malformed line.
+- `lib/ensure_excluded.sh` — stage 1 excluded `journal.jsonl` and `.claude/artifacts/` with a
+  `grep -q … || echo … >>` against `.git/info/exclude`. Git maps `info/` into the *common* git dir,
+  so that file is shared by every linked worktree and there is no per-worktree copy to write
+  instead — measured, not assumed: `git rev-parse --git-path info/exclude` from inside a linked
+  worktree resolves to the main repository's file, and a pattern written to the per-worktree path
+  leaves `git status` still reporting the file as untracked. Six lanes interleaving that read and
+  write produced double-appended entries. The write is now locked, whole-line matched, and repairs
+  duplicates an earlier writer left. `skills/worktree` adopts it too — fixing only the
+  orchestrator would have left the same race in the most concurrent moment of a batch.
+- `skills/auto-unattended/SKILL.md` — every journal call site, and the stage 0 roster preflight,
+  are now flat commands. The preflight was itself a shape the guard refuses, so a lane could fail
+  before reaching the stage the journal fix was for.
+- `tests/cases/journal_append.sh` — covers both scripts. The assertions that matter are that a
+  caller cannot choose the timestamp, that a line lands in the worktree the call was made from
+  rather than the main checkout, and that eight concurrent writers **each asking for a different
+  pattern** all survive. The distinctness is the whole point: eight writers asking for the *same*
+  pattern prove nothing, because each rewrites through a temp file and renames atomically, so no
+  interleaving can leave a duplicate whether the lock works or not — that version of the assertion
+  passed with the lock deleted. What the lock prevents is a lost update, and it is only visible
+  when the writers want different things: measured at 4 of 8 patterns surviving without the lock
+  and 8 of 8 with it. Every documented invocation of the helper is executed by the case, so a
+  flag name in the docs cannot drift from the script and fail only in a headless run.
+
 ## 0.3.0
 
 **The first released version.** 0.1.0 and 0.2.0 were developed in the open but never tagged or

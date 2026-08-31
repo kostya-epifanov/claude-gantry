@@ -14,8 +14,8 @@ and documented once, in `skills/auto/references/orchestration.md`. This file doe
 - Context hygiene (the reason this skill exists)
 - Resolving the roster
 
-The `journal.jsonl` envelope and its four event shapes live in [journal.md](journal.md), so the
-protocol is written down once.
+The `journal.jsonl` envelope, its five event shapes, and the helper that writes them live in
+[journal.md](journal.md), so the protocol is written down once.
 
 ## The artifacts
 

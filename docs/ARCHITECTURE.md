@@ -16,17 +16,25 @@ gantry/
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             skill-local deterministic work, run not read
 │   └── templates/           the task.md fallback
-├── lib/                     shared runtime scripts     (2)
+├── lib/                     shared runtime scripts     (4)
 │   ├── run_gates.sh         the one hard gate
-│   └── detect_stage.sh      where a task sits on the chain
+│   ├── detect_stage.sh      where a task sits on the chain
+│   ├── journal_append.sh    argv → one journal.jsonl line
+│   └── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
 ├── agents/gantry-*.md       → the delegation roster    (4)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
 └── examples/gates.sh        a starter repo-owned gate
 ```
 
-`lib/` exists because two scripts are shared by several skills *and* by the hook. Putting the gate
-under the skill that happened to run it first (`skills/auto/scripts/`, as in v0.1) made the path a
-lie as soon as ownership moved.
+`lib/` exists because these scripts are shared by several skills *and* by the hook. Putting the
+gate under the skill that happened to run it first (`skills/auto/scripts/`, as in v0.1) made the
+path a lie as soon as ownership moved.
+
+The two newer ones exist for a narrower reason: a worktree-isolated session refuses a command it
+cannot verify stays inside the worktree — no substitutions, no compound structure — so an
+orchestrator cannot build a JSON line or do a read-then-append in its own argv. Moving that into a
+script is the only way to keep the caller's command flat. Neither is a framework; both are
+argv-in, contract-out, exactly like the two above.
 
 A skill body enters the conversation when it fires and **stays there for the rest of the session**.
 That is why detail lives in `references/` (loaded only when the skill says to read it) and why
