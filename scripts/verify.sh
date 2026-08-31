@@ -180,6 +180,22 @@ head2 "detect_stage.sh reads Open questions correctly"
 # Both would ship green without an assertion here.
 LIB="$PWD/lib/detect_stage.sh"
 fixdir="$(mktemp -d)"
+# `mktemp -d` can fail — a full or read-only TMPDIR, or a sandboxed session that
+# denies it — and every line below then operates on the empty string. This is
+# not theoretical: three lanes hit it in one batch. `cd ""` SUCCEEDS in bash, so
+# the subshell keeps the repository as its cwd and `git init -q .` runs in the
+# repository itself; `rm -f "$fixdir/task.md"` becomes `rm -f /task.md`, each
+# `printf > "$fixdir/task.md"` writes to `/task.md`, and the EXIT trap becomes
+# `rm -rf ""`. Where those writes are permitted, the fixture assertions then
+# rerun the detector against the REAL task.md and pass or fail for reasons that
+# have nothing to do with the parser — a false green as easily as a false red.
+#
+# So this is exit 2 (the gate could not run) rather than exit 1 (the gate found
+# a defect), and it is checked before the trap that would otherwise `rm -rf ""`.
+[ -n "$fixdir" ] && [ -d "$fixdir" ] || {
+  bad "could not create the fixture repo: mktemp -d produced no directory"
+  exit 2
+}
 trap 'rm -rf "$fixdir"' EXIT
 (
   cd "$fixdir" || exit 1
