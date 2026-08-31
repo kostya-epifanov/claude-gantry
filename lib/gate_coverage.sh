@@ -108,9 +108,25 @@ roots="$(printf '%s' "$roots_field" | tr ',' ' ')"
 # by init so it is absent from every test fixture. Diffing against HEAD then
 # means "everything not yet committed", which is exactly the changed set the
 # implement phase holds — it runs before anything is committed.
+#
+# `develop` is tried before origin/HEAD, and it has to be: it is the rung
+# skills/ship/scripts/detect_state.sh and lib/detect_stage.sh's inherited_base_rev()
+# both try first. In a repo that integrates on develop while origin/HEAD still
+# names main, skipping it merge-bases against main instead, and every path
+# changed on develop since it last reached main is counted as changed by THIS
+# run — the counts stop meaning "paths this change touched", which is the only
+# thing they are reported as.
 if [ -z "$BASE" ]; then
   if upstream="$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)" && [ -n "$upstream" ]; then
     BASE="$(git merge-base HEAD "$upstream" 2>/dev/null)"
+  fi
+  if [ -z "$BASE" ] && [ "$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" != develop ]; then
+    for ref in refs/remotes/origin/develop refs/heads/develop; do
+      if git show-ref --verify --quiet "$ref"; then
+        BASE="$(git merge-base HEAD "$ref" 2>/dev/null)"
+        [ -n "$BASE" ] && break
+      fi
+    done
   fi
   if [ -z "$BASE" ] && git symbolic-ref -q refs/remotes/origin/HEAD >/dev/null 2>&1; then
     BASE="$(git merge-base HEAD refs/remotes/origin/HEAD 2>/dev/null)"

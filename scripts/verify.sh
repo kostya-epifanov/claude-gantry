@@ -168,6 +168,14 @@ else
   bad "see: bash tests/run.sh"
 fi
 
+head2 "secret scan"
+bash scripts/secret-scan.sh >/dev/null 2>&1 && ok "clean" || { bad "see: bash scripts/secret-scan.sh"; }
+
+# The fixture block below can exit 2 outright when the environment denies it a
+# temp directory, so it runs LAST and the secret scan runs before it. BSD
+# `mktemp -d` with no template ignores $TMPDIR and uses the Darwin per-user temp
+# dir, so a sandboxed macOS session hits that exit deterministically — with the
+# old ordering it took the most safety-relevant check in this script down with it.
 head2 "detect_stage.sh reads Open questions correctly"
 # lib/detect_stage.sh's FORKS: line is the only machine-checkable half of the
 # rule that a fork must be settled before an implementer is dispatched. Two of
@@ -276,9 +284,6 @@ cp skills/plan/templates/task.md "$fixdir/task.md"
 forks_is none "a task.md freshly copied from the template"
 
 rm -rf "$fixdir"; trap - EXIT
-
-head2 "secret scan"
-bash scripts/secret-scan.sh >/dev/null 2>&1 && ok "clean" || { bad "see: bash scripts/secret-scan.sh"; }
 
 printf '\n%s\n' "-----------------------------------------"
 if [ "$fail" -eq 0 ]; then echo "verify: PASS"; else echo "verify: FAIL"; fi

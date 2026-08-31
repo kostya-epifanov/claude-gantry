@@ -105,10 +105,18 @@ block as written would let the strict result overwrite the supervised one and se
 repo down the exit-`3` row below instead of the exit-`0` one.
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"                 # $log is relative; pin the cwd
+cd "$(git rev-parse --show-toplevel)"                 # pin the cwd; $log is built from it
+bash "$GANTRY/lib/ensure_excluded.sh" .claude/artifacts/
 log="$PWD/.claude/artifacts/gate-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
 mkdir -p "$(dirname "$log")"
 ```
+
+**The exclude line is not optional.** This step writes a file into the *target* repo's working
+tree, and most target repos have no ignore rule for `.claude/artifacts/`. `gantry:ship` stages with
+`git add -A` when nothing is staged, so without the exclusion the gate transcript is committed into
+the pull request. `ensure_excluded.sh` is idempotent, so running it on every gate costs nothing.
+Under `/gantry:auto-unattended` the driver has already written the same pattern; this is what
+covers a standalone `/gantry:implement` and a supervised `/gantry:auto`, neither of which does.
 
 ```bash
 bash "$GANTRY/lib/run_gates.sh" >"$log" 2>&1; rc=$?            # supervised — this one, or

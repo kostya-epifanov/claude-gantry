@@ -24,6 +24,10 @@ bash "$GANTRY/lib/detect_stage.sh"
 - `PHASE:not-a-repo` → stop.
 - `TASK:absent` → warn: with no contract there is nothing to check the change *against*, so the
   review is against general quality only. Continue; say so in the report.
+- `TASK:inherited` → **treat it as `absent`, not as `present`.** The `task.md` on disk is the
+  previous, merged task's contract — a freshly branched worktree is born holding it — so its
+  acceptance criteria and *Out of scope* describe a different change. Reviewing this diff against
+  them triages findings by the wrong boundary. Warn as above and say which it was.
 - `STATUS:planned` / `grilled` → nothing has been implemented yet. If the tree is clean there is
   nothing to review — say so and name `NEXT`. If it is dirty, someone worked by hand; review that,
   and say that is what happened.

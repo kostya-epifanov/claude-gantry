@@ -218,7 +218,7 @@ New event types are fine — keep the envelope, add a shape here, and prefer a n
 value over overloading an existing one.
 
 Adding one now means **two** edits, not one: the shape here, and the event's row in
-`lib/journal_append.sh`, which whitelists the five values above and the fields each carries. That
+`lib/journal_append.sh`, which whitelists the six values above and the fields each carries. That
 is deliberate — an unrecognised `--event` is exit 2, so a typo cannot quietly produce a line
 nothing can query — but it does mean the script is a second place to look when the schema grows.
 
