@@ -100,6 +100,36 @@ alternative to stopping is guessing at a decision that would then be indistingui
 somebody made. The line exists so that "why did this run stop" is answerable from the journal
 alone, without reopening the worktree.
 
+### `disclosure` — the run shipped something it had not proven
+
+```json
+{"ts":"2026-08-16T10:04:18Z","task":"2026-08-16-contact-form","event":"disclosure","stage":"ship","kind":"unproven-acceptance","detail":["A person still has to confirm the approval message arrives on a real device."],"pr":"https://github.com/acme/site/pull/41"}
+```
+
+- `stage` — where the disclosure was made. `ship` is the only one that emits it today.
+- `kind` — what was not proven. Two values so far:
+  - `unproven-acceptance` — `task.md` carried a non-empty `human_only` block, so the run shipped
+    against acceptance criteria no gate could check. `detail` carries those entries verbatim.
+  - `unexercised-plugin-change` — the diff changed the plugin's own `skills/`, `agents/`, `lib/` or
+    `hooks/` while the skills that ran came from the installed plugin. `detail` must distinguish
+    the two senses ship distinguishes, because one sentence is false for half of them: `skills/`
+    and `agents/` are loaded by the harness and did not execute at all, while `lib/` and `hooks/`
+    were executed from the worktree by the repo's own suite but not as the running plugin's copies.
+    Calling the latter untested is the false claim, so do not.
+- `detail` — one string per thing not proven, in the terms a reader has to act on rather than a
+  count of them. For an unexercised plugin change that means the version that actually executed,
+  the root that executed where it matches no recorded install, or that the version could not be
+  determined — whichever of ship's three outcomes it reported.
+- `pr` — the pull request the disclosure was written into, or `null` under `--no-pr`, where it
+  reached the report only.
+
+**Copied from what `gantry:ship` reported — never re-derived here, and never invented.** A line
+claiming a disclosure was made is worth exactly as much as the report it came from, and this is a
+log the project treats as evidence. If ship did not report one, the absence is the finding.
+
+`kind` is the extension point, the way `escalation`'s `reason` is: a new sort of thing a run
+shipped without proving adds a value rather than a new event type.
+
 ## Extending
 
 New event types are fine — keep the envelope, add a shape here, and prefer a new `event`

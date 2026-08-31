@@ -1,8 +1,8 @@
 ---
-id: 2026-08-29-ship-review-and-fork-precondition
-title: Fold review into ship, and make settled forks a precondition of leaving plan
+id: 2026-08-31-ship-discloses-what-was-not-proven
+title: Make the draft PR body disclose what the run did not prove
 project: claude-gantry
-branch: feat/ship-review-and-fork-precondition
+branch: feat/ship-discloses-what-was-not-proven
 mode: unattended          # semi-auto | auto | unattended — which mode is driving
 status: shipped           # planning | planned | grilled | implementing | implemented |
                           # reviewed | shipped | blocked. The readiness hook arms on
@@ -11,87 +11,117 @@ status: shipped           # planning | planned | grilled | implementing | implem
 
 ## Context & goal
 
-Two independent gaps in the pipeline, tracked upstream as items 1.3 and 2.5.
+For an unattended run, the draft pull request body is the entire interface to the reviewer.
+Nobody watched the run; nobody will re-derive it. Whatever the body says is what the change is
+taken to be. Three things it must say are, today, unsayable — not because a driver forgets them
+but because nothing in the chain computes them.
 
-**1.3 — review is optional in practice.** `gantry:ship` today goes commit → push → PR with no
-review in between. Review only happens when a driver runs the `review` phase, or when someone
-types `/gantry:review` by hand. Anyone who reaches for `/gantry:ship` directly — which is the
-common case for a small change — opens a PR that nothing has read. Ship is the last place a
-change is still cheap to fix, so a review stage belongs there, between the commit and the PR.
+**A change to the plugin's own files is not exercised by the run that makes it.** Phase skills
+execute from the installed plugin cache, not from the worktree being edited. A measured case in
+this repo: the lane that produced an earlier pull request edited `skills/ship/SKILL.md` to add a
+review stage and a `--reviewed` flag, then invoked `/gantry:ship --reviewed`, which ran the *old*
+ship — no review stage, and the flag silently ignored. The headline feature of that change was
+never once executed by the run that shipped it, and the run reported success. Nothing was lying;
+nothing was looking. The disclosure has to be computed from the diff, not remembered.
 
-**2.5 — a design fork survives all the way into the code.** `task.md` carries an *Open questions*
-section for the forks the implementer must not resolve alone, but nothing enforces that it is
-empty before implementation starts. Today it is a habit: supervised runs may or may not surface
-the forks, and unattended runs are explicitly told to pick "the most conservative reading" and
-carry on. Both fail the same way — a decision nobody made turns into an hour of work in the wrong
-direction, discovered at review. The fix is to move the fork from hour three to minute two: an
-open fork is a precondition of leaving the plan stage, put to the user when there is one and a
-hard stop when there is not. An implementer is never dispatched against an open fork.
+**Nothing reads the prose ship writes.** `grill` reads `task.md` and `plan.md`. `review` reads the
+diff. The commit message and the pull request body are composed last, by the context most invested
+in the result, and no phase reads either. One lane in this batch published two false mechanism
+claims in a pull request body — an assertion about what armed the readiness hook, and an assertion
+about where the detector sourced one of its output lines. Both were wrong, both were caught by a
+human peer rather than by any phase, and correcting them cost three commits and two rewrites of the
+body.
 
-The two changes share nothing but the file set. They are shipped together because they are one
-coherent pass over the driver and ship skills.
+**`human_only` is decorative.** `task.md` carries a `human_only` list under *How to verify* — the
+checks no automated gate can make. It appears in the task template, in the worked example, and in
+this repo's own `task.md`, and nowhere else: no script parses it, no skill reads it, no journal
+event carries it. The batch's sharpest case is a lane wiring a privileged gate to a chat-based
+approval transport whose acceptance test needs a phone, a bot, and a fifteen-minute wait. That test
+has never been observed passing. The gate went green anyway, and a driver that silently skipped the
+disclosure would produce a run indistinguishable from one that made it.
+
+All three are **disclosures, not refusals**. Nothing here blocks a push, fails a gate, or withholds
+a pull request. The goal is that a reviewer opening a draft can see what the run did not establish,
+without having been in the run.
 
 ## Acceptance criteria
 
-### 1.3 — review folded into ship
+### Untested-plugin-change disclosure
 
-- [ ] `skills/ship/SKILL.md` has a numbered stage between the commit stage and the push stage
-      whose body invokes `/code-review` with `--fix` and a named effort level, scoped to the
-      branch diff.
-- [ ] That stage's body contains no enumeration of finding categories and no triage rule —
-      `grep -c` for `Address now`, `Defer`, `Drop` in `skills/ship/SKILL.md` returns 0. It names
-      the command; `skills/review` keeps the procedure.
-- [ ] The stage is skipped when `--no-pr` is passed, and when `--reviewed` is passed, and ship
-      says which.
-- [ ] `--reviewed` appears in ship's `argument-hint`, in the `gantry:ship` invocation in both
-      drivers, and in orchestration's pass-through list.
-- [ ] `task.md`'s `status:` is **not** consulted by the guard, and ship's prose says why.
-- [ ] The gate is re-run only when `--fix` changed the tree; on a non-zero exit ship stops before
-      the push, and the review's own verdict never blocks anything.
-- [ ] Ship's report states whether the review ran and how many files `--fix` touched. It does not
-      report a findings tally, which nothing in this repo establishes is available.
-- [ ] `/code-review` being unavailable is a documented non-fatal outcome, reported with its cause.
-- [ ] The renumbered stage headings run 1–6 with no gaps, and no prose in the file refers to a
-      stage by a number it no longer has.
+- [ ] When the diff against the base touches `skills/`, `lib/`, `hooks/` or `agents/` **and** the
+      repository being worked on carries `.claude-plugin/plugin.json`, ship's report and the pull
+      request body both name the plugin version that actually executed.
+- [ ] The disclosure distinguishes two classes of changed path, because they are untested in
+      different senses and one blanket sentence is false for one of them: `skills/` and `agents/`
+      are loaded by the harness and genuinely did not run this session, while `lib/` and `hooks/`
+      are executed from the worktree by the repo's own test suite but not as the running plugin's
+      copy.
+- [ ] The disclosure is suppressed, rather than stated, when the executing plugin root and the
+      repository root are the same tree — the `--plugin-dir` shape, in which the edited skills
+      **did** execute. Claiming otherwise would be the false mechanism claim this change exists to
+      prevent.
+- [ ] The executing version is resolved from a command, not a guess. Where it cannot be resolved,
+      the body says the executing version could not be determined — the disclosure is never omitted
+      and never invented.
+- [ ] In a repository with no `.claude-plugin/plugin.json`, the check is inert: an ordinary target
+      repository that happens to have a `lib/` directory produces no such disclosure.
+- [ ] `skills/ship/SKILL.md` names the command that supplies the disclosure's inputs. Ship's own
+      `scripts/detect_state.sh` reads git state and never reads `task.md`, so the step that needs
+      `task.md` says which script it runs.
 
-### 2.5 — settled forks as a plan-stage precondition
+### Ship re-reads its own prose
 
-- [ ] `lib/detect_stage.sh` reports `FORKS:` with all four of `absent`, `unknown`, `open`, `none`,
-      and its header comment documents the heading match, the section terminator, fence skipping,
-      nesting, and how a bare bullet is read.
-- [ ] `scripts/verify.sh` asserts the `FORKS:` value against fixtures covering, at minimum: an
-      unchecked box in *Acceptance criteria* with a settled *Open questions* (must be `none`), an
-      unchecked box inside a fenced block (must be `none`), a bare bullet (must be `open`), and a
-      `task.md` with no such heading (must be `unknown`).
-- [ ] A `task.md` freshly copied from `skills/plan/templates/task.md` reports `FORKS:none`.
-- [ ] `skills/plan/SKILL.md` sets `status: planned` only on `FORKS:none`, and tells the reader to
-      mark a settled fork as a checked item rather than delete it.
-- [ ] `skills/grill/SKILL.md` sets `status: grilled` only on `FORKS:none`, and routes a critique
-      finding that is a genuine fork into *Open questions*.
-- [ ] `skills/implement/SKILL.md` refuses on `FORKS:open` when `mode:` is `auto` or `unattended`,
-      and warns without refusing otherwise.
-- [ ] `skills/auto/SKILL.md` runs an `AskUserQuestion` round on `FORKS:open` at two points: after
-      plan and after grill.
-- [ ] `skills/auto-unattended/SKILL.md` journals an `escalation` event, sets `status: blocked`, and
-      stops on `FORKS:open` at those same two points. Its open-fork paragraphs contain no
-      conditional continuation — `grep -niE 'otherwise|unless|if the fork'` within them returns
-      nothing.
-- [ ] Both drivers' stage sections and the mode table in
-      `skills/auto/references/orchestration.md` describe the new behaviour. (Neither driver
-      contains a markdown table; none is added.)
-- [ ] `skills/auto-unattended/references/journal.md` documents the `escalation` shape with a worked
-      example, and no longer says nothing emits it.
-- [ ] No file still *instructs* a run with no human present to resolve a design fork by taking the
-      conservative reading. Read every hit of `grep -rn conservative skills/`: each must either
-      forbid the practice or scope it to a judgement call inside a plan, never to a fork.
+- [ ] `skills/ship/SKILL.md` has an explicit re-read step positioned before `gh pr create` that
+      covers the composed title, the body **and** the commit subject.
+- [ ] The commit subject is additionally checked where it is written, before the push, because the
+      re-read before `gh pr create` happens after the push and history is not rewritten to fix a
+      subject. The skill states that remedy — a subject already pushed is corrected in the body,
+      never by force-pushing.
+- [ ] That step names the specific failure it exists for — an unsourced claim about how something
+      works — rather than asking generically for accuracy. The rule it states is that a mechanism
+      claim either cites the file that establishes it or does not go in the body.
+- [ ] `skills/review/SKILL.md` is unchanged by this task, and the reason review was not extended
+      instead is written down in `skills/ship/SKILL.md` where the next reader will find it.
 
-### Both
+### `human_only` becomes a fact
 
-- [ ] Every statement this change falsifies is corrected: the "two hard refusals, and only two"
-      and "`ship` does not re-check the gate" claims in `docs/SKILLS.md`, the same refusal claim
-      inline in `skills/implement/SKILL.md`, and "the gate is never delegated" in
-      `skills/auto-unattended/references/delegation.md`.
-- [ ] `bash scripts/verify.sh` exits 0.
+- [ ] `bash lib/detect_stage.sh` prints a new labeled line reporting whether the `human_only` block
+      is non-empty, for each of three inputs: a `task.md` with a populated list, one with an empty
+      list, and one with no such block at all.
+- [ ] The new line is documented in the header comment block of `lib/detect_stage.sh` alongside the
+      other output lines, and no existing output line is renamed or reordered.
+- [ ] `frontmatter_status()` in `lib/detect_stage.sh` stays byte-identical to the copy in
+      `hooks/readiness-gate.sh`, and the divergence check in `scripts/verify.sh` passes.
+- [ ] The reader for the new line is a separate function from `frontmatter_status()`, its rules are
+      written down in a comment, and every permissive case is permissive in the direction of
+      reporting the block as present.
+- [ ] A pull request body composed for a task with a non-empty `human_only` list carries a fixed
+      heading and the entries verbatim, and `skills/ship/SKILL.md` states that the heading's
+      absence is itself meaningful.
+- [ ] One source of truth is named for the entries. The detector line decides **whether** the
+      heading is emitted; `task.md` supplies the **text**. Where the two disagree, the skill says
+      to emit the heading and record that the block could not be read.
+- [ ] A `task.md` freshly written from the task template reports `none`, not `present`. A heading
+      that appears on every pull request quoting placeholder prose destroys the property that its
+      absence is meaningful.
+- [ ] The pull request body says plainly what draft status does not mean — draft means unwatched,
+      not unverified — whenever `--draft` was passed, independent of whether the `human_only`
+      heading is present.
+- [ ] The journal reference documents an event recording that a run shipped with unproven
+      acceptance criteria, and the unattended driver appends it from what ship reported rather than
+      re-deriving or inventing it.
+
+### Gate and house style
+
+- [ ] A test case covers the three `human_only` states, ends by calling `finish` (without it a case
+      prints failures and still exits 0, so the suite reports PASS), and asserts that the detector's
+      **last** line still begins `PHASE:` — a substring assertion alone cannot catch a new line
+      appended in the wrong place.
+- [ ] `bash scripts/context_budget.sh` exits 0. Note that it counts frontmatter `description:`
+      characters only; the 500-line body rule is house style enforced by no script, so it is
+      checked with `wc -l` and reported as such rather than claimed as a gate result.
+- [ ] Every skill body stays under 500 lines, verified by `wc -l`.
+- [ ] `bash tests/run.sh` and `bash scripts/verify.sh` both exit 0.
 
 ## How to verify
 
@@ -99,85 +129,86 @@ coherent pass over the driver and ship skills.
 verification:
   automated:
     lint: true              # bash -n + shellcheck, via scripts/verify.sh
-    tests: true             # scripts/verify.sh is the whole suite CI runs
+    tests: true             # tests/run.sh, invoked by scripts/verify.sh
   human_only:
-    - "Read skills/ship/SKILL.md end to end: the review stage reads as one step in ship's
-       existing numbered flow, not as a transplanted copy of skills/review."
-    - "Read skills/auto-unattended/SKILL.md: the open-fork path is a stop with no continuation
-       branch. There is no wording under which the run proceeds to implement."
+    - "Read the composed pull request body for this very change: it must itself carry the
+       untested-plugin-change disclosure, because the ship that opens it is the installed
+       plugin and not this worktree. A body that omits it has failed its own acceptance
+       criteria in the most visible way available."
+    - "Read the re-read step in ship end to end and judge whether a driver mid-run, already
+       invested in the result, would actually strike a claim on reading it. A checklist that
+       reads as encouragement rather than as a rule will be complied with and change nothing."
 ```
 
 ```bash
-bash scripts/verify.sh                      # the gate; must exit 0
-grep -n "code-review" skills/ship/SKILL.md  # the new stage invokes, does not reimplement
+bash scripts/verify.sh                       # the gate; must exit 0
+bash tests/run.sh human_only                 # the three states of the new detector line
+bash lib/detect_stage.sh | tail -1           # must still be the PHASE: line
+git diff --stat master... -- skills/review   # must be empty (three-dot: the merge base)
+wc -l skills/*/SKILL.md                      # house style, checked by no script
 ```
 
 ## Out of scope
 
-- The consuming repo that tracks these items. Nothing outside this repository is touched.
-- The gate contract. `lib/run_gates.sh`'s exit-code semantics (`0` green, `1+` red, `2` could not
-  run, `3` NO-GATES under `--strict`) are unchanged, and no skill gains the ability to overrule
-  them. The review stage added by 1.3 is advice; the exit code stays law.
-- `hooks/readiness-gate.sh`, and `lib/detect_stage.sh`'s existing behaviour. The hook's arming
-  condition is untouched, and so are `PHASE`, `NEXT`, and `frontmatter_status()` — the last of
-  which `scripts/verify.sh` requires to stay byte-identical to the hook's copy.
-
-  What **is** in scope, stated plainly rather than as a footnote: the detector gains one new
-  reported line, and that line becomes the chain's third hard refusal (in `implement`, on a
-  dispatch). That is a real behaviour change, not a reporting change, and it is deliberate — a
-  precondition only prose enforces is the habit this task exists to replace. It is also why
-  several shipped statements about "two hard refusals" have to be corrected rather than left
-  standing.
-- Teaching `/gantry:review` anything new. 1.3 moves a review to a new place; it does not change
-  what a review is. It gains one cross-referencing sentence and no behaviour.
-- Any new script, and any new test harness. This repo has none, and adding one to land a change
-  that is almost entirely skill prose would be a larger change than the one requested.
+- **Reloading skills from the worktree mid-session.** The cheap disclosure is the whole of this
+  task. Making the edited skills actually execute may not be supported by the harness at all.
+- **Blocking, refusing, or failing anything** on any of these three conditions. They are
+  disclosures. No push is withheld, no gate turns red, no pull request is refused.
+- **Any change to the triage behaviour of `/gantry:review`, or to its prohibition on `--fix`.**
+  That skill is untouched.
+- **Post-hoc editing of an already-open pull request body.** The disclosure is composed before the
+  pull request is opened or it does not exist.
+- **A new reviewing sub-agent.** The prose re-read is a checklist the driver applies, not a
+  dispatch.
+- **`frontmatter_status()` in either copy.** It is diffed byte-for-byte by the gate; the new reader
+  is a separate function.
+- **`scripts/verify.sh`'s unguarded fixture directory**, which review surfaced: a pre-existing bug
+  in code this change does not touch, where a failed `mktemp` makes part of the suite pass for the
+  wrong reason. Deferred to `handover.md`.
 
 ## Affected areas
 
-Mapped by a `gantry-explorer` dispatch over everything outside the skill bodies being edited.
-
-**Item 1.3 — ship's stages are described in six places.** `skills/ship/SKILL.md` is the flow
-itself (frontmatter `argument-hint` and `description`, the flag paragraphs, and stage numbers
-cross-referenced from at least three paragraphs outside the headings). `skills/ship/scripts/detect_state.sh`
-restates the path in its header comment. `README.md` carries it twice — in *The chain* and in the
-skill table's flag list. `docs/SKILLS.md` has both the three-modes table and a `gantry:ship`
-entry repeating the `argument-hint`. `docs/ARCHITECTURE.md` has two diagrams: *who invokes whom*,
-and a ship state-machine whose `STAGE` list enumerates every entry point. `skills/sync/SKILL.md`
-names `/gantry:ship` in passing and needs nothing.
-
-**Item 1.3 — `/code-review`'s invocation shape** is set by `skills/review/SKILL.md` step 2, which
-forbids both `ultra` and `--fix` and requires a named effort level. `docs/SKILLS.md` and
-`docs/ARCHITECTURE.md` both describe the three review tiers, as does the delegation table in
-`skills/auto/references/orchestration.md`.
-
-**Item 2.5 — the fork surface.** `skills/plan/SKILL.md` holds the conservative-reading rule in two
-places (*Ask, don't assume*, and the step that records status). The same rule is restated in
-`skills/auto-unattended/SKILL.md`'s plan stage and in orchestration's *Preconditions for
-unattended*. `skills/grill/SKILL.md` carries its own conservative-reading sentence for critique
-findings — a fork grill raises must land in *Open questions* too, or the precondition has a hole.
-The section's own definition lives in `skills/plan/templates/task.md` and `examples/task.md`,
-which `scripts/verify.sh` requires to be byte-identical. `lib/detect_stage.sh` is where a
-machine-checkable answer has to come from; its header comment documents every output line.
-
-**Risks the map surfaced.** `scripts/verify.sh` rejects any markdown carrying a line-number
-citation, requires every relative markdown link to resolve, and diffs the template against the
-example — so the parity edit must be a copy, not two hand-edits. Renumbering ship's stages is the
-single highest-risk edit, because the numbers are referenced from prose the headings do not
-contain.
+- `skills/ship/SKILL.md` — the three composition-time changes land here: the plugin-version
+  disclosure and the fixed unproven-criteria heading in stage 5, and the prose re-read step
+  immediately before `gh pr create`. Currently 230 lines against a 500-line ceiling, so there is
+  room, but the additions must be tight. Stage 5 is short and the commit message is written back in
+  stage 2, so the re-read step has to reach backwards to the subject composed there.
+- `lib/detect_stage.sh` — a new reader function and a new output line. Two hazards. The first is
+  `frontmatter_status()`, duplicated verbatim into `hooks/readiness-gate.sh` and compared by slicing
+  the function body out of both files; the slice is brace-delimited, so even the shape of its
+  opening and closing lines is load-bearing. The new reader must not touch it — the existing
+  `open_questions_forks()` is the precedent for a wholly separate parser. The second is that the
+  header comment block documents the output contract and ends by promising `PHASE` is the final
+  line, so the new line goes before it.
+- `skills/auto-unattended/references/journal.md` — five event shapes are documented, and the file
+  explicitly prefers a new `event` value over overloading an existing one. A sixth shape is added.
+- `skills/auto-unattended/SKILL.md` — the driver appends the new event at ship, and its report
+  section gains the disclosure.
+- `tests/cases/` — cases are standalone scripts sourcing `tests/lib.sh`, which supplies the fixture
+  repo and the assertion helpers; `tests/run.sh` globs the directory, so a new file is discovered
+  with no registration step.
+- `scripts/verify.sh` — already carries an inline fixture suite pinning the `FORKS:` parser's
+  behaviour. Whether the new cases live there or in `tests/cases/` is a placement decision, not a
+  behavioural one.
+- **Risk, and it is the interesting one:** the phase skills executing this run come from the
+  installed plugin cache, not from this worktree. Every edit made here is inert for the duration of
+  the run that makes it. This task cannot test its own output end to end, and the disclosure it
+  adds is precisely the disclosure it will have to make about itself — by hand, because the ship
+  that opens the pull request will not have the step that writes it.
 
 ## Open questions
 
-Settled. Every fork this task raised was closed by reading the repository rather than by choosing,
-so no decision was left for the implementer:
-
-- [x] **How ship learns a review already ran** — the repo's existing convention is that handoff
-      between phases is via disk plus explicit flags, never conversation. Ship takes a `--reviewed`
-      flag from the drivers *and* honours the `status:` already on disk.
-- [x] **What ship does when `/code-review` is unavailable** — this repo's rule is that the gate is
-      the only blocker. A missing reviewer is reported, not fatal.
-- [x] **Whether the review stage is opt-in** — the task statement settles it: a stage in the flow,
-      skipped only on `--no-pr` or an already-reviewed chain.
-- [x] **Whether to rename the section to match the upstream wording** — no. Gantry's heading stays
-      `## Open questions`; the upstream phrase becomes the section's one-line description in the
-      template, so the intent is captured without churning a heading other files point at.
+- [x] Vocabulary and cardinality of the new detector line — settled: `HUMAN_ONLY:present|none|absent`,
+      three values rather than the four `FORKS:` uses. `FORKS:` needs its fourth value because a
+      missing section and a missing file lead to different actions; here both mean "nothing to
+      disclose", and the already-printed `TASK:` line distinguishes them for any reader who cares.
+- [x] Where the new line is emitted — settled: immediately after `FORKS:`, which groups the two
+      readers of `task.md` body sections together. No existing line is renamed or reordered, and
+      `PHASE` stays last as the header comment promises.
+- [x] How the new journal event is named — settled: a new `event` value rather than a field on an
+      existing one, which is what the journal reference's own extension guidance calls for, with a
+      `kind` field as the extension point in the way `escalation` uses `reason`.
+- [x] Whether to extend `/gantry:review` to read the composed prose instead of having ship re-read
+      it — settled: ship re-reads. Review runs against the diff before ship has composed anything,
+      so extending it means either running it twice or moving it after composition. The reasoning is
+      recorded in the skill so a later reader does not undo it.
