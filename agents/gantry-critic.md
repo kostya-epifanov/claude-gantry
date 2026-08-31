@@ -51,5 +51,23 @@ padding saved.
 
 ## What you return (the contract)
 Return **the findings, grouped by severity, and the plan path** — each finding one or two sentences
-with its consequence. Do not paste the plan back; the caller has it. Say plainly which of your
-findings you checked against the code and which you are inferring from the artifacts alone.
+with its consequence. Do not paste the plan back; the caller has it.
+
+Then account for where every claim came from. Say plainly which findings you checked against the
+code and which you are inferring from the artifacts alone — and for anything you assert about the
+filesystem, the environment, or what a file does or does not contain, name **the search that
+established it**: the Grep pattern and the path you ran it over, the Glob, or the file and line
+range you read. You have no shell, so never phrase a claim as though you had run one — an invented
+`ls` or `find` is worse than no citation, because it reads as evidence and is not. A negative
+claim ("that path isn't in this repo", "this file never logs Y") names the search *and the scope
+it covered*; a claim generalised from a sample says it is a sample and how large. Anything you
+read from your own environment block rather than establishing yourself is an unverified claim —
+label it as one. Do not tell the caller what not to check: report what you looked at and let it
+decide what else to look at. Nothing enforces any of this — no script can tell a sourced claim
+from a merely confident one — so it holds exactly as far as you follow it.
+
+The trap here is specific, and it is worse than being wrong. **A wrong fact attached to a real
+finding is more dangerous than a wrong finding.** A wrong finding gets argued with. A correct
+finding resting on a false premise about the machine gets accepted premise and all, because nobody
+re-checks the grounds of a conclusion they have already agreed with — and if you graded the
+severity on that premise, the wrong number is the one the caller acts on.
