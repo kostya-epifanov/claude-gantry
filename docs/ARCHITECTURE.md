@@ -16,17 +16,34 @@ gantry/
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             skill-local deterministic work, run not read
 │   └── templates/           the task.md fallback
-├── lib/                     shared runtime scripts     (2)
+├── lib/                     shared runtime scripts     (5)
 │   ├── run_gates.sh         the one hard gate
-│   └── detect_stage.sh      where a task sits on the chain
+│   ├── gate_coverage.sh     what the gate actually read — reported, never enforced
+│   ├── detect_stage.sh      where a task sits on the chain
+│   ├── journal_append.sh    argv → one journal.jsonl line
+│   └── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
 ├── agents/gantry-*.md       → the delegation roster    (4)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
 └── examples/gates.sh        a starter repo-owned gate
 ```
 
-`lib/` exists because two scripts are shared by several skills *and* by the hook. Putting the gate
-under the skill that happened to run it first (`skills/auto/scripts/`, as in v0.1) made the path a
-lie as soon as ownership moved.
+`lib/` exists because these scripts are shared by several skills *and* by the hook. Putting the
+gate under the skill that happened to run it first (`skills/auto/scripts/`, as in v0.1) made the
+path a lie as soon as ownership moved.
+
+`gate_coverage.sh` sits beside the gate rather than inside it, and the split is the point.
+`run_gates.sh` emits *where* its checks ran; `gate_coverage.sh` compares that against the changed
+paths and returns a verdict. Only the caller holds both the verdict and the exit code, so only
+the caller can name **green-but-uncovered** — a gate that passed while reading none of the paths
+the diff touched. The comparison is a **heuristic** (a root is the directory a check ran in, not
+the files it read) and is therefore reported and never enforced: it changes no exit code and adds
+no refusal.
+
+`journal_append.sh` and `ensure_excluded.sh` exist for a narrower reason: a worktree-isolated
+session refuses a command it cannot verify stays inside the worktree — no substitutions, no
+compound structure — so an orchestrator cannot build a JSON line or do a read-then-append in its
+own argv. Moving that into a script is the only way to keep the caller's command flat. Neither is
+a framework; all five are argv-in, contract-out.
 
 A skill body enters the conversation when it fires and **stays there for the rest of the session**.
 That is why detail lives in `references/` (loaded only when the skill says to read it) and why
@@ -160,9 +177,16 @@ infer where it is from the conversation**, because in two of the three modes the
 That the artifacts now exist in every mode is what fixed the v0.1 hole where the readiness hook —
 which arms on `task.md` — could never fire under `gantry:auto`.
 
-`task.md` is filled in **two passes**: frontmatter, goal, acceptance criteria, how-to-verify and
-out-of-scope *before any code is read*; Affected areas after the explorer returns. Writing the
-contract first is what stops the plan from quietly redefining the task.
+`task.md` is filled in **two passes**, and the split is between what the task settles and what only
+the code can. First, *before any code is read*: frontmatter, goal, acceptance criteria,
+how-to-verify and the open questions. Writing the intent first is what stops the plan from quietly
+redefining the task to match what the code turned out to make easy.
+
+Then, after the code study: *Out of scope* **and** *Affected areas*, together. Out of scope moved
+into the second pass because it is the section that most needs code knowledge — what a change
+touches is exactly what tells you what it deliberately will not touch — and it is load-bearing
+downstream, where `gantry:review` triages findings against it and `gantry:handover` quotes it. A
+boundary written from the task description alone is a guess that later phases read as a decision.
 
 Its `status` field is the chain's state machine:
 

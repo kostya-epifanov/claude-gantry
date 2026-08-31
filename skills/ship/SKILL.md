@@ -18,7 +18,10 @@ nothing to ship). This skill runs in any repo, so follow *that* repo's conventio
 **`--no-pr`**: if `$ARGUMENTS` contains `--no-pr`, run commit → push only. Skip stages 3 and 5
 entirely and treat the push as the finish line — after pushing, go straight to the report and note
 the PR was intentionally not opened, and that the review was skipped with it. This is the mode
-`/gantry:auto --no-pr` passes through.
+`/gantry:auto --no-pr` passes through. **One thing survives the skip:** stage 5's disclosure
+checks. The push still happens, so a `--no-pr` run that changed the plugin's own files, or shipped
+a task with unproven acceptance criteria, still has to say so — in the report, since there is no
+body to say it in.
 
 **`--reviewed`**: the change has already been reviewed; skip stage 3. Both drivers pass it, because
 the chain runs `/gantry:review` as its own phase and a second review here would let `--fix` apply
@@ -86,6 +89,10 @@ Look before writing the message: `git status` and `git diff` (or `git diff --sta
 - **Message**: a concise imperative subject, plus a short body if the change warrants it. Match the
   repo's recent `git log` style, including whether it uses commit trailers — some repos do, some
   (like gantry) deliberately don't. Follow the ambient convention.
+- **Re-read the subject before committing it**, under the same rule stage 5 applies to the PR body:
+  *a claim about how something works either cites the file that establishes it, or it does not go
+  in the subject.* This is the **only** point at which the subject is free to fix. After stage 4 it
+  is on the remote, and stage 4 does not rewrite history to correct prose.
 
 ```bash
 git commit -m "<subject>"        # add -m for a body paragraph if warranted
@@ -182,21 +189,141 @@ If the push is rejected because the remote moved, stop and report it — let the
 
 Skip this stage entirely if `--no-pr` was given — the push was the finish line. Go straight to the
 **Report** (not stage 6, which reads a PR that doesn't exist) and note the PR was intentionally not
-opened.
+opened. **Run the two disclosure checks below anyway** and put their answers in the report; the
+push already happened, so skipping them would mean shipping the plugin's own change, or a task with
+unproven acceptance criteria, with nothing anywhere saying so.
 
 Otherwise, only when `BASE` differs from `BRANCH` and there are commits over `BASE` (the detector's
 `no-diff` guard already caught the empty case). If `GH` was `missing` or `unauth`, the commit and push still
 happened — report that, print the manual `gh pr create` command, and stop.
 
-Compose from the branch's commits rather than a bare `--fill`:
+Compose from the branch's commits rather than a bare `--fill`. Title = the change in one line;
+body = a short what/why, bulleting the commits when there are several.
+
+For an unattended run the body is the **entire** interface to the reviewer — nobody watched the
+run and nobody will re-derive it — so the two checks below run before the body is composed, and the
+re-read runs after it.
+
+#### What this run did not prove
+
+Both are **disclosures**. Neither withholds the PR, fails the gate, or blocks the push.
+
+**1. Acceptance criteria no gate could check.** Ship's own `detect_state.sh` reads git state and
+never opens `task.md`, so the answer comes from the other detector:
+
+```bash
+bash "$GANTRY/lib/detect_stage.sh"      # read the HUMAN_ONLY: line
+```
+
+On `HUMAN_ONLY:present` the body carries a heading of **exactly** `## Not proven by this run`, and
+under it the entries from `task.md`'s `human_only` block **verbatim**.
+
+One source of truth for each half: the detector decides **whether** the heading appears, `task.md`
+supplies the **text**. The entries are multi-line and one labeled line per value is the detector's
+whole output contract, so it cannot carry them. If the detector says `present` and you cannot find
+quotable entries, **emit the heading anyway** and say the block could not be read — failing toward
+the disclosure is the point.
+
+The heading is fixed so that its **absence** is itself information: a reader who knows it exists
+can tell "there was nothing to disclose" from "nobody wrote it down". A disclosure that appears
+only when someone remembers to write it is not a disclosure.
+
+**One heading, not one per signal.** Anything else a phase reports as shipped-but-unproven belongs
+under it too — a gate that went green over code no check actually covered is the next such signal,
+and it arrives from `/gantry:implement`'s report rather than from anything ship computes. Add what
+the phases reported; do not invent a signal no phase gave you, and do not open a second heading for
+it. A reviewer scans for one heading or none.
+
+**When `--draft` was passed**, the body also says plainly what draft status does *not* mean:
+**draft means unwatched, not unverified.** Include it whether or not the heading above appeared —
+`--draft` is the condition, not `HUMAN_ONLY:`. Left unsaid, a reviewer reads "draft" as unfinished
+work and takes the gaps as expected rather than as unchecked.
+
+**2. Whether the plugin's own change was exercised.** Three conditions, all commands:
+
+1. The repo carries `.claude-plugin/plugin.json` at its root. If not, **the whole check is inert** —
+   an ordinary target repo that happens to have a `lib/` directory must not produce a disclosure
+   about plugin versions.
+2. `git diff --name-only <BASE>...` shows a path under `skills/`, `lib/`, `hooks/` or `agents/`.
+3. `$GANTRY` and the repo root are **not** the same tree (compare resolved real paths). When they
+   are — the `--plugin-dir` shape `CONTRIBUTING.md` documents for testing a change locally — the
+   edited skills **did** execute, and the disclosure is **suppressed rather than stated**. Saying
+   "untested" there would be precisely the false mechanism claim the next step exists to strike.
+
+When all three hold, name the version that actually executed, and be exact about what was and was
+not exercised — **one sentence is wrong for half of these paths**:
+
+- `skills/` and `agents/` are loaded by the harness from the installed plugin. Edits to them did
+  **not** execute this session at all. This is the measured case: a run edited `skills/ship`, then
+  invoked ship, which ran the *old* copy — the change's headline feature was never exercised by the
+  run that shipped it, and the run reported success.
+- `lib/` and `hooks/` are executed **from the worktree** by any repo whose suite points at its own
+  copies, which gantry's `tests/lib.sh` does. The tests exercised them; what did not happen is that
+  the *running plugin's* copies were the edited ones. Calling those "untested" is false.
+
+Resolve the version from a command, never a guess. `$GANTRY` is the running plugin root; the
+installed-plugins registry maps an install path to a version and a commit:
+
+```bash
+REG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
+jq -r --arg root "$GANTRY" '.plugins | to_entries[] as $e | $e.value[]
+  | select(.installPath == $root) | "\($e.key) \(.version) \(.gitCommitSha)"' "$REG"
+```
+
+**Use `$GANTRY` as given for this lookup** — the registry stores the install path as a literal
+string, so a physically-resolved path fails to match whenever any component of it is a symlink
+(a symlinked `$HOME` or `CLAUDE_CONFIG_DIR`), and ship would report "no recorded install" for a
+plugin that is registered. Real-path resolution belongs to condition 3 above, which is comparing
+two trees for identity; it does not belong here, which is comparing a string to a recorded one. If
+the literal lookup misses, retry it once against the resolved path before concluding anything.
+
+Three outcomes, and the skill owes the reader whichever one happened:
+
+- it matches a registry entry → name that plugin, version and commit;
+- `$GANTRY` resolves but matches no entry → say which root executed and that it corresponds to no
+  recorded install;
+- nothing resolves → say **"could not determine the executing plugin version"**. That is a
+  legitimate and useful disclosure. It is never omitted, and never replaced by a guess.
+
+#### Re-read what you just wrote
+
+The last thing before `gh pr create`, and the only scrutiny this prose will get. `grill` read
+`task.md` and `plan.md`; `/gantry:review` read the diff. **Neither read this title, this body, or
+the commit subject** — all three are written last, by the context most invested in the result.
+
+One rule, narrow on purpose:
+
+> **A claim about how something works either cites the file that establishes it, or it does not go
+> in the body.**
+
+Not "be accurate", which is advice nobody can fail. **Mechanism claims** are what go wrong. Two
+were published in a gantry PR body — that a readiness hook was inert because the repo registered no
+`Stop` hook, and that `detect_stage.sh` computed one of its lines from repo settings. Both were
+false, both were caught by a human peer rather than by any phase, and the correction cost three
+commits and two rewrites of the body.
+
+Check the composed **title**, the composed **body**, and the **commit subject** against `task.md`
+and the diff. Anything you cannot point at a file for is **struck, not softened** — "appears to" is
+still an assertion nobody verified.
+
+The subject was already checked in stage 2, where amending was free. A problem found with it *here*
+is on the remote already, and stage 4 does not rewrite history to correct prose: say so in the body
+instead.
+
+**Why this lives here and not in `/gantry:review`.** That phase runs against the diff, before ship
+has composed a title, a body or a message — so extending its scope means either running it a second
+time after composition or moving it after composition, and both cost more than the check is worth.
+It is a checklist you apply in your own context, not a sub-agent to dispatch. Do not "fix" this by
+moving it into review.
+
+#### Open it
 
 ```bash
 gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body "<body>"
 gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body "<body>" --draft   # --draft
 ```
 
-Title = the change in one line; body = a short what/why, bulleting the commits when there are
-several. Report the PR URL it prints.
+Report the PR URL it prints.
 
 ### 6. Done — report and wait
 
@@ -221,6 +348,13 @@ terminal status.
 For the review stage: whether it ran or was skipped and why, how many files `--fix` touched, and
 the gate's exit code if the fixes made one necessary. If `/code-review` was unavailable, say so
 **with the cause** — "unavailable" with no cause is how a silent downgrade hides.
+
+**Both stage 5 disclosures, always — including under `--no-pr`, where the report is the only place
+they can land.** Say whether the `human_only` heading was emitted and why (or why not), and what
+the executing-plugin check concluded: the version that ran, that the check was inert because the
+repo is not a plugin, that it was suppressed because the plugin root and the repo are the same
+tree, or that the version could not be determined. The driver journals this from what you report,
+so an omission here becomes an omission in an append-only log.
 
 If a guard stopped it (on the default branch, diverged, nothing to ship, gh unavailable), say which
 and what the user should do next. **When a run stops after the review but before the PR** — the

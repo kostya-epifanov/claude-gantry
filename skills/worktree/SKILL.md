@@ -124,10 +124,19 @@ This step only *decides*; nothing is created until step 8, so that step 7's excl
 
 ### 7. Ensure `.claude/worktrees/` is excluded
 
+`$GANTRY` is this skill's plugin root — resolve it from this file's own location rather than
+hardcoding a path.
+
 ```bash
-git -C "$MAIN_ROOT" check-ignore -q .claude/worktrees \
-  || echo '**/.claude/worktrees/' >> "$MAIN_ROOT/.git/info/exclude"
+bash "$GANTRY/lib/ensure_excluded.sh" '**/.claude/worktrees/'
 ```
+
+Not `check-ignore -q … || echo … >>`. That file is shared by every linked worktree — git maps
+`info/` into the common git dir — so the read and the write of two lanes creating worktrees at the
+same time interleave, and double-appended entries were observed. `ensure_excluded.sh` locks,
+matches whole lines, and leaves exactly one copy however many lanes run it at once. It is also a
+single command with no substitution, which a worktree-isolated session will run and the compound
+form it replaces was refused.
 
 ### 8. Create
 

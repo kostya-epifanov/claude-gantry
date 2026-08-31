@@ -43,8 +43,11 @@ bash "$GANTRY/lib/detect_stage.sh"
 - **`HANDOVER:present`** → **read it and add to it. Never overwrite.** A second deferral in the same
   branch appends; it does not replace the first. Merge duplicate findings rather than listing them
   twice.
-- `TASK:present` → read `task.md`'s *Out of scope*. It usually already contains half of what you
-  are about to write, and quoting it is stronger than restating it.
+- `TASK:present` **or `TASK:inherited`** → read `task.md`'s *Out of scope*. It usually already
+  contains half of what you are about to write, and quoting it is stronger than restating it.
+  Both values are named because `inherited` is still a `task.md` on disk — it is the previous,
+  merged contract, so read it knowing that, rather than skipping the read because the value was
+  not `present`.
 
 ### 2. Write `handover.md`
 

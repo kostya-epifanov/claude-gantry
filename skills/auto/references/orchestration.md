@@ -215,8 +215,24 @@ The hook holds no state and blocks a given stop at most once; `stop_hook_active`
 its loop termination. **The retry cap, the `status: blocked` transition, and escalation live in the
 orchestrator**, exactly as they do in a repo with no hook at all.
 
-`lib/detect_stage.sh` reports `HOOK:armed` or `HOOK:inert` so a run can say which it was. A report
-that implies enforcement it did not have is worse than one that admits self-policing.
+`lib/detect_stage.sh` reports `HOOK:conditions-met` or `HOOK:conditions-unmet` so a run can say
+which it was. Read the value for exactly what it says: the hook's **firing conditions** — a
+`.claude/gates.sh` at the repo root and `status: implementing` — and not whether the hook is
+registered, which the detector cannot see and does not claim. `conditions-met` therefore means
+"this would have been enforced if the hook is installed", which is one step short of "this was
+enforced".
+
+That gap is the reason the line is worth reporting at all. A report that implies enforcement it did
+not have is worse than one that admits self-policing.
+
+**A grep of `settings.json` will not tell you whether the hook is registered.** gantry registers it
+at *plugin* level, through the plugin's own `hooks/hooks.json`, so a config search finds nothing and
+proves nothing in either direction. `/plugin` is what shows whether gantry is installed and enabled.
+
+The hook's audit log at `.claude/artifacts/gate-hook.log` answers a different question — whether it
+*ran* — and only once the repo has opted in. With `task.md` and `.claude/gates.sh` both present,
+every invocation appends a line, fire or skip. Without them the hook exits before creating the
+directory, so an absent log is what a correctly registered hook produces, not evidence against one.
 
 ## Reusing worktree and ship
 
