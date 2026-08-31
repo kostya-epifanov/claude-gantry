@@ -184,6 +184,42 @@ an agent to show you a file; ask it for the answer.** Never paste an agent's raw
 `task.md` or the journal; paste its summary. If you find yourself holding file dumps and raw logs,
 delegation failed.
 
+### What the caller gives up to get that paragraph
+
+The paragraph is what the orchestrator needed — and it is also everything the orchestrator gets.
+The caller kept none of the evidence, so it cannot tell a claim the agent established from one the
+agent merely believes. That is the cost of the trade, and it has been paid twice:
+
+- A critic reported that two paths did not exist on the machine, and marked down the severity of a
+  real hazard on that basis. Both paths existed.
+- An explorer reported that a log file never contains a particular line, and told the driver not to
+  grep for it. The file contains that line; the explorer had read 26 lines that happened to all be
+  skips and generalised. Acting on it would have built a feature against the wrong file and passed
+  its own acceptance criteria while measuring nothing.
+
+Both were caught only because the claim happened to contradict something the caller had already
+read for itself. Nothing in the pipeline caught either, and a wrong fact attached to a *real*
+finding is the dangerous shape: the finding's credibility carries the error past scrutiny.
+
+The mitigation is in the roster's return contracts — an environment claim names the command behind
+it, a negative claim names the command and the scope it covered, a generalisation from a sample is
+labelled as one, and no agent tells the caller what not to check. **It is prose, so it is a
+mitigation and not a guarantee.** The tool list is the only thing about an agent that a prompt
+cannot talk it out of, and this rule is not in the tool list; it sits in the body, where following
+it is the agent's choice. Nothing can check it from outside, either — no script distinguishes a
+sourced claim from a confident one, which is exactly why the guarantees that matter in gantry live
+in an exit code instead.
+
+Two gaps worth naming rather than discovering:
+
+- **A repo that overrides a role gets its own agent and none of this.** Resolution is per role,
+  repo first: `.claude/agents/critic.md` replaces `gantry-critic` wholesale, contract included, and
+  nothing tells the driver the rule lapsed.
+- **The prohibition on narrowing the caller's evidence is a distinct failure from the false claim**
+  and is stated separately in the explorer for that reason. An agent that tells the caller which
+  checks to skip has stopped reporting and started deciding, and it removes the step that would
+  have caught it.
+
 ## A plan should be attacked by someone who did not write it
 
 v0.1 had no critique step. The planning context wrote a plan and the only scrutiny it got was a
