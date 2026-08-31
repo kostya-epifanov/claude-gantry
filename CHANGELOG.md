@@ -109,6 +109,50 @@ and `docs/SKILLS.md` updated to match.
 - Six cases in `tests/cases/stage_phases.sh` covering `TASK:inherited` and each degradation, plus
   a clone fixture whose local base lags `origin` — the case that decides whether the feature fires
   in gantry's own worktree workflow at all, and the one every all-local fixture passes either way.
+**Added**
+- `lib/detect_stage.sh` prints **`HUMAN_ONLY:present|none|absent`** — whether `task.md`'s
+  `human_only` block, the acceptance criteria no automated gate can check, holds any entries. It
+  was decorative before this: it appeared in the template, the worked example and this repo's own
+  `task.md`, and no script parsed it, no skill read it and no journal event carried it. The signal
+  is a printed fact rather than a prose instruction because four recorded runs read a clear prose
+  rule to check that block and all four ignored it. A separate reader from `frontmatter_status()`,
+  which stays byte-identical to the hook's copy; permissive in every case toward reporting
+  `present`, since a missed disclosure is the failure and a spurious one costs a heading.
+- `tests/cases/stage_human_only.sh` — fifteen assertions over the new line. The load-bearing one is
+  a YAML block sequence at its key's own indentation, which the first draft of the parser reported
+  as `none`: valid YAML, used by none of the three existing blocks, and silent in the one direction
+  this must never fail in. Confirmed non-vacuous — deleting the new `echo` fails the case.
+- **`gantry:ship` now discloses what the run did not prove, before it opens the PR.** On
+  `HUMAN_ONLY:present` the body carries a fixed `## Not proven by this run` heading with the
+  entries verbatim, so the heading's *absence* is itself information. Under `--draft` the body
+  states what draft status does not mean: unwatched, not unverified. These reach the report under
+  `--no-pr` too, where there is no body to carry them.
+- **Ship names the plugin version that actually executed** when the repo is a plugin and the diff
+  touches `skills/`, `lib/`, `hooks/` or `agents/`. The harness loads skills from the *installed*
+  plugin, so a change to them is not exercised by the run that makes it — a measured case shipped a
+  PR whose headline feature was never once executed by the run that produced it, reported as
+  success. Resolved from the installed-plugins registry, never guessed; an undeterminable version
+  is disclosed as undeterminable. The disclosure distinguishes `skills/` and `agents/` (loaded by
+  the harness, genuinely unexercised) from `lib/` and `hooks/` (run from the worktree by the repo's
+  own suite), and is suppressed entirely when the plugin root and the repo are the same tree — the
+  `--plugin-dir` shape, where the edits did execute.
+- **Ship re-reads its own prose** before `gh pr create`: the title, the body, and the commit
+  subject, which are the only text no phase reads. One rule — a claim about how something works
+  either cites the file that establishes it or does not go in the body — because two false
+  mechanism claims once reached a PR body and cost three commits and two rewrites to correct. The
+  subject is additionally checked in the commit stage, the only point at which amending is free.
+  `/gantry:review` is deliberately **not** extended to cover this, and the reason is recorded in
+  `skills/ship/SKILL.md` so it is not "fixed" back: review runs against the diff, before ship has
+  composed anything.
+- A `disclosure` event in the unattended journal, with `kind` as its extension point, recording
+  that a run shipped with unproven acceptance criteria or an unexercised plugin change. The driver
+  copies it from ship's report rather than re-deriving it.
+
+**Changed**
+- The `human_only` placeholder in the task template and `examples/task.md` is commented out. Live,
+  it would have made every `task.md` written from the template report `present`, putting the new
+  heading on every pull request with placeholder prose beneath it — which destroys the property the
+  fixed heading exists for. Same reasoning as fencing the fork checkbox in the same file.
 
 ## 0.3.0
 

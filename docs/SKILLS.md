@@ -221,6 +221,27 @@ Typing `/gantry:ship` **is** the go-ahead — it does not ask for stage-by-stage
 matches the *target repo's* commit conventions, including whether that repo uses trailers, which is
 exactly why the drivers delegate the tail to it instead of imposing their own style.
 
+**Before it opens the PR, ship says what the run did not prove.** For an unattended run the body is
+the whole interface to the reviewer, so three things are composed into it rather than left to
+memory. It runs `lib/detect_stage.sh` for the `HUMAN_ONLY:` line — its own `detect_state.sh` reads
+git state and never opens `task.md` — and on `present` emits a fixed `## Not proven by this run`
+heading carrying `task.md`'s `human_only` entries verbatim; the heading is fixed so that its
+*absence* is information. Under `--draft` it also states what draft does not mean: unwatched, not
+unverified. Separately, when the repo is itself a plugin and the diff touches `skills/`, `lib/`,
+`hooks/` or `agents/`, it names the plugin version that actually executed — because the harness
+loads `skills/` and `agents/` from the *installed* plugin, so a change to them is not exercised by
+the run that makes it. That disclosure is suppressed when the plugin root and the repo are the same
+tree (the `--plugin-dir` shape), where the edits genuinely did run.
+
+Then it re-reads its own prose. The title, the body and the commit subject are the only text no
+phase reads — `grill` reads the artifacts, `/gantry:review` reads the diff — and they are written
+last, by the context most invested in the result. The rule is narrow: a claim about how something
+works either cites the file that establishes it or does not go in the body. Review is not extended
+to cover this because it runs before ship composes anything.
+
+All of these are **disclosures, not refusals**: none withholds the PR, fails the gate, or blocks
+the push.
+
 - **Refuses:** to run on the repo's default branch; to rewrite history on a diverged branch; to
   bundle several unrelated changes without asking how to split them.
 - **Degrades:** with `gh` missing or unauthenticated it still commits and pushes, then prints the

@@ -24,6 +24,10 @@
 #   FORKS:open|none|unknown|absent
 #                              whether task.md's "Open questions" section still holds a fork
 #                              nobody has decided. See open_questions_forks() for the rules.
+#   HUMAN_ONLY:present|none|absent
+#                              whether task.md's `human_only` block — the acceptance checks no
+#                              automated gate can make — holds any entries. See
+#                              human_only_state() for the rules.
 #   GATES:present|absent       .claude/gates.sh — the readiness hook's opt-in
 #   HOOK:conditions-met|conditions-unmet
 #                              whether the readiness hook's FIRING CONDITIONS hold — GATES
@@ -200,6 +204,124 @@ open_questions_forks() {
   ' "$f" 2>/dev/null
 }
 
+# --- human_only (the checks no gate can make) -------------------------------
+# Reports whether task.md's `human_only` block holds anything. That block is the
+# acceptance criteria a person has to check by hand — the ones no gate can make —
+# and it is the input to the fixed "Not proven by this run" heading `gantry:ship`
+# puts in a pull request body.
+#
+# Why this is a printed fact rather than a line of prose telling a driver to look:
+# four recorded runs read a clear prose rule and all four ignored it. A disclosure
+# that depends on someone remembering to make it is not a disclosure.
+#
+#   key          a line whose first non-blank content is `human_only:`, at any
+#                indentation, ANYWHERE in the file. Unlike open_questions_forks()
+#                above, fences are NOT invisible here — the block's canonical home
+#                IS a fenced `verification:` block under "How to verify", so a
+#                reader that skipped fences would never find it at all.
+#   inline       `human_only: ["a check"]` counts as entries. An empty value, or
+#                an empty `[]` / `{}`, counts as none.
+#   entry        a following line whose first non-blank character is `-`, indented
+#                at or DEEPER than the key. At-or-deeper, not deeper: YAML permits
+#                a block sequence at the same indentation as its key, and demanding
+#                deeper would report a populated list as `none` — a failure in the
+#                one direction this must never fail in.
+#   continuation a deeper line that is not a bullet belongs to the entry above it.
+#                This repo's own entries are multi-line quoted strings.
+#   block end    the first non-blank line that is neither of those and is indented
+#                at or less than the key — a sibling key, a closing fence, a
+#                heading — or end of file.
+#   occurrences  the whole file is scanned and the STRONGEST result wins, so a
+#                task.md that quotes the template in prose before carrying its own
+#                block reports on the block rather than on the quotation.
+#
+# Three values. `present` is at least one entry, `none` is a key with no entries,
+# `absent` is no key at all — or no task.md. `absent` deliberately conflates "no
+# file" and "no block": both mean there is nothing to disclose, and the TASK: line
+# printed above already separates them for a reader who cares. That is the whole
+# reason this needs three values where FORKS: needs four — a missing fork section
+# and a missing file lead to different actions, and these two do not.
+#
+# Everywhere these rules are permissive they are permissive toward `present`. A
+# missed disclosure is the failure this exists to prevent; a spurious one costs a
+# heading in a pull request body nobody needed. That asymmetry is why an entry
+# that will not parse still counts as an entry, why an unterminated fence does not
+# stop the scan, and why a key found outside the expected block is still a key.
+#
+# NOT part of the frontmatter parser above — it shares no code with
+# frontmatter_status(), so the byte-for-byte diff scripts/verify.sh runs between
+# that function and the hook's copy is unaffected.
+human_only_state() {
+  local f="$1"
+  [ -f "$f" ] || { printf 'absent'; return 0; }
+  awk '
+    function indent(s) { match(s, /^[ \t]*/); return RLENGTH }
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s
+    }
+    BEGIN { best = 0; insec = 0; keyind = 0 }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      body = trim(line)
+
+      if (body ~ /^human_only[[:space:]]*:/) {
+        keyind = indent(line)
+        insec  = 1
+        if (best < 1) { best = 1 }
+        rest = body
+        sub(/^human_only[[:space:]]*:[[:space:]]*/, "", rest)
+        rest = trim(rest)
+        # Anything but an empty value, a comment, or an empty collection is a
+        # populated flow-style list.
+        if (rest != "" && rest !~ /^#/ && rest !~ /^(\[[[:space:]]*\]|\{[[:space:]]*\})$/) {
+          best = 2
+          insec = 0
+        }
+        next
+      }
+
+      if (!insec) { next }
+      if (body == "") { next }
+
+      ind = indent(line)
+
+      # A comment is not an entry. This is what lets the task template ship a
+      # commented-out placeholder without every task.md written from it
+      # reporting `present`.
+      if (body ~ /^#/) { next }
+
+      # A horizontal rule is not an entry, however much it looks like one, and
+      # it ends the block: the case that matters is a `human_only:` key sitting
+      # in frontmatter, where the closing `---` would otherwise read as a
+      # bullet. open_questions_forks() above excludes them for the same reason.
+      if (body ~ /^[-*_][[:space:]]*[-*_][[:space:]]*[-*_][[:space:]]*$/) {
+        insec = 0
+        next
+      }
+
+      if (body ~ /^-/ && ind >= keyind) { best = 2; next }
+
+      # ANY other content indented deeper than the key counts. Bullets are the
+      # conventional shape, not the only valid one: a mapping, or a flow list on
+      # the line after the key, are both populated YAML. Reading either as empty
+      # would drop the disclosure AND, because a missing heading is defined to
+      # mean there was nothing to disclose, affirmatively tell the reviewer so.
+      # That is the one-directional failure this line exists to prevent, so
+      # anything under the key promotes it rather than bullets alone.
+      # (No apostrophes in this block: the awk program is single-quoted.)
+      if (ind > keyind) { best = 2; next }
+
+      insec = 0                    # a sibling key, a closing fence, a heading
+    }
+    END {
+      if (best >= 2)      { print "present" }
+      else if (best == 1) { print "none" }
+      else                { print "absent" }
+    }
+  ' "$f" 2>/dev/null
+}
+
 # --- the inherited contract -------------------------------------------------
 # gantry commits task.md and plan.md with every pull request, so they sit in the
 # tree on the base branch. A worktree freshly cut from it therefore already
@@ -339,6 +461,9 @@ echo "STATUS:${STATUS:-none}"
 
 FORKS="$(open_questions_forks "$ROOT/task.md")"
 echo "FORKS:${FORKS:-unknown}"
+
+HUMAN_ONLY="$(human_only_state "$ROOT/task.md")"
+echo "HUMAN_ONLY:${HUMAN_ONLY:-absent}"
 
 echo "GATES:$GATES"
 

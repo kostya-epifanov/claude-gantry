@@ -33,7 +33,10 @@ verification:
           goal: "what success looks like, in a sentence"
           steps: []                # optional; empty = agent derives from goal
   human_only:
-    - "the subjective or unautomatable check a person must make"
+    # Uncomment and replace. Every entry here is surfaced verbatim in the pull
+    # request body under "Not proven by this run", so leaving the placeholder
+    # live would put that heading on every PR with this sentence beneath it.
+    # - "the subjective or unautomatable check a person must make"
 ```
 
 ## Out of scope

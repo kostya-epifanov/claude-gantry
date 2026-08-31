@@ -249,6 +249,12 @@ The PR is a **draft**, always. Journal the final `stage` event once ship returns
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from review --to ship --mode unattended
 ```
 
+Then journal a **`disclosure`** event for anything ship reported that this run did not prove — a
+non-empty `human_only` block in `task.md`, or a change to the plugin's own files that the run could
+not exercise. Take it **from ship's report**, not from your own reading of the tree: the journal is
+append-only and the project treats it as evidence, so an invented line is worse than a missing one.
+If ship's report is silent on both, say *that* in the report rather than deriving them here.
+
 ## Stage 7 — Report
 
 Written for someone who was not here, because nobody was:
@@ -265,6 +271,10 @@ Written for someone who was not here, because nobody was:
 - **Every assumption `plan` or `grill` had to make** because there was nobody to ask. Genuine
   design forks are not on this list — those stop the run rather than becoming assumptions — but
   the judgement calls inside a plan still are, and the reader of a draft PR needs them.
+- **What the run shipped without proving**, repeated from ship's report: whether `task.md` carried
+  acceptance criteria no gate could check, and whether the diff changed the plugin's own skills,
+  lib, hooks or agents — in which case, which plugin version actually executed. Draft status
+  substitutes for neither: **draft means unwatched, not unverified.**
 - What was deferred, and the `handover.md` path.
 - The artifact paths, including `journal.jsonl` for the full trail.
 
