@@ -140,6 +140,13 @@ Journal a `phase` event, naming the critic that ran.
 `run_gates.sh --strict`, and iterates on red at most twice. **Journal a `gate` event with the
 literal exit code every time it runs**, with `attempt` incrementing.
 
+Carry the phase's **coverage** report into that event's `coverage` field — the roots, the
+verdict, and the counts, verbatim from what `implement` reported. A green gate that read none of
+the changed paths is **green-but-uncovered**: it still passes, it is still exit `0`, and nothing
+is refused, but the journal must not record it identically to a gate that proved something. The
+overlap is a heuristic; `references/journal.md` has the field's shape and the caveat that travels
+with it.
+
 - **Green** → continue.
 - **Red after 2 attempts** → `status: blocked`. Stop. Do not push.
 - **Exit 2** (the gate could not run) → stop and report a broken environment. It must not consume a
