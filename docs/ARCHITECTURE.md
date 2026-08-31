@@ -177,9 +177,16 @@ infer where it is from the conversation**, because in two of the three modes the
 That the artifacts now exist in every mode is what fixed the v0.1 hole where the readiness hook —
 which arms on `task.md` — could never fire under `gantry:auto`.
 
-`task.md` is filled in **two passes**: frontmatter, goal, acceptance criteria, how-to-verify and
-out-of-scope *before any code is read*; Affected areas after the explorer returns. Writing the
-contract first is what stops the plan from quietly redefining the task.
+`task.md` is filled in **two passes**, and the split is between what the task settles and what only
+the code can. First, *before any code is read*: frontmatter, goal, acceptance criteria,
+how-to-verify and the open questions. Writing the intent first is what stops the plan from quietly
+redefining the task to match what the code turned out to make easy.
+
+Then, after the code study: *Out of scope* **and** *Affected areas*, together. Out of scope moved
+into the second pass because it is the section that most needs code knowledge — what a change
+touches is exactly what tells you what it deliberately will not touch — and it is load-bearing
+downstream, where `gantry:review` triages findings against it and `gantry:handover` quotes it. A
+boundary written from the task description alone is a guess that later phases read as a decision.
 
 Its `status` field is the chain's state machine:
 

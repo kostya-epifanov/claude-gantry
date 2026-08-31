@@ -71,12 +71,16 @@ caused.
 
 `/gantry:plan <task>`
 
-Writes `task.md` (context and goal, acceptance criteria, how to verify, out of scope) and then
-`plan.md`, asking whatever a genuine fork requires before any code is written. May dispatch the
-explorer for the *Affected areas* section when the surface is unfamiliar; reads directly when it
-isn't, and says which it did.
+Writes `task.md` (context and goal, acceptance criteria, how to verify) and then `plan.md`, asking
+whatever a genuine fork requires before any code is written. *Out of scope* and *Affected areas*
+are written after the code study, from what it found, because both need to know what the change
+touches. May dispatch the explorer for that study when the surface is unfamiliar; reads directly
+when it isn't, and says which it did.
 
-- **Refuses:** to clobber an existing `task.md` or `plan.md` — it offers to revise instead.
+- **Refuses:** to clobber a `task.md` or `plan.md` that is in flight — it offers to revise instead.
+  An **inherited** contract is not that case: `task.md` travels with every PR, so a freshly
+  branched worktree holds the last merged one, and the detector says so rather than guessing.
+  There, the skill starts clean without asking.
 - **Warns:** when you are on the repo's default branch. Writing a plan there harms nothing.
 - **Invokes:** the explorer, conditionally.
 - **Templates:** the repo's `docs/templates/task.md` if it has one, else `templates/task.md`.
@@ -109,8 +113,10 @@ This phase owns the gate loop, because "implemented" and "passes the checks" are
 
 - **Refuses:** to start without a `plan.md`; to proceed past a non-zero gate.
 - **Warns:** when the plan was never grilled.
-- **Reports:** the gate's exit code verbatim, and whether the hook was **armed or inert** — a run
-  with an inert hook was self-policed, and blurring the two is the one lie the chain can't absorb.
+- **Reports:** the gate's exit code verbatim, and whether the hook's firing conditions were
+  **met or unmet** — which is as much as the detector can see, since registration is invisible to
+  it. A run whose conditions were unmet was self-policed, and blurring that with "enforced" is the
+  one lie the chain can't absorb.
 - **Scripts:** `lib/run_gates.sh`.
 
 ## `/gantry:review` — independent read, then act
@@ -181,7 +187,7 @@ missing roster.
 
 Its report is written for someone who was not there, because nobody was: every assumption `plan` had
 to make without being able to ask, which agents the phases actually dispatched, which review tier
-ran, the gate's exit code on every run, and whether the hook was armed.
+ran, the gate's exit code on every run, and whether the hook's firing conditions were met.
 
 - **Refuses:** to push when no checks were found; to proceed on a plan that failed its critique;
   to fall back to inline work when a dispatch fails.

@@ -13,7 +13,11 @@
 # stdout — labeled lines, then one PHASE line:
 #   ROOT:<path>                repo/worktree root; artifacts are read from here
 #   BRANCH:<name>              or  DETACHED
-#   TASK:present|absent        task.md at ROOT
+#   TASK:present|absent|inherited
+#                              task.md at ROOT. `inherited` means it is the PREVIOUS task's
+#                              contract, merged and carried in on the branch, rather than one
+#                              in flight — see task_is_inherited() for the exact rule and for
+#                              why every uncertain case degrades to `present`.
 #   PLAN:present|absent        plan.md at ROOT
 #   HANDOVER:present|absent    handover.md at ROOT
 #   STATUS:<value>|none        task.md frontmatter status:
@@ -21,7 +25,11 @@
 #                              whether task.md's "Open questions" section still holds a fork
 #                              nobody has decided. See open_questions_forks() for the rules.
 #   GATES:present|absent       .claude/gates.sh — the readiness hook's opt-in
-#   HOOK:armed|inert           GATES present AND STATUS is exactly implementing
+#   HOOK:conditions-met|conditions-unmet
+#                              whether the readiness hook's FIRING CONDITIONS hold — GATES
+#                              present AND STATUS exactly implementing. It is not a claim
+#                              that the hook will fire: registration is invisible here. See
+#                              the comment above the check for why that is not detectable.
 #   DIRTY:clean                or  DIRTY:staged=<n> unstaged=<n> untracked=<n>
 #   NEXT:<command>             the phase skill that advances from here
 #   PHASE:<plan|grill|implement|review|ship|done|blocked|not-a-repo>
@@ -192,6 +200,121 @@ open_questions_forks() {
   ' "$f" 2>/dev/null
 }
 
+# --- the inherited contract -------------------------------------------------
+# gantry commits task.md and plan.md with every pull request, so they sit in the
+# tree on the base branch. A worktree freshly cut from it therefore already
+# contains the PREVIOUS, merged task's contract — and a detector that only knows
+# `present` tells the plan phase a task is under way, which routes it to revise
+# a finished, unrelated contract instead of starting cleanly.
+#
+# `inherited` is that state, and it is a fact this script establishes rather
+# than a judgement each run re-makes. ALL of the following must hold:
+#
+#   file         task.md exists at ROOT.
+#   status       its frontmatter status: is exactly `shipped` — the status a
+#                merged task.md actually carries. Deliberately the narrowest
+#                terminal set: widening it later is safe, whereas a rule that
+#                also swallowed `blocked` or `reviewed` would misread a task
+#                that is genuinely in flight and merely paused.
+#   attached     HEAD is on a branch. This is checked EXPLICITLY and does not
+#                fall out of base resolution: a detached HEAD sitting on a
+#                commit reachable from the base still resolves a base and still
+#                finds a merge-base, so without this guard it would come back
+#                `inherited`.
+#   base         a base branch resolves to a rev that exists — the same order
+#                gantry:ship uses, so the base a PR targets and the base read
+#                here cannot disagree.
+#   merge-base   `git merge-base HEAD <base>` succeeds.
+#   identical    task.md exists at that merge-base and its bytes are identical
+#                to the file on disk. A byte comparison, not a re-hash, so no
+#                filter or line-ending setting can make two different files
+#                compare equal.
+#
+# ANYTHING ELSE IS `present`, and the asymmetry is the whole design. Reading a
+# live task as inherited routes the plan phase to overwrite work that is not
+# recoverable; reading an inherited task as present costs one supersede. So the
+# function returns non-zero at the first condition it cannot establish, and
+# every git call inside it has its status checked:
+#
+#   - a detached HEAD                    fails the `attached` guard
+#   - no develop/origin-HEAD/main/master fails base resolution
+#   - a repository with no commits       has no refs at all, so it also fails
+#                                        base resolution — merge-base is never
+#                                        reached
+#   - no task.md at the merge-base       fails the rev-parse
+#   - any git error whatsoever           fails the call it belongs to
+#
+# One thing worth stating because getting it wrong is silent: the base resolves
+# to `origin/<name>` whenever that ref exists, and only to the local branch when
+# it does not. gantry:worktree cuts every worktree from `origin/<parent>` and
+# treats fast-forwarding the local ref as a convenience it may skip, so
+# merge-basing against a local branch that lags origin would land on an older
+# commit carrying a DIFFERENT merged task.md — the bytes would differ, and this
+# would quietly never fire in the exact workflow it exists for.
+#
+# NOT part of the frontmatter parser: like open_questions_forks() it shares no
+# code with frontmatter_status(), so the byte-for-byte diff scripts/verify.sh
+# runs between that function and the hook's copy is unaffected.
+
+# Resolve a rev to merge-base against, or return non-zero. Mirrors the order in
+# skills/ship/scripts/detect_state.sh, with one deliberate difference: ship ends
+# with a literal `main` fallback so it always has a PR target, and this must not
+# — nothing resolving means the fact cannot be established, which is `present`.
+inherited_base_rev() {
+  local branch="$1" name="" cand c
+  # develop, unless we are standing on it (a branch cannot merge-base usefully
+  # against itself here, and develop then ships into main/master).
+  if [ "$branch" != develop ]; then
+    if git show-ref --verify --quiet refs/remotes/origin/develop \
+    || git show-ref --verify --quiet refs/heads/develop; then name=develop; fi
+  fi
+  # origin/HEAD, the remote's declared default — but only if it still resolves;
+  # it can name a branch the remote no longer has.
+  if [ -z "$name" ]; then
+    cand="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+    if [ -n "$cand" ] && git show-ref --verify --quiet "refs/remotes/origin/$cand"; then
+      name="$cand"
+    fi
+  fi
+  if [ -z "$name" ]; then
+    for c in main master; do
+      if git show-ref --verify --quiet "refs/remotes/origin/$c" \
+      || git show-ref --verify --quiet "refs/heads/$c"; then name="$c"; break; fi
+    done
+  fi
+  [ -n "$name" ] || return 1
+  if git show-ref --verify --quiet "refs/remotes/origin/$name"; then
+    printf 'origin/%s' "$name"
+  else
+    printf '%s' "$name"
+  fi
+}
+
+task_is_inherited() {
+  local root="$1" status="$2"
+  [ -f "$root/task.md" ] || return 1
+  [ "$status" = shipped ] || return 1
+
+  local branch
+  branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" || return 1
+  [ -n "$branch" ] || return 1
+
+  local rev mb blob
+  rev="$(inherited_base_rev "$branch")" || return 1
+  [ -n "$rev" ] || return 1
+
+  mb="$(git merge-base HEAD "$rev" 2>/dev/null)" || return 1
+  [ -n "$mb" ] || return 1
+
+  # `<rev>:task.md` with no leading ./ is resolved from the repo root, so this
+  # is the same file as "$root/task.md" however deep the caller's cwd is.
+  blob="$(git rev-parse --quiet --verify "$mb:task.md" 2>/dev/null)" || return 1
+  [ -n "$blob" ] || return 1
+
+  git cat-file blob "$blob" 2>/dev/null | cmp -s - "$root/task.md" || return 1
+  return 0
+}
+
 # --- artifacts --------------------------------------------------------------
 present_or_absent() { [ -f "$1" ] && echo present || echo absent; }
 
@@ -199,11 +322,19 @@ TASK="$(present_or_absent "$ROOT/task.md")"
 PLAN="$(present_or_absent "$ROOT/plan.md")"
 HANDOVER="$(present_or_absent "$ROOT/handover.md")"
 GATES="$(present_or_absent "$ROOT/.claude/gates.sh")"
+
+# STATUS is read before the TASK: line is printed, because `inherited` is a fact
+# about the status as well as about the bytes. The order of the OUTPUT lines is
+# unchanged; only the order in which they are computed moved.
+STATUS="$(frontmatter_status "$ROOT/task.md")"
+
+if [ "$TASK" = present ] && task_is_inherited "$ROOT" "$STATUS"; then
+  TASK=inherited
+fi
+
 echo "TASK:$TASK"
 echo "PLAN:$PLAN"
 echo "HANDOVER:$HANDOVER"
-
-STATUS="$(frontmatter_status "$ROOT/task.md")"
 echo "STATUS:${STATUS:-none}"
 
 FORKS="$(open_questions_forks "$ROOT/task.md")"
@@ -211,12 +342,27 @@ echo "FORKS:${FORKS:-unknown}"
 
 echo "GATES:$GATES"
 
-# The hook's firing condition, reported so a skill can say plainly whether the
-# gate is actually enforced on this run rather than implying that it is.
+# The hook's firing conditions — and only those. This line used to say `armed`,
+# which read as "the gate is enforced on this run" and was a claim this script
+# is not entitled to make: it computes the conditions from GATES and STATUS and
+# cannot see whether the hook is REGISTERED at all.
+#
+# Registration is not detectable from here, which is why the honest move was to
+# rename rather than to go looking for it. The hook is registered by the
+# plugin's own hooks/hooks.json, in the PLUGIN root; this script resolves the
+# REPO root and is given no handle on the other. The one handle available — its
+# own path — is the one that lies, because gantry's own repository IS the plugin
+# source and carries hooks/hooks.json at its root, so any check anchored there
+# would report "registered" for every checkout of gantry. And even reading the
+# right manifest would not settle it: whether the hook fires also depends on the
+# plugin being enabled in the user's configuration, which is likewise invisible.
+#
+# So the value names the conditions and leaves the residual — "and the hook must
+# also be installed" — visible to the reader instead of buried in a word.
 if [ "$GATES" = present ] && [ "$STATUS" = implementing ]; then
-  echo "HOOK:armed"
+  echo "HOOK:conditions-met"
 else
-  echo "HOOK:inert"
+  echo "HOOK:conditions-unmet"
 fi
 
 # --- working-tree state -----------------------------------------------------

@@ -165,7 +165,26 @@ Arming it properly takes one file — see [examples/gates.sh](examples/gates.sh)
 **cannot** skip: registered on `Stop` and `SubagentStop`, it re-runs the gate out of band and
 blocks the stop with exit 2 when the tree is red.
 
-**It installs registered but inert.** It fires only when all three hold:
+**It installs registered but inert** — and *registered* is worth being precise about, because it is
+the thing people most often check for and get wrong. **Grepping `settings.json` will not find it.**
+gantry registers the hook at *plugin* level, in the plugin's own `hooks/hooks.json`, so a search of
+your project or user settings finds nothing and proves nothing: it is neither evidence that the
+hook is absent nor that it is present. What does settle it is `/plugin`, which shows whether gantry
+is installed and enabled.
+
+`.claude/artifacts/gate-hook.log` answers the narrower question of whether the hook *ran* — but
+only in a repo that has already opted in. In a repo with both `task.md` and `.claude/gates.sh`,
+every invocation appends a line, fire or skip, so an empty log after a stop means the hook did not
+run. **Before the opt-in it proves nothing:** the hook tests for those two files first and exits
+without creating `.claude/artifacts/` at all, so a missing log there is the designed behaviour of a
+registered hook, not evidence of an absent one. That is exactly the repo a reader checking this
+usually has.
+
+The same limit applies to `lib/detect_stage.sh`. Its `HOOK:` line reports
+`conditions-met`/`conditions-unmet`, which is the *firing conditions* below and nothing more; the
+script cannot see registration, which is why the value does not claim to.
+
+It fires only when all three hold:
 
 1. `task.md` exists at the repo root, **and**
 2. `.claude/gates.sh` exists at the repo root, **and**
