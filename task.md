@@ -1,8 +1,8 @@
 ---
-id: 2026-08-29-ship-review-and-fork-precondition
-title: Fold review into ship, and make settled forks a precondition of leaving plan
+id: 2026-08-31-verify-sees-untracked-files
+title: Make verify.sh enumerate untracked files, so the gate sees what the run just wrote
 project: claude-gantry
-branch: feat/ship-review-and-fork-precondition
+branch: fix/verify-sees-untracked-files
 mode: unattended          # semi-auto | auto | unattended — which mode is driving
 status: shipped           # planning | planned | grilled | implementing | implemented |
                           # reviewed | shipped | blocked. The readiness hook arms on
@@ -11,173 +11,173 @@ status: shipped           # planning | planned | grilled | implementing | implem
 
 ## Context & goal
 
-Two independent gaps in the pipeline, tracked upstream as items 1.3 and 2.5.
+`scripts/verify.sh` is the whole of this repo's check surface: CI runs the same script, so
+CONTRIBUTING states plainly that a green local run means a green CI run. Six of its checks
+enumerate the files to inspect with `git ls-files`, which — with no flags — lists **tracked files
+only**.
 
-**1.3 — review is optional in practice.** `gantry:ship` today goes commit → push → PR with no
-review in between. Review only happens when a driver runs the `review` phase, or when someone
-types `/gantry:review` by hand. Anyone who reaches for `/gantry:ship` directly — which is the
-common case for a small change — opens a PR that nothing has read. Ship is the last place a
-change is still cheap to fix, so a review stage belongs there, between the commit and the PR.
+That is a false-green with a precise shape, and the pipeline walks into it every run. `implement`
+runs the gate; `ship` does not commit until much later. So at gate time `task.md` and `plan.md`,
+the two files the pipeline itself just wrote, are **untracked**, and three checks cannot see them:
+the line-number-citation check, the forbidden-string sweep, and the relative-link check. Minutes
+later `ship` commits them, CI runs the identical script, and now they are tracked — so CI fails on
+files that the local gate reported clean. Green local, red CI, on the pipeline's own artifacts.
 
-**2.5 — a design fork survives all the way into the code.** `task.md` carries an *Open questions*
-section for the forks the implementer must not resolve alone, but nothing enforces that it is
-empty before implementation starts. Today it is a habit: supervised runs may or may not surface
-the forks, and unattended runs are explicitly told to pick "the most conservative reading" and
-carry on. Both fail the same way — a decision nobody made turns into an hour of work in the wrong
-direction, discovered at review. The fix is to move the fork from hour three to minute two: an
-open fork is a precondition of leaving the plan stage, put to the user when there is one and a
-hard stop when there is not. An implementer is never dispatched against an open fork.
+This is not hypothetical. `plan` step 3 tells the author to paste the explorer's output into
+*Affected areas*, and the explorer returns citations of exactly the form the citation check
+forbids: a docs path ending in `.md`, a colon, a line number. A lane that ran in this repo hit it
+and stripped them by hand. Nothing in the pipeline would have caught it.
 
-The two changes share nothing but the file set. They are shipped together because they are one
-coherent pass over the driver and ship skills.
+The same blindness covers anything else a run creates before the commit — a new `lib/*.sh` written
+during `implement` is not syntax-checked or shellchecked either, which is the shape of a change
+landing in this repo this week.
+
+The fix is one flag set: enumerate with `git ls-files --cached --others --exclude-standard`, so
+tracked *and* new-but-not-ignored files are inspected. `--exclude-standard` is what keeps the run's
+own noise out. It honours three sources, and the differences between them matter: the repo's tracked
+`.gitignore`, which already lists `journal.jsonl`, `.claude/artifacts/` and `.claude/worktrees/` and
+therefore survives a fresh checkout in CI; each clone's own `.git/info/exclude`, which the drivers
+write the same paths into and which exists only locally; and the contributor's global
+`core.excludesFile`, which varies per machine. The durable protection is the tracked file, the local
+one is belt-and-braces, and the global one is why two contributors can enumerate slightly different
+file sets from the same tree.
 
 ## Acceptance criteria
 
-### 1.3 — review folded into ship
-
-- [ ] `skills/ship/SKILL.md` has a numbered stage between the commit stage and the push stage
-      whose body invokes `/code-review` with `--fix` and a named effort level, scoped to the
-      branch diff.
-- [ ] That stage's body contains no enumeration of finding categories and no triage rule —
-      `grep -c` for `Address now`, `Defer`, `Drop` in `skills/ship/SKILL.md` returns 0. It names
-      the command; `skills/review` keeps the procedure.
-- [ ] The stage is skipped when `--no-pr` is passed, and when `--reviewed` is passed, and ship
-      says which.
-- [ ] `--reviewed` appears in ship's `argument-hint`, in the `gantry:ship` invocation in both
-      drivers, and in orchestration's pass-through list.
-- [ ] `task.md`'s `status:` is **not** consulted by the guard, and ship's prose says why.
-- [ ] The gate is re-run only when `--fix` changed the tree; on a non-zero exit ship stops before
-      the push, and the review's own verdict never blocks anything.
-- [ ] Ship's report states whether the review ran and how many files `--fix` touched. It does not
-      report a findings tally, which nothing in this repo establishes is available.
-- [ ] `/code-review` being unavailable is a documented non-fatal outcome, reported with its cause.
-- [ ] The renumbered stage headings run 1–6 with no gaps, and no prose in the file refers to a
-      stage by a number it no longer has.
-
-### 2.5 — settled forks as a plan-stage precondition
-
-- [ ] `lib/detect_stage.sh` reports `FORKS:` with all four of `absent`, `unknown`, `open`, `none`,
-      and its header comment documents the heading match, the section terminator, fence skipping,
-      nesting, and how a bare bullet is read.
-- [ ] `scripts/verify.sh` asserts the `FORKS:` value against fixtures covering, at minimum: an
-      unchecked box in *Acceptance criteria* with a settled *Open questions* (must be `none`), an
-      unchecked box inside a fenced block (must be `none`), a bare bullet (must be `open`), and a
-      `task.md` with no such heading (must be `unknown`).
-- [ ] A `task.md` freshly copied from `skills/plan/templates/task.md` reports `FORKS:none`.
-- [ ] `skills/plan/SKILL.md` sets `status: planned` only on `FORKS:none`, and tells the reader to
-      mark a settled fork as a checked item rather than delete it.
-- [ ] `skills/grill/SKILL.md` sets `status: grilled` only on `FORKS:none`, and routes a critique
-      finding that is a genuine fork into *Open questions*.
-- [ ] `skills/implement/SKILL.md` refuses on `FORKS:open` when `mode:` is `auto` or `unattended`,
-      and warns without refusing otherwise.
-- [ ] `skills/auto/SKILL.md` runs an `AskUserQuestion` round on `FORKS:open` at two points: after
-      plan and after grill.
-- [ ] `skills/auto-unattended/SKILL.md` journals an `escalation` event, sets `status: blocked`, and
-      stops on `FORKS:open` at those same two points. Its open-fork paragraphs contain no
-      conditional continuation — `grep -niE 'otherwise|unless|if the fork'` within them returns
-      nothing.
-- [ ] Both drivers' stage sections and the mode table in
-      `skills/auto/references/orchestration.md` describe the new behaviour. (Neither driver
-      contains a markdown table; none is added.)
-- [ ] `skills/auto-unattended/references/journal.md` documents the `escalation` shape with a worked
-      example, and no longer says nothing emits it.
-- [ ] No file still *instructs* a run with no human present to resolve a design fork by taking the
-      conservative reading. Read every hit of `grep -rn conservative skills/`: each must either
-      forbid the practice or scope it to a judgement call inside a plan, never to a fork.
-
-### Both
-
-- [ ] Every statement this change falsifies is corrected: the "two hard refusals, and only two"
-      and "`ship` does not re-check the gate" claims in `docs/SKILLS.md`, the same refusal claim
-      inline in `skills/implement/SKILL.md`, and "the gate is never delegated" in
-      `skills/auto-unattended/references/delegation.md`.
-- [ ] `bash scripts/verify.sh` exits 0.
+- [ ] Every enumeration in `scripts/verify.sh` covers untracked, non-ignored files as well as
+      tracked ones — all six sites, including the three that feed the shell-syntax, shellcheck and
+      python-parse checks.
+- [ ] In a fixture repo holding an **untracked** markdown file that carries a line-number citation,
+      `scripts/verify.sh` reports the citation check as failed and names that file. Against the
+      pre-change script the same fixture reports the check clean.
+- [ ] In the same fixture, an **untracked** shell script with a syntax error is reported by the
+      shell-syntax check. This is the criterion that covers the three syntax-side sites, and it
+      needs no toolchain beyond `bash -n`.
+- [ ] Markdown carrying the same citation is **not** reported when it is excluded — once via the
+      tracked `.gitignore` and once via `.git/info/exclude`, so both mechanisms are asserted rather
+      than assumed.
+- [ ] A new case under `tests/cases/` asserts all of the above and is discovered automatically by
+      `tests/run.sh`.
+- [ ] The new case fails against the pre-change `scripts/verify.sh` and passes against the changed
+      one — negative-tested, with the failing-assertion count recorded.
+- [ ] `bash tests/run.sh` and `bash scripts/verify.sh` are both green on this repo.
+- [ ] The new local-only failure mode — a red gate caused by untracked files CI will never see — is
+      documented where a contributor reads it, since CONTRIBUTING currently claims the local run and
+      the CI run agree.
 
 ## How to verify
 
 ```yaml
 verification:
   automated:
-    lint: true              # bash -n + shellcheck, via scripts/verify.sh
-    tests: true             # scripts/verify.sh is the whole suite CI runs
-  human_only:
-    - "Read skills/ship/SKILL.md end to end: the review stage reads as one step in ship's
-       existing numbered flow, not as a transplanted copy of skills/review."
-    - "Read skills/auto-unattended/SKILL.md: the open-fork path is a stop with no continuation
-       branch. There is no wording under which the run proceeds to implement."
+    lint: true          # bash -n and shellcheck, via scripts/verify.sh
+    tests: true         # bash tests/run.sh, which now includes verify_untracked
+  human_only: []        # every claim above is asserted by the suite
 ```
 
+Run, from the worktree root:
+
 ```bash
-bash scripts/verify.sh                      # the gate; must exit 0
-grep -n "code-review" skills/ship/SKILL.md  # the new stage invokes, does not reimplement
+bash tests/run.sh verify_untracked   # the new case alone
+bash tests/run.sh                    # the whole suite
+bash scripts/verify.sh               # the gate
 ```
+
+The pull request body additionally quotes the exclusion demonstration — the same two commands run
+against this repo rather than a fixture — because a reviewer should be able to see the claim hold
+without running anything. That is a courtesy to the reader, not the evidence: the evidence is the
+assertion in the suite.
 
 ## Out of scope
 
-- The consuming repo that tracks these items. Nothing outside this repository is touched.
-- The gate contract. `lib/run_gates.sh`'s exit-code semantics (`0` green, `1+` red, `2` could not
-  run, `3` NO-GATES under `--strict`) are unchanged, and no skill gains the ability to overrule
-  them. The review stage added by 1.3 is advice; the exit code stays law.
-- `hooks/readiness-gate.sh`, and `lib/detect_stage.sh`'s existing behaviour. The hook's arming
-  condition is untouched, and so are `PHASE`, `NEXT`, and `frontmatter_status()` — the last of
-  which `scripts/verify.sh` requires to stay byte-identical to the hook's copy.
+- **What the checks look for.** No new swept strings, no new rules, no relaxing of an existing
+  rule to quiet a file that only just became visible. Newly-visible findings get fixed; the sweep
+  does not get widened.
+- **`.github/workflows/validate.yml`.** It invokes `scripts/verify.sh` and needs no change — the
+  fix lands entirely inside the script it already runs.
+- **`scripts/context_budget.sh`.** It enumerates with shell globs over `skills/` and `agents/`, not
+  with git, so it already sees files that are not yet committed. No defect to fix.
+- **`scripts/secret-scan.sh`.** It enumerates tracked files only, and unlike `verify.sh` that is a
+  written, reasoned decision rather than an oversight — its header says untracked scratch is not
+  being published. Changing the publish gate's scope is a separate judgement with its own
+  false-positive risk, and is not this change. The blind spot it leaves — the same green-local
+  /red-CI shape, on the same three files — is written up in `handover.md` rather than fixed here.
+- **The producer side of the citation rule.** `gantry-explorer` still returns markdown paths with
+  line numbers attached, and `plan` still says to paste that into *Affected areas* — so this change
+  makes a gantry-on-gantry run go red locally where it used to go red in CI. Real, and a change to
+  two files this contract does not name. Detail and remedy in `handover.md`.
+- **The unguarded `mktemp -d` in `verify.sh`'s own fixture block.** Pre-existing, revealed by
+  running the gate under a sandbox that denies temp-directory creation. Detail in `handover.md`.
+- **Hardening the enumerations against an empty result.** Two sites pipe into `xargs`. BSD `xargs`
+  does not run the utility on empty input; GNU `xargs` does, which would leave `grep` reading
+  standard input. This change makes an empty list strictly less likely on a real repo, so the
+  latent problem is untouched rather than introduced — but the new fixture must never construct it,
+  and that constraint is carried in the plan.
 
-  What **is** in scope, stated plainly rather than as a footnote: the detector gains one new
-  reported line, and that line becomes the chain's third hard refusal (in `implement`, on a
-  dispatch). That is a real behaviour change, not a reporting change, and it is deliberate — a
-  precondition only prose enforces is the habit this task exists to replace. It is also why
-  several shipped statements about "two hard refusals" have to be corrected rather than left
-  standing.
-- Teaching `/gantry:review` anything new. 1.3 moves a review to a new place; it does not change
-  what a review is. It gains one cross-referencing sentence and no behaviour.
-- Any new script, and any new test harness. This repo has none, and adding one to land a change
-  that is almost entirely skill prose would be a larger change than the one requested.
+## The limit this change introduces
+
+Worth stating plainly, because it is the cost side of the trade and it points the wrong way from
+everything else here.
+
+The local gate now inspects files that are untracked and not ignored — which includes whatever a
+contributor happens to have lying in their tree. An untracked virtual environment or dependency
+directory that no ignore rule covers will have its shell scripts parsed and its files swept, and
+can turn the gate red over something that has nothing to do with the change. Because the readiness
+hook blocks on a red gate, an unattended lane can be held up by it.
+
+This is accepted rather than worked around. The escape hatch already exists and is the ordinary git
+one — add the path to `.gitignore` or `.git/info/exclude` — and narrowing the enumeration to dodge
+it would restore exactly the blindness this change removes. It gets documented, not designed
+around.
+
+Note the direction: in CI the change is a **no-op**, because a fresh checkout has no untracked
+files at all. Every bit of new coverage is local. That asymmetry is the point — the local gate now
+sees what CI will see once the run commits — but it does mean CONTRIBUTING's "a green local run
+means a green CI run" now needs its converse spelled out.
 
 ## Affected areas
 
-Mapped by a `gantry-explorer` dispatch over everything outside the skill bodies being edited.
+Read directly rather than via an explorer: the surface is three scripts and one test harness, all
+of which were read end to end.
 
-**Item 1.3 — ship's stages are described in six places.** `skills/ship/SKILL.md` is the flow
-itself (frontmatter `argument-hint` and `description`, the flag paragraphs, and stage numbers
-cross-referenced from at least three paragraphs outside the headings). `skills/ship/scripts/detect_state.sh`
-restates the path in its header comment. `README.md` carries it twice — in *The chain* and in the
-skill table's flag list. `docs/SKILLS.md` has both the three-modes table and a `gantry:ship`
-entry repeating the `argument-hint`. `docs/ARCHITECTURE.md` has two diagrams: *who invokes whom*,
-and a ship state-machine whose `STAGE` list enumerates every entry point. `skills/sync/SKILL.md`
-names `/gantry:ship` in passing and needs nothing.
+- `scripts/verify.sh` — the six enumerations, at the shell-syntax check, the shellcheck check, the
+  python-parse check, the citation check, the forbidden-string sweep, and the relative-link check.
+  Two of them carry pathspecs that must survive the change: a `-z` form with a `:!scripts`
+  exclusion, and three glob forms.
+- `tests/run.sh` — discovers `tests/cases/*.sh` by glob, so a new case needs no registration.
+- `tests/lib.sh` — supplies `mkrepo`, `CASE_TMP`, and the assertion helpers. It has no runner for
+  `scripts/verify.sh`; the new case invokes the script directly and asserts on the section of
+  output that this change is about.
+- `scripts/secret-scan.sh` — the only other git-based enumeration in the repo. Deliberate, per
+  above.
+- `.gitignore` — already lists the three run-artifact paths. Read, not edited: it is the reason the
+  exclusion holds in CI as well as locally.
+- `CONTRIBUTING.md` — states that a green local run means a green CI run. Still true; the converse
+  now needs a caveat.
+- `CHANGELOG.md` — this is a behaviour change to the gate and belongs in the record.
 
-**Item 1.3 — `/code-review`'s invocation shape** is set by `skills/review/SKILL.md` step 2, which
-forbids both `ultra` and `--fix` and requires a named effort level. `docs/SKILLS.md` and
-`docs/ARCHITECTURE.md` both describe the three review tiers, as does the delegation table in
-`skills/auto/references/orchestration.md`.
+Risks a change here runs into:
 
-**Item 2.5 — the fork surface.** `skills/plan/SKILL.md` holds the conservative-reading rule in two
-places (*Ask, don't assume*, and the step that records status). The same rule is restated in
-`skills/auto-unattended/SKILL.md`'s plan stage and in orchestration's *Preconditions for
-unattended*. `skills/grill/SKILL.md` carries its own conservative-reading sentence for critique
-findings — a fork grill raises must land in *Open questions* too, or the precondition has a hole.
-The section's own definition lives in `skills/plan/templates/task.md` and `examples/task.md`,
-which `scripts/verify.sh` requires to be byte-identical. `lib/detect_stage.sh` is where a
-machine-checkable answer has to come from; its header comment documents every output line.
-
-**Risks the map surfaced.** `scripts/verify.sh` rejects any markdown carrying a line-number
-citation, requires every relative markdown link to resolve, and diffs the template against the
-example — so the parity edit must be a copy, not two hand-edits. Renumbering ship's stages is the
-single highest-risk edit, because the numbers are referenced from prose the headings do not
-contain.
+- **The gate is live for this run.** `.claude/gates.sh` invokes `scripts/verify.sh` by path out of
+  the worktree, so the edited script gates its own change. Files that were invisible a moment ago
+  become visible mid-run — including this very file and `plan.md`. Both were written to survive the
+  sweep from the start.
+- **Asserting on the exit code alone proves nothing.** A bare fixture repo fails `verify.sh` for a
+  dozen unrelated reasons — no plugin manifests, no `skills/`, no suite to recurse into. The
+  differential assertion has to be on the citation check's own line of output, with the exit code
+  as a secondary check.
+- **`grep` omits the filename when it is given a single operand.** A fixture whose entire markdown
+  set is the one file under test produces `1:...` rather than `<file>:1:...`, so an assertion that
+  the check names the offending file fails against the *fixed* script. The fixture has to carry a
+  second, tracked, citation-free markdown file — which is also what keeps the enumeration non-empty
+  and so keeps `xargs` off the empty-input path.
+- **No recursion, but only by accident of location.** `verify.sh` cds to the git toplevel and runs
+  `bash tests/run.sh`. A fixture built under the temp root is a different toplevel, so the nested
+  invocation simply finds no such path and exits 127. A fixture built *inside* this repo would
+  recurse without bound.
 
 ## Open questions
 
-Settled. Every fork this task raised was closed by reading the repository rather than by choosing,
-so no decision was left for the implementer:
-
-- [x] **How ship learns a review already ran** — the repo's existing convention is that handoff
-      between phases is via disk plus explicit flags, never conversation. Ship takes a `--reviewed`
-      flag from the drivers *and* honours the `status:` already on disk.
-- [x] **What ship does when `/code-review` is unavailable** — this repo's rule is that the gate is
-      the only blocker. A missing reviewer is reported, not fatal.
-- [x] **Whether the review stage is opt-in** — the task statement settles it: a stage in the flow,
-      skipped only on `--no-pr` or an already-reviewed chain.
-- [x] **Whether to rename the section to match the upstream wording** — no. Gantry's heading stays
-      `## Open questions`; the upstream phrase becomes the section's one-line description in the
-      template, so the intent is captured without churning a heading other files point at.
+None. The task fixes the enumeration and nothing about what is enumerated for; the one judgement
+call — whether `scripts/secret-scan.sh` shares the defect — is answered in *Out of scope* from its
+own header comment rather than left open.

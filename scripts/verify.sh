@@ -11,14 +11,42 @@ ok()   { printf '  ok    %s\n' "$1"; }
 bad()  { printf '  FAIL  %s\n' "$1"; fail=1; }
 head2() { printf '\n== %s ==\n' "$1"; }
 
+# Every enumeration below goes through this, and the flags are the whole point.
+#
+# `git ls-files` on its own lists TRACKED files only, which made this gate blind
+# to precisely the files a gantry run creates. `implement` runs the gate while
+# `task.md` and `plan.md` are still untracked; `ship` commits them minutes later;
+# CI then runs this same script with them tracked. Green here, red there, on the
+# pipeline's own artifacts. A `lib/*.sh` written during `implement` had the same
+# hole — never parsed or shellchecked until after it was pushed.
+#
+# `--others --exclude-standard` closes it: files that are new get checked, files
+# that are ignored do not. `--exclude-standard` honours three sources, and the
+# difference between them matters here. `.gitignore` is tracked, so it is the
+# half that still holds on a fresh CI checkout; each clone's
+# `.git/info/exclude` is local, and is where the drivers put a run's own noise;
+# and `core.excludesFile`, the contributor's global ignore, is neither — it
+# varies per machine, so two contributors can enumerate different file sets from
+# the same tree. That last one is benign for the green-local-means-green-CI
+# claim, since a globally ignored file never reaches CI either, but it does mean
+# this gate's coverage is not identical everywhere. `.gitignore` and
+# `.git/info/exclude` both list `journal.jsonl` and `.claude/artifacts/`, so a
+# run's own journal and gate transcripts stay out of every sweep below.
+#
+# The price is real and is documented in CONTRIBUTING: this gate's result now
+# depends on what untracked files happen to be sitting in the tree, so a RED run
+# here no longer implies a red run in CI. The remedy for a false red is to ignore
+# the path, never to narrow this enumeration.
+repo_files() { git ls-files --cached --others --exclude-standard "$@"; }
+
 head2 "shell syntax"
 while IFS= read -r f; do
   if bash -n "$f" 2>/dev/null; then ok "$f"; else bad "$f"; bash -n "$f"; fi
-done < <(git ls-files '*.sh')
+done < <(repo_files '*.sh')
 
 head2 "shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
-  git ls-files '*.sh' -z | xargs -0 shellcheck -S warning && ok "shellcheck clean" || bad "shellcheck"
+  repo_files '*.sh' -z | xargs -0 shellcheck -S warning && ok "shellcheck clean" || bad "shellcheck"
 else
   echo "  shellcheck not installed — skipped"
 fi
@@ -28,7 +56,7 @@ if command -v python3 >/dev/null 2>&1; then
   while IFS= read -r f; do
     python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$f" \
       && ok "$f" || bad "$f"
-  done < <(git ls-files '*.py')
+  done < <(repo_files '*.py')
 fi
 
 head2 "JSON manifests"
@@ -61,11 +89,11 @@ for f in agents/*.md; do
 done
 
 head2 "no line-number citations (they rot on the first edit)"
-out="$(git ls-files '*.md' -z | xargs -0 grep -InE '\.md:[0-9]+' 2>/dev/null)"
+out="$(repo_files '*.md' -z | xargs -0 grep -InE '\.md:[0-9]+' 2>/dev/null)"
 [ -z "$out" ] && ok "none" || { bad "line-number citations found"; printf '%s\n' "$out"; }
 
 head2 "no leftovers from the extraction"
-out="$(git ls-files -z -- ':!scripts' | xargs -0 grep -InE '\bkit:|\$KIT\b|kit@skills-dir|homebase|raw_specs|OPEN-QUESTIONS|Slice [0-9]' 2>/dev/null)"
+out="$(repo_files -z -- ':!scripts' | xargs -0 grep -InE '\bkit:|\$KIT\b|kit@skills-dir|homebase|raw_specs|OPEN-QUESTIONS|Slice [0-9]' 2>/dev/null)"
 [ -z "$out" ] && ok "none" || { bad "pre-rename references survive"; printf '%s\n' "$out"; }
 
 head2 "relative links resolve"
@@ -83,7 +111,7 @@ while IFS= read -r f; do
       printf '  FAIL  %s -> %s\n' "$f" "$link"; badlinks=1; fail=1
     fi
   done <<< "$links"
-done < <(git ls-files '*.md')
+done < <(repo_files '*.md')
 [ "$badlinks" -eq 0 ] && ok "all resolve"
 
 head2 "the duplicated frontmatter parser has not drifted"
