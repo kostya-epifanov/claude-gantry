@@ -16,17 +16,26 @@ gantry/
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             skill-local deterministic work, run not read
 │   └── templates/           the task.md fallback
-├── lib/                     shared runtime scripts     (2)
+├── lib/                     shared runtime scripts     (3)
 │   ├── run_gates.sh         the one hard gate
+│   ├── gate_coverage.sh     what the gate actually read — reported, never enforced
 │   └── detect_stage.sh      where a task sits on the chain
 ├── agents/gantry-*.md       → the delegation roster    (4)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
 └── examples/gates.sh        a starter repo-owned gate
 ```
 
-`lib/` exists because two scripts are shared by several skills *and* by the hook. Putting the gate
-under the skill that happened to run it first (`skills/auto/scripts/`, as in v0.1) made the path a
-lie as soon as ownership moved.
+`lib/` exists because these scripts are shared by several skills *and* by the hook. Putting the
+gate under the skill that happened to run it first (`skills/auto/scripts/`, as in v0.1) made the
+path a lie as soon as ownership moved.
+
+`gate_coverage.sh` sits beside the gate rather than inside it, and the split is the point.
+`run_gates.sh` emits *where* its checks ran; `gate_coverage.sh` compares that against the changed
+paths and returns a verdict. Only the caller holds both the verdict and the exit code, so only
+the caller can name **green-but-uncovered** — a gate that passed while reading none of the paths
+the diff touched. The comparison is a **heuristic** (a root is the directory a check ran in, not
+the files it read) and is therefore reported and never enforced: it changes no exit code and adds
+no refusal.
 
 A skill body enters the conversation when it fires and **stays there for the rest of the session**.
 That is why detail lives in `references/` (loaded only when the skill says to read it) and why

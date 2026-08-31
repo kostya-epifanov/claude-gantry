@@ -59,14 +59,43 @@ orchestrator's own: `contract`, `plan`, `grill`, `implement`, `gate`, `review`, 
 ### `gate` — a gate decision
 
 ```json
-{"ts":"2026-08-16T09:52:10Z","task":"2026-08-16-contact-form","event":"gate","result":"fail","exit":1,"attempt":1,"checks":["lint","test"],"artifacts":[".claude/artifacts/gate-1.log"]}
+{"ts":"2026-08-16T09:52:10Z","task":"2026-08-16-contact-form","event":"gate","result":"fail","exit":1,"attempt":1,"checks":["lint","test"],"coverage":{"roots":["app"],"verdict":"no-overlap","changed":3,"covered":0,"heuristic":true},"artifacts":[".claude/artifacts/gate-1.log"]}
 ```
 
 - `result` — `pass` | `fail` | `no-gates`, mirroring the gate script's exit code
   (`0` / `1`+ / `3` under `--strict`).
 - `exit` — the literal exit code, so the log survives a change in vocabulary.
 - `attempt` — 1-based; increments on each unattended fix-and-retry.
+- `coverage` — what the gate actually read, from `lib/gate_coverage.sh` via the implement phase's
+  report. See below; omit the key entirely on a run that predates it rather than inventing one.
 - `artifacts` — paths to captured output. Paths, not logs: the journal stays skimmable.
+
+#### `coverage` — what the gate read, and why it is not a proof
+
+A gate that runs and passes while reading none of the paths the diff touches exits `0` exactly
+like one that proved something, so `result: pass` alone cannot distinguish them. This object is
+what makes the difference legible after the fact.
+
+- `roots` — the root-relative directories checks actually ran in, **always an array** so a
+  parser never handles a string-or-array. It is empty when `verdict` is `undeclared`,
+  `no-checks` or `unknown`.
+- `verdict` — mirrors `lib/gate_coverage.sh` exactly: `overlap` · `no-overlap` · `undeclared` ·
+  `no-checks` · `no-changes` · `unknown`. A green gate with `no-overlap` is
+  **green-but-uncovered** — genuinely green, and not evidence about this diff.
+- `changed` / `covered` — path counts. The orchestrator's own artifacts (`task.md`, `plan.md`,
+  `handover.md`, `journal.jsonl`, `.claude/artifacts/`) are excluded from `changed`, so the
+  number means source paths.
+- `heuristic` — always `true`, and it is there to be read. **A root is the directory a check was
+  run in, never the set of files it read**, and it errs in both directions: a suite rooted in a
+  subdirectory may import from the repo root, and a check that ran at the root counts as
+  covering everything while possibly reading almost none of it. When `verdict` is `undeclared`,
+  `unknown` or `no-checks`, `covered: 0` means nothing could be *attributed* — not that nothing
+  was covered.
+
+Nothing reads this field to decide anything. It is reported, never enforced: low overlap is not
+a refusal and does not change an exit code. A reader who mistakes this number for a proof is the
+failure the field exists to prevent, so the caveat travels with the data rather than living only
+here.
 
 ### `decision` — a human answered a supervised checkpoint
 
