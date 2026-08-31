@@ -131,7 +131,9 @@ absorb.
 ## Report
 
 What changed, file by file at a summary level. The gate: which mode it ran in, its exit code
-verbatim, and how many fix attempts were used. Whether the readiness hook was **armed or inert** on
-this run, taken from `HOOK` — a run with an inert hook was self-policed, and saying so is the
-difference between a guarantee and a claim. Any plan step that changed, and why. End by naming the
+verbatim, and how many fix attempts were used. Whether the readiness hook's firing conditions were
+**met or unmet** on this run, taken from `HOOK` — and note what that value does not settle: the
+detector cannot see whether the hook is registered, so met conditions mean the gate would have been
+enforced *if* it is installed. A run whose conditions were unmet was certainly self-policed, and
+saying so is the difference between a guarantee and a claim. Any plan step that changed, and why. End by naming the
 next command: `/gantry:review`.

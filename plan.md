@@ -1,431 +1,421 @@
-# plan.md — fold review into ship, and gate the plan stage on settled forks
-
-Two independent changes over the same file set. Steps 1–5 are item 1.3; steps 6–13 are item 2.5.
-They can be read and reviewed separately; nothing in one depends on the other.
-
-Revised after the grill pass. See **Grilled** at the end for what changed and why.
-
-## The three decisions worth stating up front
-
-**Where ship's review sits, and why it is not after the push.** Ship's flow is
-commit → push → PR. The review stage goes **after the commit and before the push**, so anything it
-fixes is corrected before a single byte leaves the machine. That is still "between commit and PR",
-and it is the position that makes a fix cheap. Ship's stage detector routes callers straight into
-the middle of the flow, so the review stage must be reachable from the `push` and `pr` entry
-points too, not only from `commit` — and because it can create a commit, the push stage must not
-decide from the detector read that happened before it.
-
-**Why ship passes `--fix` when `skills/review` forbids it.** `skills/review` refuses `--fix` on
-purpose: its triage step weighs each finding against `task.md`'s *Out of scope*, and `--fix` would
-apply findings the contract excludes. That reasoning does not transfer to ship, and the two never
-both run — the `--reviewed` guard guarantees it. Ship's review stage exists for the caller who
-typed `/gantry:ship` on a small change with no contract on disk and no triage step to protect; for
-them, "apply what a reviewer found, then re-prove it with the gate" is strictly better than no
-review. Ship's prose says this out loud, and `skills/review` gains a sentence pointing at it, so
-the two do not read as an accidental contradiction.
-
-**What "settled" means, and where it is decided.** A fork is settled when its entry under
-*Open questions* is a checked list item. That is a machine-checkable fact, so `lib/detect_stage.sh`
-computes it once and every phase routes off the same answer — the same split the script already
-uses for `GATES` and `HOOK`. The precondition is then enforced at **every transition that could
-dispatch an implementer**, not at one point, because grill can open a fork that plan never had.
-
----
-
-## Item 1.3 — a review stage inside ship
-
-### Step 1 — Frontmatter and flags
-
-In `skills/ship/SKILL.md`:
-
-- `allowed-tools`: add `Skill`. Invoking `/code-review` requires it; ship currently has
-  `Bash, Read` only. Do **not** add `Write`/`Edit` — ship still records nothing.
-- `argument-hint`: add `[--reviewed]`.
-- `description`: name the review stage and the flag. It is already the longest description in the
-  repo, so keep the addition to one clause.
-- Body: a `--reviewed` paragraph beside the existing `--no-pr` / `--base` / `--draft` ones.
-
-**Check:** run `bash scripts/verify.sh` **immediately**, before any other step —
-`claude plugin validate skills --strict` runs inside it, and a description it rejects must surface
-now rather than under nine later steps.
-
-### Step 2 — Insert the review stage and renumber
-
-New **`### 3. Review the change`** between the current stage 2 (Commit) and stage 3 (Push).
-Renumber Push → 4, Open the PR → 5, Done → 6, and fix every cross-reference to a stage number:
-the `--no-pr` paragraph names "stage 4", the detector routing list names stages by number, and
-stage 4's own text points at "step 5". Read the whole file after renumbering; the numbers are
-referenced from prose the headings do not contain.
-
-The stage body:
-
-1. **Skip, and say so, if** `--no-pr` was given, or `--reviewed` was given. Nothing else — see
-   step 3 for why the `status:` on disk is deliberately *not* consulted.
-2. Otherwise invoke `/code-review <level> --fix` scoped to the branch diff, naming an effort level
-   so two runs are comparable — `skills/review` makes the same point about an unnamed level
-   reusing whatever was typed last.
-3. If the invocation errors, `/code-review` is unavailable: report it **with the cause** and carry
-   on to the push. Review is advice; a missing reviewer never blocks a ship.
-4. **If `--fix` changed nothing, stop here** — no commit, no gate re-run. This is the common case
-   and it must stay cheap.
-5. If it did change something: commit those edits as their own follow-up commit, so the review's
-   changes are legible separately from the change under review.
-6. Then, and only then, re-run `bash "$GANTRY/lib/run_gates.sh"` and treat the exit code exactly as
-   `implement` does. **Red stops the ship** — no push, no PR. Exit `2` is a broken environment;
-   exit `3` is `NO-GATES`, non-fatal here because ship is not the strict-mode gate owner.
-7. Because this stage may have created a commit, **re-run `detect_state.sh` before continuing.**
-   Ship's step 1 says to continue 2 → 3 → 4 without re-detecting; that guidance predates a stage
-   that can commit, and following it here would open a PR against a remote branch that does not
-   contain the review's fix.
-8. Record, for the report: whether the review ran, and what changed — file count from
-   `git status`, not an invented finding tally (see step 4).
-
-Ship's prose must **not** repeat the "before a byte leaves the machine" rationale in the `--no-pr`
-paragraph: under `--no-pr` the push still happens and the review is skipped, which is what the
-contract asks for but reads as a contradiction next to that sentence.
-
-**Check:** the numbers run 1–6 with no gaps, and no paragraph refers to a stage by a number it no
-longer has.
-
-### Step 3 — The double-review guard is the flag alone
-
-`skills/auto/SKILL.md` and `skills/auto-unattended/SKILL.md` both pass `--reviewed` when they
-invoke ship, with one sentence saying why: the chain already reviewed, and reviewing twice would
-let `--fix` apply findings `/gantry:review` deliberately deferred.
-
-**The `status:` on disk is not part of the guard**, and ship's prose should say so in one clause.
-Both drivers set `status: shipped` *before* invoking ship, for an unrelated reason — so on the
-driver path a status test would be satisfied by something that is not a review, while `--reviewed`
-does the real work. On the manual path it is worse than useless: a task left at `reviewed` from an
-earlier run, then edited further and shipped again, would skip review of genuinely unreviewed code.
-An explicit flag is the signal that is written down; a status is inferred.
-
-**Check:** `grep -n 'gantry:ship' skills/auto/SKILL.md skills/auto-unattended/SKILL.md` shows
-`--reviewed` on both.
-
-### Step 4 — Report only what is verifiable
-
-Nothing in this repo establishes that `/code-review` returns a machine-readable findings tally, or
-that a findings count and an applied count are separable when `--fix` is passed. Ship reports what
-it can actually observe: whether the review ran, and how many files `--fix` touched. A fabricated
-count is worse than no count. `task.md`'s criterion is rewritten to match.
-
-### Step 5 — Cross-reference from `skills/review`
-
-One sentence in `skills/review/SKILL.md` where it forbids `--fix`, noting that `gantry:ship` does
-pass `--fix` for the no-contract case and that the two are mutually exclusive via `--reviewed`.
-Without it the next reader files the ship stage as a bug.
-
-Also note in ship's report guidance: when a run stops after the push but before the PR (the
-documented `GH:missing` / `unauth` case), the report must tell the user to re-run with
-`--reviewed`, or the re-run reviews and edits an already-pushed branch a second time. Ship cannot
-write, so it cannot remember; saying so is the honest fix.
-
----
-
-## Item 2.5 — an open fork blocks the plan stage
-
-### Step 6 — Make "settled" machine-checkable
-
-`lib/detect_stage.sh` gains one reported line, `FORKS:`, with **four** values:
-
-| Value | Meaning |
-|---|---|
-| `absent` | no `task.md` at `ROOT` |
-| `unknown` | `task.md` exists but has no *Open questions* heading |
-| `open` | the section holds at least one list item that is not checked |
-| `none` | the section holds no list items, or every one is checked |
-
-`unknown` exists because `lib/detect_stage.sh` explicitly supports a hand-written `task.md`.
-Collapsing that case into `none` would let a mistyped heading silently disable the whole guarantee;
-collapsing it into `open` would permanently block every hand-written task with no documented
-remedy. Reporting it as its own value lets every consumer warn rather than guess.
-
-Parser rules, written into the script's header comment because ambiguity is the whole of this
-function's risk:
-
-- **Heading**: an ATX heading at any level whose text is exactly `Open questions`, matched
-  case-insensitively, trailing whitespace allowed.
-- **Section end**: the next ATX heading at any level, or end of file. In this repo's own `task.md`
-  the section is last, so EOF must terminate it.
-- **Fenced blocks** (``` or `~~~`) inside the section are skipped entirely. Step 12 depends on
-  this: the template has to show the convention without emitting a parseable unchecked item.
-- **List item**: any line matching a `-`, `*`, or `+` bullet at any indentation, so nested items
-  count.
-- **Settled**: the item's text begins with a checked box. An unchecked box *or a bare bullet with
-  no box* reads as open — a fork someone forgot to mark blocks rather than passing silently, which
-  is the entire point of the item.
-
-This is a new function; it does **not** touch `frontmatter_status()`, so the byte-identical-parser
-diff `scripts/verify.sh` runs against `hooks/readiness-gate.sh` still holds — its extractor keys on
-that function's own opening line and stops at its closing brace. `PHASE` and `NEXT` are unchanged:
-the script reports the fact, the skills decide what it means.
-
-**Check:** step 7's assertions, run via `scripts/verify.sh`.
-
-### Step 7 — Test the parser in `scripts/verify.sh`
-
-`scripts/verify.sh` **is** this repo's test harness — it is what CI runs, and it already carries
-bespoke behavioural assertions (the parser-drift diff, the template/example parity diff). Step 6 is
-the only real code in this change, so it gets committed assertions there, not a scratchpad run at
-implementation time. This is not a new test framework and not the `tests/` tree this plan still
-rejects.
-
-A new `head2` block builds throwaway `task.md` fixtures in a temp dir, runs `lib/detect_stage.sh`
-against each, and asserts the `FORKS:` value:
-
-| Fixture | Expect |
-|---|---|
-| no `task.md` | `absent` |
-| `task.md` with no *Open questions* heading | `unknown` |
-| section with one unchecked box | `open` |
-| section with one bare bullet, no box | `open` |
-| section with only checked boxes | `none` |
-| section holding only prose, no bullets | `none` |
-| section whose only unchecked box is inside a fenced block | `none` |
-| **unchecked boxes in *Acceptance criteria*, settled *Open questions*** | `none` |
-| heading present but last in file, EOF-terminated | parsed, not skipped |
-
-The bolded row is the plan's own stated catastrophic failure — a parser that leaks out of its
-section blocks every run forever. Without a committed assertion, a later edit that reintroduces it
-ships green.
-
-**Check:** `bash scripts/verify.sh` reports the new block, and it fails if the parser is broken on
-purpose.
-
-### Step 8 — Define the precondition in `skills/plan`
-
-In `skills/plan/SKILL.md`:
-
-- Rewrite the last paragraph of *Ask, don't assume*. It currently tells a run with no human present
-  to "choose the most conservative reading" and continue. Replace: record the fork as an unchecked
-  item, leave it open, and **do not claim the plan is dispatchable**.
-- The step that records status becomes the precondition: `status: planned` may be set only on
-  `FORKS:none`. On `FORKS:open`, leave `status: planning` and report the forks — `planned` is the
-  assertion that an implementer may be dispatched, and it is a lie while a fork is open. On
-  `FORKS:unknown`, warn and proceed.
-- The step that folds answers back in currently says to **clear** resolved forks from the section.
-  That contradicts the new convention and must change to "mark them checked, with the decision on
-  the line" — a deleted fork is indistinguishable from one never raised, which is exactly what the
-  contract's *defines what resolved looks like on the page* exists to rule out.
-- Document the checkbox convention where the section is described.
-- The Report gains the open-fork count.
-
-**Check:** `grep -n 'conservative' skills/plan/SKILL.md` returns nothing.
-
-### Step 9 — Close the grill hole
-
-`skills/grill/SKILL.md` today sets `status: grilled` unconditionally, and it tells a run with no
-human present to "take the conservative reading" for a finding. Two changes:
-
-- A critique finding that is a genuine design **fork** goes into *Open questions* as an unchecked
-  item rather than being absorbed by a conservative reading.
-- `status: grilled` may only be set on `FORKS:none`. If grill opened a fork, it leaves the status
-  alone and reports it.
-
-Without the second half, a fork grill opens flows straight past the drivers' post-plan check into
-`implement`, and the unattended run dies mid-chain with no escalation event and no `blocked`
-status — the exact failure the escalation path exists to prevent.
-
-**Check:** `grep -n 'Open questions' skills/grill/SKILL.md` finds it.
-
-### Step 10 — `implement` refuses on a dispatch, warns by hand
-
-`skills/implement/SKILL.md` routes off `FORKS:open`:
-
-- **`mode:` is `auto` or `unattended`** — a driver dispatched this. **Refuse.** This is the
-  guarantee that an implementer is never dispatched against an open fork.
-- **`mode:` is `semi-auto` or absent** — a human typed it. **Warn**, name the remedy (settle the
-  entry or check it off), and continue.
-
-The split is deliberate and matches the repo's stated principle that a hand-driven run may iterate
-between phases, where "a stale or absent artifact is a normal state rather than an error". A blanket
-refusal would lock a user out of `/gantry:implement` over a note they left themselves, with no
-documented way back.
-
-This is still a new refusal, so `skills/implement/SKILL.md`'s own *Two hard rules* heading and the
-matching claim in `docs/SKILLS.md` must both be corrected rather than left asserting the opposite —
-see step 13.
-
-**Check:** the routing list names all four `FORKS:` values.
-
-### Step 11 — Supervised asks; unattended stops
-
-`skills/auto/SKILL.md`, after `/gantry:plan` returns **and again after `/gantry:grill` returns**:
-if `FORKS:open`, one **AskUserQuestion** round covering every fork, answers folded into `task.md`
-and `plan.md`, entries checked off, then the status advanced. The post-plan round is the cheap
-moment; the post-grill round exists because grill can open a fork that plan never had.
-
-`skills/auto-unattended/SKILL.md`, at the same two points: if `FORKS:open`, the run is **blocked**.
-Journal an `escalation` event, set `status: blocked`, stop. There is no continuation branch and the
-stage text must not offer one.
-
-Both drivers describe their flow as `## Stage N` sections, not tables — neither contains a markdown
-table. The new behaviour goes into those stage sections and into the **mode table** in
-`skills/auto/references/orchestration.md`, which is the one real table. No tables are invented.
-
-**Check:** `grep -nE 'otherwise|unless' ` over the unattended open-fork paragraph returns nothing —
-no conditional continuation survives.
-
-### Step 12 — Template, example, and the journal shape
-
-- `skills/plan/templates/task.md` and `examples/task.md`: rewrite the *Open questions* section to
-  state the precondition and the checkbox convention, and to carry the upstream phrasing — *the
-  forks the implementer must not resolve alone* — as its one-line description. The heading itself
-  stays `## Open questions`; other files point at that name.
-
-  **The convention must be shown inside a fenced block.** A literal unchecked box in the template
-  would make every freshly written `task.md` report `FORKS:open`, blocking every unattended run
-  forever and prompting the user about a placeholder on every supervised one. Step 6's
-  fence-skipping is the other half of this; both halves are required.
-
-  **These two files must stay byte-identical** — `scripts/verify.sh` diffs them. Write one and copy
-  it to the other; do not hand-edit twice.
-- `skills/auto-unattended/references/journal.md`: the `escalation` event is documented as
-  "reserved … nothing in gantry emits it". Something does now. Give it a shape and a worked
-  example, and correct that sentence.
-
-**Check:** `diff examples/task.md skills/plan/templates/task.md` is empty, and a `task.md` freshly
-copied from the template reports `FORKS:none`.
-
----
-
-## Step 13 — Documentation, including three invariants this change falsifies
-
-The change contradicts statements the shipped docs currently make. These are not optional polish;
-leaving them is shipping documentation that asserts the opposite of the behaviour.
-
-- **`docs/SKILLS.md`** — "Two hard refusals, and only two — both `implement`'s" is falsified by
-  step 10. "`ship` does **not** re-check the gate … What stops a red tree reaching a PR is
-  `implement` … not `ship`" is falsified by step 2. Also the three-modes table and the
-  `gantry:ship` entry that repeats `argument-hint`.
-- **`skills/implement/SKILL.md`** — carries the "one of only two hard refusals in the chain" claim
-  inline.
-- **`skills/auto-unattended/references/delegation.md`** — "The gate is never delegated …
-  `gantry:implement` runs it inline" is falsified by step 2's re-run.
-- **`skills/auto/references/orchestration.md`** — *Reusing worktree and ship* enumerates the
-  pass-throughs ("Pass `--no-pr`, `--base`, and (unattended only) `--draft` through") and must gain
-  `--reviewed`. A driver reads this file at the start of every run, so an omission here re-arms the
-  double review the guard exists to prevent. Its *Preconditions for unattended* bullet about
-  `gantry:plan` describes the conservative-reading behaviour and must be rewritten. Its mode table
-  gains the new row.
-- **`docs/ARCHITECTURE.md`** — the `status:` state-machine diagram shows `blocked` branching only
-  off `implementing`; steps 8 and 11 add `planning → blocked`. The *who invokes whom* diagram gains
-  ship's review edge. The **ship state-machine diagram is left alone**: every node in it is a value
-  `detect_state.sh` can emit, and the review stage is not an entry point — drawing it in would
-  claim a `STAGE` that does not exist. A note under the diagram is the honest form.
-- **`skills/ship/scripts/detect_state.sh`** — header comment restates
-  `commit → push → open PR → wait`; it becomes `commit → review → push → open PR → wait`. Comment
-  only; the `STAGE` vocabulary does not change.
-- **`README.md`** — *The chain* section, and the skill table's `gantry:ship` flag list.
-- **`CHANGELOG.md`** — `0.2.0` is unreleased, so both items fold into its existing **Added** and
-  **Changed** sections rather than opening a new version.
-- **`docs/METHOD.md`** — only if it describes ship's flow or the fork rule; leave it alone
-  otherwise.
-
-Every relative markdown link must still resolve, and no line-number citation may appear —
-`scripts/verify.sh` checks both.
-
-## Step 14 — Run the gate
-
-`bash scripts/verify.sh` must exit 0.
-
----
-
-## Test strategy
-
-**Step 6 is real code and gets committed assertions** — step 7, inside `scripts/verify.sh`, which
-is this repo's harness and what CI runs. Nine fixture cases, including the one that would otherwise
-be catastrophic (the parser leaking into *Acceptance criteria*) and the one step 12 depends on
-(fenced blocks skipped).
-
-**Everything else is skill prose**, and no test framework is added for it. That is a real limit,
-not a claim of coverage: what protects the prose is `scripts/verify.sh`'s existing static checks
-(frontmatter/directory agreement, manifest validation, link resolution, template/example parity,
-parser-drift diffing), the per-step `grep`/`diff` assertions above, and the two human reads in
-`task.md`'s *How to verify*. A change that made ship's review stage read incoherently would pass
-every automated check in this repo, and nothing here changes that.
-
-## Risks
-
-- **Renumbering ship's stages breaks a cross-reference.** The numbers are referenced from prose the
-  headings do not contain. Step 2's check is a full read, not a grep.
-- **The parser leaking out of its section.** *Acceptance criteria* is full of unchecked boxes; a
-  parser that matched them would block every run permanently. Step 7's bolded fixture is the
-  committed guard.
-- **The template emitting a parseable unchecked item.** Would block every unattended run forever.
-  Fenced block in step 12, fence-skipping in step 6 — both halves required, and step 12's check
-  copies the template and reads the result back.
-- **This task's own `task.md` is subject to the rule it introduces.** Its *Open questions* entries
-  are checked items already; if that regressed, the implementer this plan dispatches would refuse.
+# Plan — report an inherited task, stop calling the hook armed, write Out of scope after the study
+
+Contract: `task.md`. Three changes over `lib/detect_stage.sh` and `skills/plan/SKILL.md`, plus the
+consumers of the two things being changed: the routers that read the `TASK:` line, and the
+readers of the `HOOK:` line.
+
+Each step leaves the gate green on its own, so `bash scripts/verify.sh` can be run after any of
+them.
+
+## Decision: rename the HOOK: values rather than detect registration
+
+The task offered two options and asked for one to be chosen here, with the reasoning.
+
+**Chosen: (a) rename to `HOOK:conditions-met` / `HOOK:conditions-unmet`.**
+
+Option (b) — read the plugin root's `hooks/hooks.json` and report actual registration — cannot be
+made reliable, and the evidence is in this repository rather than in judgement:
+
+1. The detector resolves the **repo** root (`git rev-parse --show-toplevel`). Registration lives
+   in the **plugin** root, which is a different directory the script is given no handle on. The
+   only handle available is the script's own path, and that is exactly the handle that lies:
+   this repository *is* the plugin source, so a checkout of gantry has `hooks/hooks.json` sitting
+   at its own root. Any detection anchored on the script's location would report "registered" for
+   every gantry checkout, including ones where the plugin is not installed at all.
+2. Even reading the correct `hooks/hooks.json` would not answer the question. The file declares
+   the hook; whether it fires depends on the plugin being **enabled in the user's configuration**,
+   which the script cannot see. A "yes" derived from the manifest would be a second claim the
+   script is not entitled to make — replacing one overstatement with a subtler one.
+
+So the honest move is to stop claiming registration and name what is actually computed: the
+firing conditions. That makes the residual — "and the hook must also be installed" — visible to
+every reader instead of hidden inside a word.
+
+`conditions-met` / `conditions-unmet` are the values, because they read correctly in the sentence
+the consumers actually write: "the hook's firing conditions were met on this run."
+
+### The rule for what the rename touches, and what it does not
+
+The word `armed` is used in this repository for two different things, and only one of them is
+wrong. **A claim about the detector's output** — "the detector reports `armed`", "report whether
+the hook was armed" — is the overstatement, because the detector cannot see registration. **A
+claim about the hook itself** — that a repo has been armed by registering the hook and adding
+`.claude/gates.sh`, or that the hook is inert until its conditions hold — is accurate and stays.
+
+By that rule the sweep touches `skills/auto/references/orchestration.md`, `skills/auto/SKILL.md`,
+`skills/auto-unattended/SKILL.md`, `skills/implement/SKILL.md`, `docs/SKILLS.md` and
+`tests/cases/stage_phases.sh`, and leaves `hooks/readiness-gate.sh`, `README.md`,
+`docs/METHOD.md` and `CHANGELOG.md` alone. `docs/METHOD.md` in particular contains no `HOOK:` at
+all — its three `armed` uses are the hook describing itself, the same usage `README.md` keeps —
+so rewriting them would leave two docs describing one hook in two vocabularies.
+
+## Steps
+
+### 1. Rename the HOOK: values, and update the assertions with them
+
+`lib/detect_stage.sh`: change the two `echo` lines to `HOOK:conditions-met` and
+`HOOK:conditions-unmet`, and rewrite the `HOOK:` line in the header comment block and the comment
+above the `if` so both say what the line establishes — the hook's firing conditions — and state
+plainly that registration is not visible to the script.
+
+`tests/cases/stage_phases.sh` changes **in the same step**, not later: the three `assert_contains`
+calls, the section banner above them, the assertion labels (which say "arms"/"disarms"), and the
+file's header comment. Splitting these across two steps would leave the suite red in between,
+which contradicts this plan's own claim that the gate can be run after each step.
+
+**Check:** `bash tests/run.sh` green; `bash lib/detect_stage.sh` prints `HOOK:conditions-unmet`;
+no `armed` left in either file.
+
+### 2. Add TASK:inherited to the detector
+
+Add a `task_is_inherited()` helper beside the existing parsers and switch the `TASK:` line to use
+it. It must sit **outside** `frontmatter_status()`, which `scripts/verify.sh` diffs byte-for-byte
+against the hook's copy and which must not be touched. `open_questions_forks()` is the precedent:
+a self-contained function with its rules written above it.
+
+The rule, which goes into the header comment block as a documented fact:
+
+- `task.md` exists at `ROOT`; **and**
+- its frontmatter `status:` is exactly `shipped`; **and**
+- `HEAD` is on a branch (not detached); **and**
+- a base branch resolves to an existing rev; **and**
+- `git merge-base HEAD <base-rev>` succeeds; **and**
+- `<merge-base>:task.md` exists and its bytes are identical to the file on disk.
+
+Anything else is `present`.
+
+Three details the first draft of this plan got wrong, corrected here because the header comment is
+written from this list:
+
+- **The detached-HEAD guard is explicit, not emergent.** Base resolution does not consult whether
+  `HEAD` is symbolic — it looks for `develop`, `origin/HEAD`, `main`, `master` — so a detached
+  `HEAD` sitting on a commit reachable from `master` would resolve a base, find a merge-base, and
+  return `inherited`. The function therefore starts with `git symbolic-ref --quiet --short HEAD`
+  and returns non-zero when it yields nothing.
+- **The resolved base is a rev, on every leg, preferring the remote-tracking ref.** Resolution
+  mirrors `skills/ship/scripts/detect_state.sh` — `develop` unless we are standing on it, then
+  `origin/HEAD` if its ref still resolves, then the first of `main`/`master` that exists — but it
+  must end by turning the chosen *name* into `origin/<name>` whenever that ref exists, and only
+  fall back to the local branch when it does not. `gantry:worktree` bases every worktree on
+  `origin/<parent>` and treats fast-forwarding the local ref as a convenience it may skip, so
+  merge-basing against a local `master` that lags origin would find an older commit carrying a
+  *different* merged `task.md`, the bytes would differ, and the feature would silently never fire
+  in the exact workflow it exists for.
+- **Ship's final fallback is deliberately not copied.** `detect_state.sh` ends with a literal
+  `BASE="main"` so it always has a PR target. Here, nothing resolving means the fact cannot be
+  established, and that must degrade to `present`.
+
+Degradation is by construction: the function returns non-zero at the first condition it cannot
+establish, and every `git` call inside it is `2>/dev/null` with its status checked. A detached
+`HEAD` fails at the symbolic-ref guard; a repository with no `develop`/`origin/HEAD`/`main`/
+`master` fails at base resolution; a repository with no commits at all has no refs, so it also
+fails at base resolution rather than at `merge-base`, which is never reached; a `task.md` absent
+from the merge-base commit fails at `rev-parse`.
+
+The byte comparison is `git cat-file blob <sha> | cmp -s - "$ROOT/task.md"` — a true byte
+comparison rather than a re-hash, so no filter or line-ending setting can make two different files
+compare equal, and an **absolute** path so the answer does not change when the detector is run
+from a subdirectory (its header promises it works from anywhere inside the tree).
+
+**Verification already done.** This logic was exercised as a standalone prototype against ten
+throwaway repositories before being written into the script: a fresh branch off `master` with an
+untouched `task.md` gave `inherited`; a superseded file, a non-terminal status, a repo with no
+resolvable base, a detached `HEAD`, a repo with no commits, a `task.md` deleted from disk, and a
+one-byte difference each gave `present`; a linked worktree gave `inherited`; and the script's own
+exit status was undisturbed. The fixtures in step 6 pin the same cases in the suite.
+
+**Check:** in this worktree, `bash lib/detect_stage.sh` prints `TASK:present` — the file was
+superseded, so this is the negative case, and it is the only one this worktree can demonstrate.
+
+### 3. Route TASK:inherited in the plan skill
+
+In `skills/plan/SKILL.md` step 1, add a `TASK:inherited` bullet above the `TASK:present` one: the
+file is a merged task's contract that arrived on the branch, so this is a clean start — write both
+files fresh, do not ask, do not revise. Give the reason in one clause; the rule reads as dangerous
+without it. Leave the `TASK:present` bullet byte-identical.
+
+**Check:** the step names all three `TASK:` values; the `TASK:present` bullet is unchanged in the
+diff.
+
+### 4. Reorder the plan skill's steps
+
+- **Step 2** writes the frontmatter, *Context & goal*, *Acceptance criteria*, *How to verify* and
+  *Open questions* — everything the task description and the conversation settle — and says that
+  *Out of scope* and *Affected areas* are left for after the study.
+- **Step 3** stays the code study and the explorer dispatch.
+- **A new step 4** writes *Out of scope* and *Affected areas* together from what the study found,
+  with one sentence on why: what a change touches is what tells you what it deliberately will not
+  touch, and both `gantry:review` and `gantry:handover` read *Out of scope* as a boundary rather
+  than a draft.
+- Later steps renumber: "Ask what is still open" becomes 5 (it already is), "Record the status"
+  becomes 7.
+
+The cross-references to fix are these three, and the inventory in the first draft was wrong about
+them:
+
+- The line in step 2 reading "Leave **Affected areas** empty for step 3" must become step 4 **and**
+  change meaning — it is no longer a note about one section being deferred but about two.
+- The line in the *Ask, don't assume* prose above the steps reading "step 6 will not mark it so"
+  points at the status step, which becomes step 7. It sits above the step list, so it is easy to
+  miss when only the numbered body is scanned.
+- The line in step 5 reading "the forks from step 2" is **unaffected** — the forks are still
+  written in step 2.
+
+Current step 6 contains no step-number reference at all.
+
+The opening claim near the top of the body — "Write them **before reading much code**" — is
+qualified rather than deleted. The intent it protects is real: the contract's goal and criteria
+must not be written to fit what the code turned out to make easy. The qualification is that this
+applies to intent and criteria, while the two sections that require code knowledge follow the
+study.
+
+Chosen over marking those sections provisional and revisiting them: a provisional section still
+reads as authoritative to the phases downstream.
+
+**Check:** no sentence instructs *Out of scope* to be written before the study; step numbers are
+contiguous; every cross-reference resolves; the body stays under 500 lines.
+
+### 5. Teach the other two routers about the third value
+
+Adding a value to `TASK:` breaks every consumer that routes on `present` and does nothing
+otherwise. A full grep finds three routers besides the plan skill:
+
+- **`skills/handover/SKILL.md`** — its `TASK:present` bullet says to read `task.md`'s *Out of
+  scope* first. On `TASK:inherited` that bullet silently stops matching and the read is skipped
+  with no warning. The bullet must cover both values.
+- **`skills/auto-unattended/SKILL.md` stage 2** — "**Never clobber an existing `task.md`**: under
+  `--here` a task already in flight means stop and report, not overwrite." Left as written, an
+  unattended run on a freshly branched worktree gets "clean start, write both fresh" from the
+  plan skill and "never clobber, stop and report" from the driver that invoked it — two live
+  instructions in direct contradiction, in the one mode the contract names as the failing case.
+  The rule must be narrowed to a task that is genuinely in flight, which is now a fact the
+  detector reports rather than a judgement.
+- **`skills/review/SKILL.md`** routes only on `TASK:absent` and treats everything else as a
+  contract, so a third value degrades exactly as `present` does today. No change; recorded here so
+  the next reader does not have to re-derive it.
+
+**Check:** `grep -rn 'TASK:' skills/` shows no bullet that names `present` without also handling
+`inherited`, except `review`'s `absent`-only branch.
+
+### 6. Extend the test case
+
+In `tests/cases/stage_phases.sh`, in the existing idiom (`mkrepo`, `write_task`, `write_gates`,
+`run_stage`, `assert_contains`), add fixtures for:
+
+- a repo with a base branch, a committed `task.md` at `status: shipped`, and a feature branch cut
+  from it → `TASK:inherited`;
+- the same repo after the file is modified on the branch → `TASK:present`;
+- the same bytes but `status: planning` → `TASK:present`;
+- a repo with no resolvable base branch → `TASK:present`;
+- a detached `HEAD` → `TASK:present`.
+
+Two traps the first draft walked into:
+
+- **The fixtures must name their branches explicitly** (`git init -b`, or `git branch -m` after
+  the fact). `mkrepo` inherits the developer's `init.defaultBranch`; a machine set to `trunk`
+  would resolve no base and fail the positive assertion for a reason unrelated to the change.
+- **The "no resolvable base" fixture must otherwise be a *positive* case** — a committed,
+  byte-identical, `shipped` `task.md` — with only the base made unresolvable. Built from a bare
+  `mkrepo`, `<merge-base>:task.md` would not exist either, so the assertion would pass whether or
+  not the degradation logic is there at all. That is a false green on the one asymmetry the whole
+  design rests on.
+
+No new helper is added to `tests/lib.sh`: this setup is used by one case, and a helper used once
+is indirection rather than reuse.
+
+**Test strategy.** The detector's new behaviour gets fixtures because it is a pure function of a
+repository's state, cheap to pin, and because the failure it guards against — reading a live task
+as inherited — destroys work and would otherwise only surface when someone lost some. The prose
+changes get no test: `scripts/verify.sh` already enforces what is mechanically checkable about a
+skill file, and asserting on the wording of a step pins the sentence rather than the behaviour.
+
+### 7. Update the readers of the renamed line
+
+Per the rule above:
+
+- `skills/auto/references/orchestration.md` — the sentence documenting the two values, and enough
+  of its paragraph that it no longer reads as a statement that the gate was enforced.
+- `skills/auto/SKILL.md`, `skills/auto-unattended/SKILL.md`, `skills/implement/SKILL.md` — the
+  report instructions that say "armed or inert". Each keeps its point: a run whose conditions were
+  unmet, or whose hook was never registered, was self-policed.
+- `docs/SKILLS.md` — **two** places, not one: the plan-phase report line that says "armed or
+  inert", and a second line further down that says only "whether the hook was armed". The second
+  survives a `grep` for `HOOK:` and is the kind of consumer a value-shaped search misses.
+
+**Check:** `grep -rn 'HOOK:' skills/ docs/ README.md tests/` shows no old value, and
+`grep -rni 'arm' skills/ docs/ tests/` leaves only hits that are claims about the hook itself.
+
+### 8. Correct the docs that describe the old plan ordering
+
+- `docs/ARCHITECTURE.md` states that `task.md` is filled in two passes, with out-of-scope written
+  "*before any code is read*" and only *Affected areas* deferred. That is exactly the rule change 3
+  reverses; left alone, the architecture doc and the skill would contradict each other and both
+  the acceptance criteria and the gate would still go green, because the criterion is scoped to
+  the skill file.
+- `docs/SKILLS.md`'s plan-phase entry lists out-of-scope among what is written first, and states
+  the skill "**Refuses:** to clobber an existing `task.md` or `plan.md` — it offers to revise
+  instead", which stops being true for `TASK:inherited`. Both lines change.
+
+**Check:** no document still describes the two-pass split with out-of-scope in the first pass, and
+none describes a refusal the skill no longer performs.
+
+### 9. Document what a config grep cannot see
+
+Where the hook's registration is described — `README.md`'s readiness-hook section and
+`docs/METHOD.md` — state plainly that the hook is registered at **plugin** level through the
+plugin's own `hooks/hooks.json`, so grepping `settings.json` finds nothing and proves nothing, and
+name what does show whether it ran: the hook's own audit log.
+
+This is the half of the change that stops the next reader reaching the wrong conclusion, and it is
+why the rename alone would not have been enough. It is the one edit `docs/METHOD.md` gets.
+
+### 10. Add a CHANGELOG entry
+
+The detector's output contract gains a value and loses two. `CHANGELOG.md` already records the
+previous fix to this same line, so the precedent is set; nothing enforces it, which is exactly why
+it needs to be a step rather than a habit.
+
+### 11. Run the gate
+
+`bash scripts/verify.sh`, which runs `bash tests/run.sh`. Green is the exit condition.
+
+## Left alone, deliberately
+
+Recorded because each looks like an oversight otherwise. The first two go to `handover.md`.
+
+- **`PHASE:` and `NEXT:` still read an inherited task as `done`.** An inherited `task.md` carries
+  `status: shipped`, so the snapshot says `TASK:inherited` and `PHASE:done NEXT:none — already
+  shipped` in the same breath. Every phase skill except `plan` routes on `PHASE`/`STATUS` rather
+  than `TASK`, so they are all still told the work is finished. Deriving `PHASE` from the new
+  value is a change to how `implement`, `review` and `ship` route, well outside a contract scoped
+  to the `TASK:` line and the plan phase — and the drivers reach `plan` first, which supersedes
+  the file and makes the snapshot correct from then on. Deferred, not missed.
+- **`plan.md` is inherited on exactly the same terms and gets no third value.** `PLAN:present` on
+  a freshly branched worktree still routes `/gantry:grill` to "continue, whatever `STATUS` says",
+  so grilling before planning attacks the previous merged plan. The contract covers `task.md`
+  only. Deferred.
+- **Standing on the base branch itself now yields `inherited`.** With `HEAD` on `master` and the
+  committed `task.md` unmodified, the merge-base is `HEAD` and the test reduces to "the file is
+  unmodified". That answer is correct — a shipped contract on the mainline *is* inherited — and
+  the plan skill separately warns about planning on the default branch. No change.
+- **`hooks/readiness-gate.sh`, `README.md`'s arming prose, `CHANGELOG.md`'s history, and
+  `tests/cases/hook_audit_trail.sh`** — all covered by the rule above: claims about the hook, not
+  about the detector. `tests/cases/hook_inert_unless_armed.sh` asserts on the hook's exit code and
+  on whether the gate ran, never on the detector's string; only its filename carries the old word,
+  and renaming a test file to chase a vocabulary change costs more history than it buys.
+
+## Notes for the reviewer
+
+- **What this run did and did not exercise, split by what loads it.** The installed plugin is
+  pinned at the merge commit this branch was cut from, and the plugin root is a different tree from
+  the repo root, so the *phase skills* that drove this run are the old ones.
+
+  - `skills/` and the docs — harness-loaded from the pinned plugin, so **genuinely unexercised**.
+    The reordered plan steps and the `TASK:inherited` routing were not followed by this run; it
+    followed the old wording, and the merged contract was superseded by hand against it.
+  - `lib/detect_stage.sh` — **executed from this worktree**, and demonstrably so. `tests/lib.sh`
+    sets `GANTRY_ROOT` from the case script's own path, so `DETECT_STAGE` resolves to the edited
+    file. That was confirmed empirically rather than read off a variable: four mutations of the
+    detector each flipped a different assertion to FAIL, which a suite running a pinned copy could
+    not have done.
+
+  It is still not running *as the installed plugin*, which is why this run's own snapshot said
+  `TASK:present` rather than `TASK:inherited` — the phase skills it obeyed were reading the pinned
+  detector. A fix to the detector cannot validate itself in the run that writes it.
+- This run hit the bug in step 3 itself: the detector opened it with `TASK:present STATUS:shipped
+  PHASE:done`, and the plan skill's current wording instructed revising that merged contract. Both
+  files were superseded in place instead.
 
 ## Grilled
 
-A `gantry-critic` pass returned 20 findings — 6 blocking, 9 worth fixing, 5 noted. What changed:
+A fresh `gantry-critic` read `task.md` and `plan.md` cold, with the code, and returned 4 blocking,
+9 worth fixing and 8 noted. What changed:
 
-- **Grill could re-open a fork after the only check** → steps 9 and 11: grill will not set
-  `grilled` on an open fork, and both drivers check again after grill, not only after plan.
-- **`FORKS` had no value for a `task.md` with no such section** → step 6 gains `unknown`, and the
-  parser rules (heading match, section terminator, fences, nesting, bare bullets) are enumerated
-  rather than left implicit.
-- **The template would have emitted a parseable unchecked item**, blocking every future run → step
-  12 fences the convention and step 6 skips fences. Both halves are now required and stated.
-- **Neither driver has a stage *table*** — both are `## Stage N` prose → step 11 targets the stage
-  sections plus orchestration's mode table, and invents no tables. The matching contract criterion
-  was reworded.
-- **Three shipped invariants are falsified by this change** (two in `docs/SKILLS.md`, one each in
-  `skills/implement/SKILL.md` and `delegation.md`) → step 13 lists all of them.
-- **The push stage decided from a pre-review detector read**, so a review commit could be left
-  unpushed and the PR opened without it → step 2 item 7 re-detects.
-- **The gate re-run was unconditional**, so ship would refuse to push in any repo with a
-  pre-existing red suite → step 2 item 4 makes it conditional on `--fix` having changed something.
-- **The disk half of the double-review guard was vacuous on the driver path and wrong on the manual
-  one** → step 3 drops it; `--reviewed` is the whole guard.
-- **A blanket `implement` refusal would lock out the hand-typed path** against the repo's own
-  stated principle → step 10 refuses on a dispatch and warns by hand.
-- **The no-test argument was sound for the prose and an excuse for the parser** → step 7 adds
-  committed assertions to `scripts/verify.sh`, which was already the harness.
-- **Four contract criteria were unfalsifiable** → rewritten as checkable in `task.md`.
-- Smaller: report only observable counts, not an invented findings tally (step 4); tell the user to
-  re-run with `--reviewed` after a degraded stop (step 5); do not repeat the
-  "before a byte leaves the machine" rationale under `--no-pr` (step 2); leave the ship
-  state-machine diagram alone and annotate it instead (step 13); validate ship's lengthened
-  `description` immediately rather than at the end (step 1); correct the *Out of scope* sentence
-  that understated what the detector change lets in.
+- **`docs/ARCHITECTURE.md` documents the ordering being reversed, and the plan had dismissed the
+  file after grepping it for `HOOK:` only** → blocking, verified, new step 8. This would have
+  shipped a repo whose architecture doc and plan skill disagree, with the gate green.
+- **`skills/auto-unattended/SKILL.md` still says "never clobber an existing `task.md`"** →
+  blocking, verified, new step 5. The driver would have kept enforcing the exact defect the task
+  exists to remove, in the mode the contract names as the failing case.
+- **A detached `HEAD` does not fail base resolution** → blocking. The prototype already carried an
+  explicit symbolic-ref guard, but the plan claimed the degradation was emergent, and that claim
+  was destined for the header comment a criterion says must be reimplementable from. Step 2 now
+  states the guard is explicit and why.
+- **Base resolution yielding a bare branch name merge-bases against a possibly-stale local ref** →
+  blocking. `gantry:worktree` bases worktrees on `origin/<parent>` and may skip updating the local
+  ref, so the feature would have failed silently in its own target workflow while all-local
+  fixtures stayed green. Step 2 now requires the resolved base to be a rev preferring
+  `origin/<name>` on every leg.
+- **The "no resolvable base" fixture would have passed with the logic absent**, and **`mkrepo`
+  inherits the developer's `init.defaultBranch`** → both folded into step 6 as named traps.
+- **`skills/handover/SKILL.md` routes on `TASK:present` and would silently skip the *Out of scope*
+  read** → step 5. `skills/review/SKILL.md` checked and needs no change; recorded so it is not
+  re-derived.
+- **`docs/SKILLS.md` has two `armed` lines, not one, plus a stale description of the plan phase
+  and a refusal that stops being true** → steps 7 and 8.
+- **`docs/METHOD.md` is not a consumer of the `HOOK:` line at all** — its `armed` uses describe the
+  hook itself, the same usage the plan preserves in `README.md` → dropped from the rename sweep,
+  which is why the sweep now has a written rule for telling the two kinds of claim apart. It keeps
+  only the step 9 edit.
+- **Renaming the values in step 1 while updating the assertions in step 5 leaves the suite red in
+  between** → merged into step 1.
+- **The cross-reference inventory was wrong**: the "step 2" reference in step 5 is unaffected, the
+  "step 3" reference in step 2 changes meaning as well as number, and the reference that actually
+  needed finding sits *above* the step list → step 4 now names all three.
+- **The empty-repo mechanism was stated wrongly** ("fails at `merge-base`"; it fails earlier, at
+  base resolution, with no refs to resolve) and **the `cmp` path was relative** → both corrected
+  in step 2.
+- **No `CHANGELOG.md` entry** → new step 10. **Stale `arms`/`disarms` wording in the test file's
+  labels** → folded into step 1.
+- **The detector's `PHASE:`/`NEXT:` still say `done`, and `plan.md` is inherited on the same
+  terms** → both were real and both are out of contract; moved into an explicit "Left alone"
+  section rather than left silent, and carried to handover.
 
-Left deliberately: the plan still adds no test framework for skill prose, and says so above rather
-than claiming coverage it does not have.
+Left as noted, not acted on: the observations about criteria that cannot be shown false. Four of
+them were real and `task.md` was tightened in response — the universally-quantified "no input
+causes…" became the five states the fixtures actually pin, the duplicate "no upstream" criterion
+was merged into "no resolvable base" (nothing in the resolution order consults `@{upstream}`, so
+there is no distinct state), and the two that judged prose quality moved to *How to verify* as
+human-only checks, where a judgement belongs.
+
+No finding opened a design fork. `FORKS:` stays `none`.
 
 ## Reviewed
 
-`/code-review high` (tier 1, no `--fix` — this phase triages) returned 7 findings. All 7 were
-inside this change's own footprint, so all 7 were fixed and none deferred; there is no
-`handover.md`.
+`/code-review high` was invoked first and **terminated early on an API session limit** (429), so it
+produced no findings — a downgrade, not an absence, and recorded as one. A `gantry-reviewer`
+sub-agent ran instead: 5 correctness findings, 1 simplification, 1 flakiness. Five addressed, one
+declined, one routed to handover.
 
-- **`ship`'s `allowed-tools` omitted `Write`/`Edit`/`Grep`/`Glob`.** The worst of the seven: a
-  skill's frontmatter restricts rather than grants, so the new stage's `/code-review --fix` could
-  not have applied a single byte — and step 1 of that stage reads "changed nothing" as a clean
-  review and pushes. The feature would have shipped as a no-op that reported success. Added the
-  tools `skills/review` already carries for the same reason, and said in the body why they are
-  there despite ship writing no artifact of its own.
-- **The parser failed *open questions closed*** in seven ways — `1. [ ]`, `1) [ ]`, `-[ ]` with no
-  space, blockquoted items, and headings with a closing `##` run, a trailing colon, or bold
-  wrappers all reported `none`. Every one is an undecided fork reading as settled, which is
-  precisely the direction that must never fail. Rewrote the matching to accept ordered markers,
-  optional spacing and blockquotes, and to tolerate those heading forms, while still excluding
-  horizontal rules. All seven are now committed fixtures.
-- **`auto`'s post-grill fork round stranded the status.** Grill leaves `status: planned` when it
-  opens a fork, and unlike the post-plan round there is no phase behind stage 3 to repair it — so
-  the chain would have reached `implement` claiming the plan was never grilled. Auto now writes
-  `grilled` itself after settling.
-- **`implement`'s `FORKS:` routing named only two of four values**, so `FORKS:absent` — no
-  `task.md` with a `plan.md` present, a reachable state — passed the precondition unchecked.
-- **Ship's documented exit `3` was unreachable**: `run_gates.sh` returns 3 only under `--strict`,
-  which ship does not pass. In a repo with no detected checks the re-run returns `0` and the
-  review's edits are pushed unproven. Replaced the wrong contract with that fact, and required the
-  report to distinguish "the gate passed" from "there was no gate".
-- **`--no-pr` skips the review but still pushes**, which the contract asks for but ship's own
-  description contradicted. Kept the behaviour, fixed the description, and made the skip say
-  plainly that it is the one path where something leaves the machine unreviewed.
-- **A factual error in `docs/ARCHITECTURE.md`**: mermaid node ids (`commitst`, `prst`) described as
-  values `detect_state.sh` emits. They are spellings of `commit` and `pr`; now said that way.
+- **The new "how to check whether the hook is registered" paragraph was false in exactly the case
+  a reader is in.** All three copies said an empty `.claude/artifacts/gate-hook.log` shows the hook
+  did not run. But `hooks/readiness-gate.sh` tests for `task.md` and `.claude/gates.sh` *before* it
+  creates the artifacts directory, so an un-opted-in repo gets no log at all — which is precisely
+  the repo someone checking this is usually sitting in. Verified against the hook's source and
+  against `tests/cases/hook_audit_trail.sh`, which asserts that an un-armed repo gets no `.claude`
+  directory. This was the same shape of error as the one the whole change exists to fix, published
+  as the recommended check; the pre-existing sentence in `docs/METHOD.md` had the qualifier and my
+  new paragraph had dropped it. Fixed in `README.md`, `docs/METHOD.md` and
+  `skills/auto/references/orchestration.md`: `/plugin` answers registration, and the log answers
+  "did it run" only inside the arming window.
+- **The byte-identity guard had no fixture** — the guard the entire asymmetry argument rests on.
+  Every existing case was rejected by an earlier guard, so the comparison could have been deleted
+  and the suite would still have passed. Added a fixture that keeps `status: shipped` and changes
+  only the body, plus one for a `task.md` the branch introduced. The reviewer could not run the
+  mutation to confirm; it was run here, and deleting the comparison does now turn the new
+  assertion red.
+- **`skills/plan/SKILL.md` said "provably finished and provably unedited" of both files**, but the
+  check only ever reads `task.md`. Reworded to say which file was proven, and to stop and ask on a
+  `plan.md` that has clearly been worked on.
+- **"the code study in step 4"** — the study is step 3. Reworded.
+- **The clone fixture depended on `clone.defaultRemoteName`**, global config this suite states it
+  does not read. Pinned with `-o origin`.
+- **Declined:** collapsing the `rev-parse` + `cat-file` pair into a single `cat-file "$mb:task.md"`.
+  The rejection behaviour is identical, so this is a real simplification — but the header comment
+  documents "no `task.md` at the merge-base fails the rev-parse" as a distinct degradation path,
+  and in a guard whose wrong answer destroys work, an explicit check that can be read off against
+  the documented rule is worth one subprocess.
+- **Routed to `handover.md`:** the `PHASE:`/`NEXT:` contradiction and the missing `PLAN:` value,
+  both of which the plan had already listed under "Left alone" and neither of which had anywhere
+  to be recorded outside this branch. The reviewer was right that a changelog pointing at a
+  `handover.md` that did not exist was a dangling reference.

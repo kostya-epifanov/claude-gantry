@@ -91,8 +91,15 @@ and append the first `stage` event.
 explorer itself when the surface warrants it.
 
 Set `task.md`'s `mode:` to `unattended` — that is how `implement` and `review` learn to run the gate
-`--strict` without being told. **Never clobber an existing `task.md`**: under `--here` a task
-already in flight means stop and report, not overwrite.
+`--strict` without being told. **Never clobber a task that is in flight**: under `--here`,
+`TASK:present` means stop and report, not overwrite.
+
+`TASK:inherited` is not that case and must not be treated as it. `task.md` is committed with every
+pull request, so a branch cut from the base branch is born holding the last merged contract —
+which is the normal state of a worktree this skill just created, not a task someone is working on.
+The detector distinguishes the two rather than leaving it to judgement, and `gantry:plan` routes
+`inherited` to a clean start. Read the value and let it decide; a blanket "never overwrite" here
+would stop every run on its own worktree.
 
 Journal a `phase` event, naming any sub-agent the phase dispatched. Read `plan.md` back from disk.
 
@@ -187,8 +194,10 @@ Written for someone who was not here, because nobody was:
 - Which roster each role resolved to, and a delegation roll-call: which agents the phases
   actually dispatched — the explorer if `plan` used one, the critic, the reviewer.
 - The gate's exit code on every run, and the number of fix attempts used.
-- Whether the readiness hook was **armed or inert**. An unattended run with an inert hook was
-  self-policed by a script it could have skipped; say so.
+- Whether the readiness hook's firing conditions were **met or unmet**, and that this is not the
+  same as the hook having fired: the detector cannot see registration. An unattended run whose
+  conditions were unmet — or whose hook was never registered — was self-policed by a script it
+  could have skipped; say so, and say which of the two you actually know.
 - Which review tier ran, named plainly.
 - **Every assumption `plan` or `grill` had to make** because there was nobody to ask. Genuine
   design forks are not on this list — those stop the run rather than becoming assumptions — but

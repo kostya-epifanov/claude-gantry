@@ -114,8 +114,8 @@ hook), carries out the plan, and runs `run_gates.sh`. **Do not run the gate your
 route around a red one.** If it comes back red or blocked, stop and hand the failure to the user —
 supervised mode does not iterate on a red gate.
 
-Take from its report: the gate's exit code, and whether the hook was **armed or inert**. Both go in
-your final report verbatim.
+Take from its report: the gate's exit code, and whether the hook's firing conditions were
+**met or unmet**. Both go in your final report verbatim.
 
 ## Stage 6 — Review
 
@@ -158,7 +158,8 @@ The task and the mode. The branch and worktree path. Which sub-agents the phases
 dispatched — the explorer if `plan` used one, and which critic ran. **Every fork that was put to
 the user and what they decided** — those are the decisions that shaped the work, and they exist
 nowhere else once the round closes. What the critique changed. The
-gate's exit code and whether the readiness hook was armed or inert. Which review tier ran, plainly
+gate's exit code and whether the readiness hook's firing conditions were met — which is not the
+same as the hook having run, since registration is not visible to the detector. Which review tier ran, plainly
 named. What was deferred and the `handover.md` path if there is one. The commit, the push, and the
 PR URL.
 

@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased
+
+**Changed — `lib/detect_stage.sh`'s output contract.** Two of its lines now report what the script
+can establish rather than what a reader might infer. Anything parsing this output needs updating.
+
+- **`HOOK:armed|inert` is now `HOOK:conditions-met|conditions-unmet`.** The line is computed from
+  `.claude/gates.sh` and `task.md`'s status alone — the hook's *firing conditions*. Whether the
+  hook is **registered** is invisible to the script, so `armed`, which reads as "the gate is
+  enforced on this run", was a claim it could not back. Renaming was chosen over detecting
+  registration because that detection cannot be made reliable: the manifest lives in the plugin
+  root while the detector resolves the repo root, gantry's own repository *is* the plugin source
+  and carries `hooks/hooks.json` at its root, and even the right manifest would not say whether the
+  plugin is enabled. A second overstatement is not an improvement on the first. Updated in
+  `skills/auto/references/orchestration.md`, `skills/auto/SKILL.md`,
+  `skills/auto-unattended/SKILL.md`, `skills/implement/SKILL.md`, `docs/SKILLS.md` and
+  `tests/cases/stage_phases.sh`. The word stays where it describes the *hook* rather than the
+  detector's claim about it — `hooks/readiness-gate.sh`, `README.md`, `docs/METHOD.md`.
+- **`TASK:` gained a third value, `inherited`.** `task.md` is committed with every pull request, so
+  a worktree freshly cut from the base branch is born holding the *previous, merged* contract. The
+  detector reported `TASK:present STATUS:shipped`, and `skills/plan/SKILL.md` routed that to "a
+  task is already under way — never clobber either file", which told every unattended run on a
+  clean branch to revise a finished, unrelated contract. `inherited` is now established as a fact:
+  `task.md` byte-identical to the copy at the merge-base with the base branch **and** carrying
+  `status: shipped`. Every condition the script cannot establish — a detached `HEAD`, no resolvable
+  base, no merge-base, no `task.md` at the merge-base, any git error — degrades to `present`,
+  because reading a live task as inherited destroys work while reading an inherited task as present
+  costs one supersede. `skills/plan/SKILL.md` routes it to a clean start;
+  `skills/handover/SKILL.md` and `skills/auto-unattended/SKILL.md` were updated so the new value
+  does not fall through their `present`-only branches.
+
+  `PHASE:` and `NEXT:` are deliberately unchanged: an inherited task still resolves to `done`,
+  since deriving the phase from the new value would change how `implement`, `review` and `ship`
+  route. See `handover.md` on the branch.
+
+**Changed — `skills/plan/SKILL.md` writes *Out of scope* after the code study.** It was written in
+step 2 "before studying code", with the study in step 3 — but out-of-scope is the section that most
+needs code knowledge, since what a change touches is what tells you what it will not. It is also
+load-bearing downstream, where `gantry:review` triages findings against it and `gantry:handover`
+quotes it, so a guess there is read as a decision. A new step 4 now writes *Out of scope* and
+*Affected areas* together from what the study found; later steps renumber. `docs/ARCHITECTURE.md`
+and `docs/SKILLS.md` updated to match.
+
+**Added**
+- Six cases in `tests/cases/stage_phases.sh` covering `TASK:inherited` and each degradation, plus
+  a clone fixture whose local base lags `origin` — the case that decides whether the feature fires
+  in gantry's own worktree workflow at all, and the one every all-local fixture passes either way.
+
 ## 0.3.0
 
 **The first released version.** 0.1.0 and 0.2.0 were developed in the open but never tagged or

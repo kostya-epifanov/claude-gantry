@@ -127,6 +127,27 @@ reason.** A bypass is not prevented; it is made visible after the fact. For a to
 is that you can trust what it reports, an audit trail you can grep is worth more than a stronger
 claim you cannot back.
 
+There is a related question the log is often reached for and cannot answer: "is the hook even
+registered here?" The obvious check is wrong — **gantry registers the hook at *plugin* level,
+through the plugin's own `hooks/hooks.json`, so grepping `settings.json` for it finds nothing
+whether or not it is installed.** More than one run has grepped project settings, found nothing,
+and published "no hook is registered", a conclusion the search cannot support in either direction.
+`/plugin` can: it shows whether gantry is installed and enabled.
+
+The log cannot, and it is worth being precise about why, because the failure is silent. Note the
+qualifier two paragraphs up — *in an armed repo*. The hook tests for `task.md` and
+`.claude/gates.sh` before it creates `.claude/artifacts/`, so a repo that has not opted in gets no
+log and no directory, by design; `GANTRY_READINESS_GATE=off` and an unresolvable root are two more
+silent exits. An empty or missing log therefore means "the hook did not run", which in an
+un-opted-in repo is exactly what a correctly registered hook does. Only inside the arming window
+does an absent line tell you the hook was not there.
+
+The same boundary is why `lib/detect_stage.sh` reports `HOOK:conditions-met` rather than calling
+the hook *armed*. It computes the firing conditions from `.claude/gates.sh` and `task.md`'s status,
+which is all it can see; registration is in the plugin root, which it has no handle on. The value
+names what was established and leaves the rest visible as a residual, instead of folding an
+unchecked assumption into a shorter word.
+
 Two details of that trail are load-bearing, and both were wrong until v0.3.
 
 **A fire is logged twice — once before the gate starts, once after it ends.** The hook wraps

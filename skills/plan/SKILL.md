@@ -11,8 +11,15 @@ Turn a task description into two files at the worktree root: **`task.md`**, the 
 this is, when it is done, and what it deliberately is not — and **`plan.md`**, the ordered steps
 to get there. Both are committed with the branch, so they travel with the pull request.
 
-Write them **before reading much code and before writing any**. A plan produced after the fact is
-a description, not a plan.
+Write the task's **intent** — what this is, when it is done, how it will be checked — before
+reading much code, and all of it before writing any. A plan produced after the fact is a
+description, not a plan, and criteria written to fit what the code turned out to make easy are not
+criteria.
+
+Two sections are the exception: *Out of scope* and *Affected areas* wait for the code study in
+step 3, and are written in step 4. Knowing what a change touches is what tells you what it deliberately will not
+touch, so writing the boundary from the task description alone is guessing — and both
+`gantry:review` and `gantry:handover` then read that guess as a contract.
 
 This is the first phase of the gantry chain. The next is `/gantry:grill`, which attacks what you
 wrote here.
@@ -34,7 +41,7 @@ reading and continue: an assumption written into a plan looks exactly like a dec
 time it surfaces the implementation is built on it.
 
 An open fork is a **precondition**, not a note. While one is on the page the plan is not
-dispatchable, and step 6 will not mark it so. The driver decides what happens next — supervised
+dispatchable, and step 7 will not mark it so. The driver decides what happens next — supervised
 puts the forks to the user, unattended stops the run — but neither outcome is yours to pre-empt by
 guessing.
 
@@ -54,6 +61,21 @@ It prints `ROOT`, `BRANCH`, `TASK`/`PLAN`/`HANDOVER` presence, `STATUS`, `GATES`
 
 - `PHASE:not-a-repo` → stop; there is nowhere to write the artifacts.
 - **`TASK:absent`** → the normal path. Continue to step 2.
+- **`TASK:inherited`** → the file on disk is the **previous** task's contract. gantry commits
+  `task.md` with every pull request, so a branch cut from the base branch is born holding the
+  last merged one — nothing is under way here. **This is a clean start:** write both files
+  fresh, do not ask, and do not revise. Continue to step 2.
+
+  Overwriting a contract is normally the one thing this step forbids, so it is worth saying what
+  makes this safe: the detector *establishes* the value rather than guessing it — `task.md` must be
+  byte-identical to the copy at the merge-base with the base branch **and** carry a terminal
+  status. Every case it cannot establish, including a missing merge-base, an unresolvable base
+  branch and a detached `HEAD`, reports `present` instead.
+
+  What is proven finished and unedited is **`task.md`** — that is the only file the check reads.
+  `plan.md` is inherited alongside it in the ordinary case and is overwritten on the same
+  judgement, so if you find a `plan.md` that someone has clearly worked on, stop and ask even
+  though the value says `inherited`.
 - **`TASK:present`** → a task is already under way. **Never clobber either file.** Read them both,
   then ask whether to revise the existing plan, replace it, or stop because the real next phase is
   `NEXT`. With no human present, revise rather than replace and note it in the report.
@@ -72,7 +94,8 @@ Start from the template, in this order:
 3. otherwise the sections below, inline.
 
 Fill the frontmatter (`id`, `title`, `project`, `branch`, `mode`, `status: planning`) and these
-sections **from the task and the conversation, before studying code**:
+sections **from the task and the conversation, before studying code** — this is the task's intent,
+and it must not be shaped by what the code turns out to make convenient:
 
 - **Context & goal** — why this exists and what it is, in a paragraph or two. Enough that someone
   cold knows the problem, not just the instruction.
@@ -80,13 +103,12 @@ sections **from the task and the conversation, before studying code**:
   not a criterion; "the toggle persists across a reload" is.
 - **How to verify** — the commands or steps that demonstrate the criteria, plus anything only a
   human can check.
-- **Out of scope** — what this deliberately does not do. Write it even when it feels obvious; it is
-  the section that stops scope creep later, and `gantry:review` reads it to decide what to defer.
 
-Leave **Affected areas** empty for step 3, and put every unresolved fork under **Open questions**.
+Leave **Out of scope** and **Affected areas** empty for step 4 — both are written from what the
+code study finds.
 
-Write each entry there as a **checkbox**, because `lib/detect_stage.sh` reads that section and every
-later phase routes off its answer:
+Then put every unresolved fork under **Open questions**, each one a **checkbox**, because
+`lib/detect_stage.sh` reads that section and every later phase routes off its answer:
 
 - `- [ ] <the fork>` — open. Nothing may be dispatched against it.
 - `- [x] <the fork> — <the decision, and what settled it>` — decided.
@@ -97,15 +119,33 @@ empty section, or one that just says `None.`, is settled.
 
 ### 3. Study the code
 
-Fill **Affected areas** — the files, entry points, and patterns a change here touches, and the
-risks it runs into.
+Find out what a change here actually touches: the files, the entry points, the patterns already in
+play, the callers of what is being changed, and the risks. Answer "which files" before you answer
+"what to write in them".
 
 When the surface is unfamiliar or wide, dispatch the **explorer** (Agent tool): the repo's
 `.claude/agents/explorer.md` if it defines one, otherwise `gantry-explorer`. It is read-only by
-tool scope and returns a summary; paste that into Affected areas yourself. When the task is small
-and the ground is familiar, read directly instead — and say in the report which you did.
+tool scope and returns a summary. When the task is small and the ground is familiar, read directly
+instead — and say in the report which you did.
 
-### 4. Write `plan.md`
+Take back a summary, not the material. What you write into `task.md` in the next step is your own
+sentence, not the agent's transcript.
+
+### 4. Write **Out of scope** and **Affected areas**
+
+Both, now, from what step 3 found — which is why they were left empty in step 2.
+
+- **Affected areas** — the files, entry points and patterns in play, and the risks a change here
+  runs into.
+- **Out of scope** — what this deliberately does not do. Write it even when it feels obvious.
+
+They belong in the same step because they are the same knowledge read twice: what a change touches
+is exactly what tells you what it will not touch. Written from the task description alone, *Out of
+scope* is a guess — and it is not treated as one downstream: `gantry:review` triages every finding
+against it to decide what to defer, and `gantry:handover` quotes it. A boundary nobody checked
+against the code is worse than none, because it reads as decided.
+
+### 5. Write `plan.md`
 
 Ordered steps, each one a change someone could make and check. For each: what changes, where, and
 how you will know it worked. Name the files you already know are involved.
@@ -116,7 +156,7 @@ prose that cannot.
 
 State the test strategy explicitly: what gets a test, what does not, and why.
 
-### 5. Ask what is still open
+### 6. Ask what is still open
 
 Put the forks from step 2 and anything code study raised to the user in one **AskUserQuestion**
 round. Fold the answers into both files, then **check each entry off in place** —
@@ -126,7 +166,7 @@ Do not delete a settled fork. A deleted entry is indistinguishable from one that
 and the next reader cannot tell a decision from an oversight. The record of what was asked and
 answered is most of what this section is for.
 
-### 6. Record the status
+### 7. Record the status
 
 Run the detector again and read its **`FORKS:`** line. It, not your recollection, decides whether
 this plan may leave the stage:
