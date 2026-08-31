@@ -56,9 +56,17 @@ Then look at what roster this repo will resolve to. The phases do the resolving,
 should say up front which agents it expects to see:
 
 ```bash
-ROOT="$(git rev-parse --show-toplevel)"
-ls "$ROOT"/.claude/agents/{explorer,critic,reviewer}.md 2>/dev/null
+git ls-files --cached --others --full-name -- ':/.claude/agents/*.md' 2>/dev/null
 ```
+
+The `:/` prefix anchors the pathspec to the repository root, so this is correct from anywhere in
+the tree without resolving the root into a variable first.
+
+That shape is deliberate. A worktree-isolated session refuses a command it cannot verify stays
+inside the worktree, and a `ROOT=` assignment taken from a `git rev-parse --show-toplevel`
+substitution, followed by a brace expansion, is exactly such a command — the same refusal that made
+the journal idiom unusable. Every command in this file is written flat for that reason: no
+substitution, no heredoc, no pipe into a loop.
 
 Resolution is **per role, repo first**: a phase dispatches `$ROOT/.claude/agents/<role>.md` if it
 exists, otherwise `gantry-<role>`. A repo may override one role and inherit the rest. **State what
@@ -76,14 +84,24 @@ Start the run **from the base branch** so worktree doesn't stop to confirm the p
 here hangs a headless run. Under `--here`, skip this and run on the current branch, stopping first
 on a detached HEAD or the repo's mainline.
 
-Then exclude the journal and gate artifacts from the *main repo's* `.git/info/exclude`:
+Then exclude the journal and gate artifacts, and append the first `stage` event:
 
-```
-journal.jsonl
-.claude/artifacts/
+```bash
+bash "$GANTRY/lib/ensure_excluded.sh" journal.jsonl .claude/artifacts/
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --to contract --mode unattended
 ```
 
-and append the first `stage` event.
+`ensure_excluded.sh` writes to the exclude file git actually reads, which for a linked worktree is
+the **main repo's** — git maps `info/` into the common git dir, so a per-worktree `info/exclude` is
+a path git never reads. That file is therefore shared by every lane, and the obvious
+`grep -q … || echo … >>` races: parallel lanes interleave the read and the write, and
+double-appended entries were observed. The script locks, matches whole lines, and repairs
+duplicates an earlier writer left, so it is safe to run from any number of lanes at once.
+
+`--task` is the `id` from `task.md`. On this first line the task contract does not exist yet, so
+use the id you are about to give it. Every command in this file is written flat — no substitution,
+no heredoc, no pipe into a loop — because a worktree-isolated session refuses anything else; see
+`references/journal.md` for what that refusal cost before it was fixed.
 
 ## Stage 2 — Plan
 
@@ -94,13 +112,25 @@ Set `task.md`'s `mode:` to `unattended` — that is how `implement` and `review`
 `--strict` without being told. **Never clobber an existing `task.md`**: under `--here` a task
 already in flight means stop and report, not overwrite.
 
-Journal a `phase` event, naming any sub-agent the phase dispatched. Read `plan.md` back from disk.
+Journal a `phase` event, naming any sub-agent the phase dispatched, then read `plan.md` back from
+disk. Repeat `--agent` once per sub-agent, and drop it entirely when the phase dispatched none:
+
+```bash
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from contract --to plan --mode unattended
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase plan --result ok --agent gantry-explorer --summary <one or two sentences> --artifact task.md --artifact plan.md
+```
 
 ### An open fork ends the run
 
 Run `bash "$GANTRY/lib/detect_stage.sh"` and read `FORKS:`. On **`FORKS:open`** this run is over:
 
-1. Journal an `escalation` event naming every open entry.
+1. Journal an `escalation` event naming every open entry — one `--detail` per fork, each carrying
+   the question verbatim rather than a count:
+
+   ```bash
+   bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event escalation --stage plan --reason open-fork --detail <the fork, verbatim> --status blocked
+   ```
+
 2. Set `task.md` to `status: blocked`.
 3. Invoke `gantry:handover` so the fork reaches whoever picks this up.
 4. **Stop.** Report the forks as the result.
@@ -130,7 +160,12 @@ fork records it rather than absorbing it, so grill can open one that planning ne
 stage 2 check ran before the critic did. `FORKS:open` here ends the run exactly as it does there:
 journal the `escalation`, set `status: blocked`, hand over, stop.
 
-Journal a `phase` event, naming the critic that ran.
+Journal a `phase` event, naming the critic that ran:
+
+```bash
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from plan --to grill --mode unattended
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase grill --result ok --agent gantry-critic --summary <findings by severity, in a sentence> --artifact plan.md
+```
 
 ## Stage 4 — Implement
 
@@ -138,7 +173,16 @@ Journal a `phase` event, naming the critic that ran.
 
 `implement` owns the gate: it sets `status: implementing`, carries out the plan, runs
 `run_gates.sh --strict`, and iterates on red at most twice. **Journal a `gate` event with the
-literal exit code every time it runs**, with `attempt` incrementing.
+literal exit code every time it runs**, with `attempt` incrementing:
+
+```bash
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from grill --to implement --mode unattended
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --check <name> --artifact .claude/artifacts/gate-1.log
+```
+
+`--exit` takes the number the gate actually returned. Write it in literally — each of these runs
+in a fresh shell, so a `"$RC"` would expand to empty and be refused. `--result` is `pass` for 0,
+`fail` for 1 or 2, `no-gates` for 3.
 
 Carry the phase's **coverage** report into that event's `coverage` field — the roots, the
 verdict, and the counts, verbatim from what `implement` reported. A green gate that read none of
@@ -168,7 +212,15 @@ than an exceptional one.
 Record which review tier actually ran. If it fell through to self-review, the report must say so:
 an unattended run that also reviewed itself has had no independent scrutiny at all.
 
-Journal a `phase` event, naming the tier and any sub-agent it dispatched.
+Journal a `phase` event, naming the tier and any sub-agent it dispatched:
+
+```bash
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from implement --to review --mode unattended
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase review --result ok --agent gantry-reviewer --summary <which tier ran, what it found, what was deferred> --artifact handover.md
+```
+
+Drop `--agent` when `/code-review` ran instead of a sub-agent; `agents` is then `[]`, which is the
+documented way to record that a phase dispatched none.
 
 ## Stage 6 — Ship
 
@@ -184,7 +236,11 @@ findings `/gantry:review` deliberately deferred to `handover.md`.
 `task.md`, `plan.md`, and any `handover.md` are committed with the change. `journal.jsonl` and the
 gate logs stay excluded.
 
-The PR is a **draft**, always. Journal the final `stage` event once ship returns.
+The PR is a **draft**, always. Journal the final `stage` event once ship returns:
+
+```bash
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from review --to ship --mode unattended
+```
 
 ## Stage 7 — Report
 
