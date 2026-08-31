@@ -1,6 +1,96 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+**Six changes developed in parallel, merged as one release.** Each was planned, grilled,
+implemented, reviewed and shipped in its own worktree against its own contract, and each opened its
+own pull request; this version is those six resolved against each other. Two of them turned out to
+disagree, and the conflicts were not textual — `git` merged both files cleanly. They are recorded
+under *Changed* below, and finding them is the argument for integrating a batch deliberately rather
+than merging six green branches in sequence.
+
+The theme across the six is the same one 0.3.0 started: a claim the pipeline makes about itself has
+to be established by something that can fail. A gate that never read the changed files, a detector
+reporting a guarantee it could not see, a run whose own journal it could not write, sub-agents
+asserting facts about an environment they never queried — each was true-sounding prose, and each is
+now a value some script produces or refuses.
+
+**Added**
+- `lib/journal_append.sh` — the documented journal idiom was a `printf` of a command substitution
+  wrapping `jq`, with a nested one supplying the timestamp. A worktree-isolated session refuses to
+  run that: the harness cannot verify such a command stays inside the worktree, and five of six
+  lanes in one parallel batch hit the refusal. The retries were not the damage — one lane worked
+  around it by calling `date -u` once and hand-writing the rest of its timestamps as estimates,
+  producing an accurate event ordering with a fictional clock that nothing downstream could
+  detect. The substitution now lives inside a script, so the caller's argv stays flat, and `ts` is
+  no longer a parameter: `--ts` is refused rather than ignored. The script validates each of the
+  five event shapes, so a field the shape does not carry, or a required one left out, is exit 2
+  instead of a malformed line.
+- `lib/ensure_excluded.sh` — stage 1 excluded `journal.jsonl` and `.claude/artifacts/` with a
+  `grep -q … || echo … >>` against `.git/info/exclude`. Git maps `info/` into the *common* git dir,
+  so that file is shared by every linked worktree and there is no per-worktree copy to write
+  instead — measured, not assumed: `git rev-parse --git-path info/exclude` from inside a linked
+  worktree resolves to the main repository's file, and a pattern written to the per-worktree path
+  leaves `git status` still reporting the file as untracked. Six lanes interleaving that read and
+  write produced double-appended entries. The write is now locked, whole-line matched, and repairs
+  duplicates an earlier writer left. `skills/worktree` adopts it too — fixing only the
+  orchestrator would have left the same race in the most concurrent moment of a batch.
+- `lib/gate_coverage.sh`, and a coverage transcript from `lib/run_gates.sh` — an answer to "did
+  the gate read anything this change touched?". `run_gates.sh` now emits a `COVERAGE root=… check=…`
+  line per check and one `== coverage roots=… ==` summary; `gate_coverage.sh` reads that transcript,
+  compares the roots against the changed paths, and prints a verdict of `overlap` · `no-overlap` ·
+  `undeclared` · `no-checks` · `no-changes` · `unknown`. `implement` runs it at step 5b and reports
+  the verdict beside the exit code. A green gate that read none of the changed paths exits `0`
+  exactly like one that proved something, and this is what makes the two distinguishable after the
+  fact.
+
+  It **reports and never refuses**: no exit code changes, nothing is blocked, and low overlap is not
+  a failure. The comparison is a heuristic and says so in every place it is emitted — a root is the
+  directory a check *ran in*, never the set of files it *read*, and it errs in both directions.
+  Refusing on it would fire on every documentation-only change and needs an override design first;
+  that refusal was in the ticket and is deliberately not in this release.
+
+  Its motivating case is one gantry cannot reproduce on itself: this repo gates through a
+  repo-owned `.claude/gates.sh`, whose roots the script cannot attribute, so gantry's own runs
+  report `undeclared` — honestly, and without pretending to a measurement.
+- `lib/detect_stage.sh` prints **`HUMAN_ONLY:present|none|absent`** — whether `task.md`'s
+  `human_only` block, the acceptance criteria no automated gate can check, holds any entries. It
+  was decorative before this: it appeared in the template, the worked example and this repo's own
+  `task.md`, and no script parsed it, no skill read it and no journal event carried it. The signal
+  is a printed fact rather than a prose instruction because four recorded runs read a clear prose
+  rule to check that block and all four ignored it. A separate reader from `frontmatter_status()`,
+  which stays byte-identical to the hook's copy; permissive in every case toward reporting
+  `present`, since a missed disclosure is the failure and a spurious one costs a heading.
+- A `disclosure` event in the unattended journal, with `kind` as its extension point, recording
+  that a run shipped with unproven acceptance criteria or an unexercised plugin change. The driver
+  copies it from ship's report rather than re-deriving it.
+- `tests/cases/verify_untracked.sh` — the assertion that the above stays fixed. A fixture repo with
+  an untracked `task.md` carrying a citation, an untracked script with a syntax error, and two
+  copies of the citation in files excluded by the tracked `.gitignore` and by `.git/info/exclude`
+  respectively. It asserts the first two are caught, the last two are not, and that removing the
+  offenders returns both checks to clean. Negative-tested: three of its nine assertions fail
+  against the pre-fix script, and the other six — the ones guarding an over-correction that would
+  start sweeping the run's own journal and gate logs — pass either way.
+- `tests/cases/journal_append.sh` — covers both scripts. The assertions that matter are that a
+  caller cannot choose the timestamp, that a line lands in the worktree the call was made from
+  rather than the main checkout, and that eight concurrent writers **each asking for a different
+  pattern** all survive. The distinctness is the whole point: eight writers asking for the *same*
+  pattern prove nothing, because each rewrites through a temp file and renames atomically, so no
+  interleaving can leave a duplicate whether the lock works or not — that version of the assertion
+  passed with the lock deleted. What the lock prevents is a lost update, and it is only visible
+  when the writers want different things: measured at 4 of 8 patterns surviving without the lock
+  and 8 of 8 with it. Every documented invocation of the helper is executed by the case, so a
+  flag name in the docs cannot drift from the script and fail only in a headless run.
+- `tests/cases/gate_coverage.sh` — the verdict table over a fixture repo: every verdict value,
+  the run-artifact exclusion, and a transcript from a gate that died mid-run reported as `unknown`
+  rather than as zero coverage.
+- Six cases in `tests/cases/stage_phases.sh` covering `TASK:inherited` and each degradation, plus
+  a clone fixture whose local base lags `origin` — the case that decides whether the feature fires
+  in gantry's own worktree workflow at all, and the one every all-local fixture passes either way.
+- `tests/cases/stage_human_only.sh` — fifteen assertions over the new line. The load-bearing one is
+  a YAML block sequence at its key's own indentation, which the first draft of the parser reported
+  as `none`: valid YAML, used by none of the three existing blocks, and silent in the one direction
+  this must never fail in. Confirmed non-vacuous — deleting the new `echo` fails the case.
 
 **Fixed**
 - **`scripts/verify.sh` could not see the files a run had just written.** All six of its
@@ -24,48 +114,64 @@
   contributor will meet it. And `scripts/secret-scan.sh` still enumerates tracked files only, on
   purpose: it is the publish gate, its header reasons about the choice explicitly, and widening it
   is a separate judgement with its own false-positive risk.
-
-**Added**
-- `tests/cases/verify_untracked.sh` — the assertion that the above stays fixed. A fixture repo with
-  an untracked `task.md` carrying a citation, an untracked script with a syntax error, and two
-  copies of the citation in files excluded by the tracked `.gitignore` and by `.git/info/exclude`
-  respectively. It asserts the first two are caught, the last two are not, and that removing the
-  offenders returns both checks to clean. Negative-tested: three of its nine assertions fail
-  against the pre-fix script, and the other six — the ones guarding an over-correction that would
-  start sweeping the run's own journal and gate logs — pass either way.
-- `lib/journal_append.sh` — the documented journal idiom was a `printf` of a command substitution
-  wrapping `jq`, with a nested one supplying the timestamp. A worktree-isolated session refuses to
-  run that: the harness cannot verify such a command stays inside the worktree, and five of six
-  lanes in one parallel batch hit the refusal. The retries were not the damage — one lane worked
-  around it by calling `date -u` once and hand-writing the rest of its timestamps as estimates,
-  producing an accurate event ordering with a fictional clock that nothing downstream could
-  detect. The substitution now lives inside a script, so the caller's argv stays flat, and `ts` is
-  no longer a parameter: `--ts` is refused rather than ignored. The script validates each of the
-  five event shapes, so a field the shape does not carry, or a required one left out, is exit 2
-  instead of a malformed line.
-- `lib/ensure_excluded.sh` — stage 1 excluded `journal.jsonl` and `.claude/artifacts/` with a
-  `grep -q … || echo … >>` against `.git/info/exclude`. Git maps `info/` into the *common* git dir,
-  so that file is shared by every linked worktree and there is no per-worktree copy to write
-  instead — measured, not assumed: `git rev-parse --git-path info/exclude` from inside a linked
-  worktree resolves to the main repository's file, and a pattern written to the per-worktree path
-  leaves `git status` still reporting the file as untracked. Six lanes interleaving that read and
-  write produced double-appended entries. The write is now locked, whole-line matched, and repairs
-  duplicates an earlier writer left. `skills/worktree` adopts it too — fixing only the
-  orchestrator would have left the same race in the most concurrent moment of a batch.
+- **`scripts/verify.sh` ran `rm -f` and `cp` against `/task.md`, and `git init` in the repository
+  itself, whenever `mktemp -d` failed.** `fixdir="$(mktemp -d)"` was unguarded, and every line of
+  the `detect_stage.sh` fixture block then operated on the empty string. `cd ""` **succeeds** in
+  bash, so the subshell kept the repository as its cwd; the assertions went on to rerun the detector
+  against the repository's own `task.md`, which is a false green as readily as a false red, and the
+  EXIT trap became `rm -rf ""`. Three of the six lanes hit it independently in one batch and all
+  three deferred it as outside their contracts — correctly, and it is why it is fixed here instead.
+  Nothing was damaged only because the sandbox that triggered it also denied the writes. The block
+  now exits 2, *the gate could not run*, rather than exit 1, *the gate found a defect*.
 - `skills/auto-unattended/SKILL.md` — every journal call site, and the stage 0 roster preflight,
   are now flat commands. The preflight was itself a shape the guard refuses, so a lane could fail
   before reaching the stage the journal fix was for.
-- `tests/cases/journal_append.sh` — covers both scripts. The assertions that matter are that a
-  caller cannot choose the timestamp, that a line lands in the worktree the call was made from
-  rather than the main checkout, and that eight concurrent writers **each asking for a different
-  pattern** all survive. The distinctness is the whole point: eight writers asking for the *same*
-  pattern prove nothing, because each rewrites through a temp file and renames atomically, so no
-  interleaving can leave a duplicate whether the lock works or not — that version of the assertion
-  passed with the lock deleted. What the lock prevents is a lost update, and it is only visible
-  when the writers want different things: measured at 4 of 8 patterns surviving without the lock
-  and 8 of 8 with it. Every documented invocation of the helper is executed by the case, so a
-  flag name in the docs cannot drift from the script and fail only in a headless run.
-**Changed — `lib/detect_stage.sh`'s output contract.** Two of its lines now report what the script
+- **`gantry:ship` now discloses what the run did not prove, before it opens the PR.** On
+  `HUMAN_ONLY:present` the body carries a fixed `## Not proven by this run` heading with the
+  entries verbatim, so the heading's *absence* is itself information. Under `--draft` the body
+  states what draft status does not mean: unwatched, not unverified. These reach the report under
+  `--no-pr` too, where there is no body to carry them.
+- **Ship names the plugin version that actually executed** when the repo is a plugin and the diff
+  touches `skills/`, `lib/`, `hooks/` or `agents/`. The harness loads skills from the *installed*
+  plugin, so a change to them is not exercised by the run that makes it — a measured case shipped a
+  PR whose headline feature was never once executed by the run that produced it, reported as
+  success. Resolved from the installed-plugins registry, never guessed; an undeterminable version
+  is disclosed as undeterminable. The disclosure distinguishes `skills/` and `agents/` (loaded by
+  the harness, genuinely unexercised) from `lib/` and `hooks/` (run from the worktree by the repo's
+  own suite), and is suppressed entirely when the plugin root and the repo are the same tree — the
+  `--plugin-dir` shape, where the edits did execute.
+- **Ship re-reads its own prose** before `gh pr create`: the title, the body, and the commit
+  subject, which are the only text no phase reads. One rule — a claim about how something works
+  either cites the file that establishes it or does not go in the body — because two false
+  mechanism claims once reached a PR body and cost three commits and two rewrites to correct. The
+  subject is additionally checked in the commit stage, the only point at which amending is free.
+  `/gantry:review` is deliberately **not** extended to cover this, and the reason is recorded in
+  `skills/ship/SKILL.md` so it is not "fixed" back: review runs against the diff, before ship has
+  composed anything.
+- **`gantry-explorer` was documented to produce exactly what `scripts/verify.sh` is documented to
+  reject.** The explorer returns `path:line` citations, `skills/plan` tells the author to paste that
+  summary into *Affected areas*, and the citation check fails any `.md:<line>` — which, now that the
+  gate enumerates untracked files, fires on the still-uncommitted `task.md` at the next gate rather
+  than in CI after the push. Two lanes in this batch hit the CI half and stripped the numbers by
+  hand. Markdown paths are now cited by path alone; non-markdown paths keep their line numbers,
+  since the check is `\.md:[0-9]+` and `lib/run_gates.sh:40` was never at issue. `skills/plan`
+  carries the same instruction, because the explorer is not the only thing whose output lands there.
+
+- **Sub-agents asserted facts about the environment they had never established.** An explorer
+  reported "the `claude` CLI is absent" from a sandboxed `command -v`, and a critic told its caller
+  which files it need not check. `agents/*.md` now require a claim about the environment to name
+  what established it, and the requirement is phrased per role rather than uniformly: an explorer
+  and a critic hold only `Read`, `Grep` and `Glob`, so they cite a *search* — the pattern and its
+  scope, a glob, a file and a line range — while a reviewer, which also holds `Bash`, cites the
+  command. Telling a read-only agent to "name the command that established it" invites exactly the
+  fabricated provenance the rule exists to stop. A negative claim is additionally scoped to what was
+  searched, and an explorer is explicitly barred from telling its caller what *not* to check: it
+  reports what it found, and the caller decides what that means. Nothing enforces this, and
+  `docs/METHOD.md` says so rather than implying an unenforced rule is a guarantee.
+
+**Changed**
+
+**`lib/detect_stage.sh`'s output contract.** Two of its lines now report what the script
 can establish rather than what a reader might infer. Anything parsing this output needs updating.
 
 - **`HOOK:armed|inert` is now `HOOK:conditions-met|conditions-unmet`.** The line is computed from
@@ -97,7 +203,7 @@ can establish rather than what a reader might infer. Anything parsing this outpu
   since deriving the phase from the new value would change how `implement`, `review` and `ship`
   route. See `handover.md` on the branch.
 
-**Changed — `skills/plan/SKILL.md` writes *Out of scope* after the code study.** It was written in
+**`skills/plan/SKILL.md` writes *Out of scope* after the code study.** It was written in
 step 2 "before studying code", with the study in step 3 — but out-of-scope is the section that most
 needs code knowledge, since what a change touches is what tells you what it will not. It is also
 load-bearing downstream, where `gantry:review` triages findings against it and `gantry:handover`
@@ -105,50 +211,29 @@ quotes it, so a guess there is read as a decision. A new step 4 now writes *Out 
 *Affected areas* together from what the study found; later steps renumber. `docs/ARCHITECTURE.md`
 and `docs/SKILLS.md` updated to match.
 
-**Added**
-- Six cases in `tests/cases/stage_phases.sh` covering `TASK:inherited` and each degradation, plus
-  a clone fixture whose local base lags `origin` — the case that decides whether the feature fires
-  in gantry's own worktree workflow at all, and the one every all-local fixture passes either way.
-**Added**
-- `lib/detect_stage.sh` prints **`HUMAN_ONLY:present|none|absent`** — whether `task.md`'s
-  `human_only` block, the acceptance criteria no automated gate can check, holds any entries. It
-  was decorative before this: it appeared in the template, the worked example and this repo's own
-  `task.md`, and no script parsed it, no skill read it and no journal event carried it. The signal
-  is a printed fact rather than a prose instruction because four recorded runs read a clear prose
-  rule to check that block and all four ignored it. A separate reader from `frontmatter_status()`,
-  which stays byte-identical to the hook's copy; permissive in every case toward reporting
-  `present`, since a missed disclosure is the failure and a spurious one costs a heading.
-- `tests/cases/stage_human_only.sh` — fifteen assertions over the new line. The load-bearing one is
-  a YAML block sequence at its key's own indentation, which the first draft of the parser reported
-  as `none`: valid YAML, used by none of the three existing blocks, and silent in the one direction
-  this must never fail in. Confirmed non-vacuous — deleting the new `echo` fails the case.
-- **`gantry:ship` now discloses what the run did not prove, before it opens the PR.** On
-  `HUMAN_ONLY:present` the body carries a fixed `## Not proven by this run` heading with the
-  entries verbatim, so the heading's *absence* is itself information. Under `--draft` the body
-  states what draft status does not mean: unwatched, not unverified. These reach the report under
-  `--no-pr` too, where there is no body to carry them.
-- **Ship names the plugin version that actually executed** when the repo is a plugin and the diff
-  touches `skills/`, `lib/`, `hooks/` or `agents/`. The harness loads skills from the *installed*
-  plugin, so a change to them is not exercised by the run that makes it — a measured case shipped a
-  PR whose headline feature was never once executed by the run that produced it, reported as
-  success. Resolved from the installed-plugins registry, never guessed; an undeterminable version
-  is disclosed as undeterminable. The disclosure distinguishes `skills/` and `agents/` (loaded by
-  the harness, genuinely unexercised) from `lib/` and `hooks/` (run from the worktree by the repo's
-  own suite), and is suppressed entirely when the plugin root and the repo are the same tree — the
-  `--plugin-dir` shape, where the edits did execute.
-- **Ship re-reads its own prose** before `gh pr create`: the title, the body, and the commit
-  subject, which are the only text no phase reads. One rule — a claim about how something works
-  either cites the file that establishes it or does not go in the body — because two false
-  mechanism claims once reached a PR body and cost three commits and two rewrites to correct. The
-  subject is additionally checked in the commit stage, the only point at which amending is free.
-  `/gantry:review` is deliberately **not** extended to cover this, and the reason is recorded in
-  `skills/ship/SKILL.md` so it is not "fixed" back: review runs against the diff, before ship has
-  composed anything.
-- A `disclosure` event in the unattended journal, with `kind` as its extension point, recording
-  that a run shipped with unproven acceptance criteria or an unexercised plugin change. The driver
-  copies it from ship's report rather than re-deriving it.
+**`lib/journal_append.sh` carries what the other lanes journal.** Two of the six wrote
+into the journal a shape the third had just made impossible, and both merged clean because neither
+touched the other's file.
 
-**Changed**
+- The **`gate` event's `coverage` object** is now emitted through `--coverage-verdict`,
+  `--coverage-changed`, `--coverage-covered` and a repeatable `--coverage-root`. The coverage lane
+  documented that object and the journal lane, landing separately, wrote a validator that permits
+  only the fields its shape names — so the documented gate line could be written by nothing except
+  the hand-built `jq` the shim exists to replace. The flags are all-or-nothing, the verdict must be
+  one of `gate_coverage.sh`'s six words, and a root is refused under the three verdicts that have
+  none to attribute. `heuristic` is **not** a flag: it is always `true`, and `--coverage-heuristic`
+  is refused for the same reason `--ts` is — a caller able to drop the caveat could publish the
+  count as a proof, which is the single thing the field exists to prevent.
+- **`disclosure` is now a sixth event.** Ship's new disclosure had a documented shape, an
+  extension point and a driver instructed to journal it, against a script whose event whitelist
+  would have refused it with exit 2. `--kind` is deliberately unenumerated, matching
+  `escalation`'s `--reason`, because both are documented as the place a new value goes; `--pr` is
+  `null` rather than absent under `--no-pr`, since the disclosure was still made, into the report.
+
+Both are asserted in `tests/cases/journal_append.sh`, including the check that every invocation
+documented in `skills/auto-unattended/` is *executed* by the case — which is what would have caught
+either of them at the point the second lane wrote its docs.
+
 - The `human_only` placeholder in the task template and `examples/task.md` is commented out. Live,
   it would have made every `task.md` written from the template report `present`, putting the new
   heading on every pull request with placeholder prose beneath it — which destroys the property the
