@@ -39,14 +39,23 @@ placeholder: write the value you actually observed.
 ```bash
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --to contract --mode unattended
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase plan --result ok --agent gantry-explorer --summary <one or two sentences> --artifact task.md --artifact plan.md
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --check lint --check test
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --check lint --check test --coverage-verdict <verdict> --coverage-changed <n> --coverage-covered <n> --coverage-root <root>
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event decision --stage plan --question <the question> --answer <what was decided>
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event escalation --stage plan --reason open-fork --detail <the fork, verbatim> --status blocked
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event disclosure --stage ship --kind <slug> --detail <what was not proven, verbatim> --pr <pr url>
 ```
 
 Omit `--from` on the first `stage` line of a run and it emits `"from":null`, which is the
 documented shape. The script validates per event: a field its shape does not carry, or a required
 one left out, is exit 2 and nothing is written.
+
+The four `--coverage-*` flags are optional as a group and all-or-nothing once one is given: a
+verdict requires both counts, `--coverage-root` repeats once per root and is refused for the three
+verdicts that have none to attribute, and omitting the group leaves the `coverage` key **absent**
+rather than null — the shape a line that predates the field already has. `heuristic` is not a flag:
+it is always `true` and `--coverage-heuristic` is refused, on the same reasoning as `--ts`. A
+caller able to drop the caveat could publish the count as a proof, which is the one thing the
+field exists to prevent.
 
 **There is still no writer engine, and there will not be one.** That rule refuses a *log
 framework* — rotation, readers, query tools, a schema that has to be migrated. It does not refuse

@@ -309,6 +309,126 @@ assert_eq 1 "$(grep -c '^journal\.jsonl$' "$STALE")" "and the pattern is still w
 run_exclude --file "$CASE_TMP/nope"
 assert_rc 2 "$E_RC" "calling it with no pattern is a usage error"
 
+
+
+# --- the disclosure event -----------------------------------------------------
+#
+# The other place two changes in this release meet: `gantry:ship` gained a
+# disclosure to journal, and this script whitelists the events it will write. An
+# event the shim refuses can only be recorded by the hand-built `jq` the shim
+# exists to replace, so the shape here and the shape in references/journal.md
+# have to be checked against each other rather than assumed to agree.
+
+DISC="$CASE_TMP/disclosure.jsonl"
+
+run_journal --task T --event disclosure --stage ship --kind unproven-acceptance \
+  --detail "a person still has to check it on a real device" \
+  --pr https://example.invalid/pull/41 --file "$DISC"
+assert_rc 0 "$J_RC" "a disclosure event is accepted"
+assert_eq ship                "$(jqf "$DISC" .stage)" "stage survives"
+assert_eq unproven-acceptance "$(jqf "$DISC" .kind)"  "kind survives"
+assert_eq "a person still has to check it on a real device" \
+  "$(jqf "$DISC" '.detail[0]')" "detail survives verbatim"
+assert_eq https://example.invalid/pull/41 "$(jqf "$DISC" .pr)" "pr survives"
+
+# --detail repeats once per thing not proven, because a reader has to act on the
+# items rather than on a count of them.
+MULTI="$CASE_TMP/disclosure-multi.jsonl"
+run_journal --task T --event disclosure --stage ship --kind unexercised-plugin-change \
+  --detail one --detail two --file "$MULTI"
+assert_rc 0 "$J_RC" "a disclosure with several details is accepted"
+assert_eq 2 "$(jqf "$MULTI" '.detail | length')" "each --detail is its own entry"
+
+# null, not absent, under --no-pr: the disclosure was still made, into the
+# report, and a missing key is defined to mean a line that predates the field.
+assert_eq true "$(jqf "$MULTI" 'has("pr")')" "pr is present without --pr"
+assert_eq null "$(jqf "$MULTI" '.pr | type')" "and is null rather than a string"
+
+run_journal --task T --event disclosure --stage ship --kind unproven-acceptance --file "$CASE_TMP/nd.jsonl"
+assert_rc 2 "$J_RC" "a disclosure with nothing to disclose is refused"
+
+# `kind` is the extension point, so an unrecognised value is accepted here for
+# the same reason escalation's --reason is: a new sort of unproven thing adds a
+# value, not an event type. This asserts the deliberate absence of a check.
+run_journal --task T --event disclosure --stage ship --kind some-future-kind --detail x --file "$CASE_TMP/fk.jsonl"
+assert_rc 0 "$J_RC" "an unrecognised --kind is accepted: kind is the extension point"
+
+run_journal --task T --event escalation --stage plan --reason open-fork --status blocked \
+  --detail x --kind y --file "$CASE_TMP/ek.jsonl"
+assert_rc 2 "$J_RC" "--kind is refused on an escalation event"
+
+# --- the gate event's coverage object -----------------------------------------
+#
+# This field is where two independent changes in the same release meet: the
+# journal shim exists so an orchestrator never hand-builds a JSON line, and the
+# gate now reports what it actually read. If the shim cannot emit `coverage`,
+# the only way to record it is the hand-built `jq` this script replaced — so
+# these assertions are what keeps the two from silently disagreeing.
+
+COV="$CASE_TMP/coverage.jsonl"
+
+run_journal --task T --event gate --result pass --exit 0 --attempt 1 --check lint \
+  --coverage-verdict no-overlap --coverage-changed 3 --coverage-covered 0 --coverage-root app \
+  --file "$COV"
+assert_rc 0 "$J_RC" "a gate event carrying coverage is accepted"
+assert_eq no-overlap "$(jqf "$COV" .coverage.verdict)" "the verdict survives"
+assert_eq 3          "$(jqf "$COV" .coverage.changed)" "the changed count survives"
+assert_eq 0          "$(jqf "$COV" .coverage.covered)" "the covered count survives"
+assert_eq app        "$(jqf "$COV" '.coverage.roots[0]')" "the root survives"
+assert_eq array      "$(jqf "$COV" '.coverage.roots | type')" "roots is always an array"
+assert_eq true       "$(jqf "$COV" .coverage.heuristic)" "heuristic is true without being asked for"
+
+# The caveat is not the caller's to drop. Same reasoning as --ts: a flag that
+# can be omitted is a number that can be published as a proof.
+run_journal --task T --event gate --result pass --exit 0 --coverage-heuristic false --file "$CASE_TMP/x.jsonl"
+assert_rc 2 "$J_RC" "--coverage-heuristic is refused"
+
+# Absent, not null, on a run that measured nothing — references/journal.md
+# defines a missing key as "this line predates the field", and `null` would be
+# read as a measurement that came back empty.
+NOCOV="$CASE_TMP/nocoverage.jsonl"
+run_journal --task T --event gate --result pass --exit 0 --file "$NOCOV"
+assert_rc 0 "$J_RC" "a gate event without coverage is still accepted"
+assert_eq false "$(jqf "$NOCOV" 'has("coverage")')" "the coverage key is absent, not null"
+
+# All-or-nothing: a verdict with no counts reads as a measurement that came back
+# empty, and counts with no verdict cannot be read at all.
+for partial in "--coverage-verdict overlap --coverage-changed 1" \
+               "--coverage-verdict overlap --coverage-covered 1" \
+               "--coverage-changed 1 --coverage-covered 1" \
+               "--coverage-root app"; do
+  # shellcheck disable=SC2086
+  run_journal --task T --event gate --result pass --exit 0 $partial --file "$CASE_TMP/partial.jsonl"
+  assert_rc 2 "$J_RC" "a half-given coverage object is refused: $partial"
+done
+
+# The verdict vocabulary mirrors lib/gate_coverage.sh exactly, so a line whose
+# verdict reads `none` is not a query away from `no-overlap` — it is invisible
+# to it.
+run_journal --task T --event gate --result pass --exit 0 \
+  --coverage-verdict none --coverage-changed 1 --coverage-covered 0 --file "$CASE_TMP/y.jsonl"
+assert_rc 2 "$J_RC" "a verdict outside gate_coverage.sh's six values is refused"
+
+for v in overlap no-overlap undeclared no-checks no-changes unknown; do
+  run_journal --task T --event gate --result pass --exit 0 \
+    --coverage-verdict "$v" --coverage-changed 1 --coverage-covered 0 --file "$CASE_TMP/v.jsonl"
+  assert_rc 0 "$J_RC" "gate_coverage.sh's verdict '$v' is accepted"
+done
+
+# gate_coverage.sh prints COVERAGE-ROOTS: UNDECLARED or NONE for these three.
+# Accepting a root here would let the literal word through as a directory name.
+for v in undeclared no-checks unknown; do
+  run_journal --task T --event gate --result pass --exit 0 \
+    --coverage-verdict "$v" --coverage-changed 1 --coverage-covered 0 --coverage-root UNDECLARED \
+    --file "$CASE_TMP/z.jsonl"
+  assert_rc 2 "$J_RC" "a root is refused under the '$v' verdict, which has none to attribute"
+done
+
+# Coverage belongs to the gate event and to no other.
+run_journal --task T --event stage --to implement \
+  --coverage-verdict overlap --coverage-changed 1 --coverage-covered 1 --file "$CASE_TMP/w.jsonl"
+assert_rc 2 "$J_RC" "coverage is refused on a stage event"
+
 # --- the documentation matches the script -------------------------------------------
 #
 # A wrong flag name in the docs ships green and fails only in a headless run —
@@ -333,9 +453,16 @@ for doc in "$GANTRY_ROOT/skills/auto-unattended/SKILL.md" \
     [ -n "$cmd" ] || continue
     docs_seen=$((docs_seen + 1))
     args="${cmd#*journal_append.sh\"}"
-    # <...> marks a value the caller substitutes. --exit needs an integer;
-    # everything else takes a single opaque token.
-    args="$(printf '%s' "$args" | sed -e 's/<literal exit code>/0/' -e 's/<[^>]*>/PLACEHOLDER/g')"
+    # <...> marks a value the caller substitutes. Three of them are TYPED and
+    # the script validates them, so an opaque token would make this check fail
+    # on a correctly documented command: --exit and the coverage counts need
+    # integers, and --coverage-verdict needs one of gate_coverage.sh's six
+    # words. Everything else takes a single opaque token.
+    args="$(printf '%s' "$args" | sed \
+      -e 's/<literal exit code>/0/' \
+      -e 's/<verdict>/overlap/' \
+      -e 's/<n>/0/g' \
+      -e 's/<[^>]*>/PLACEHOLDER/g')"
     rm -f "$DOCLINE"
     # shellcheck disable=SC2086
     set -- $args

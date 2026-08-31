@@ -184,15 +184,16 @@ literal exit code every time it runs**, with `attempt` incrementing:
 
 ```bash
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from grill --to implement --mode unattended
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --check <name> --artifact .claude/artifacts/gate-1.log
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --check <name> --coverage-verdict <verdict> --coverage-changed <n> --coverage-covered <n> --coverage-root <root> --artifact .claude/artifacts/gate-1.log
 ```
 
 `--exit` takes the number the gate actually returned. Write it in literally — each of these runs
 in a fresh shell, so a `"$RC"` would expand to empty and be refused. `--result` is `pass` for 0,
 `fail` for 1 or 2, `no-gates` for 3.
 
-Carry the phase's **coverage** report into that event's `coverage` field — the roots, the
-verdict, and the counts, verbatim from what `implement` reported. A green gate that read none of
+Carry the phase's **coverage** report into that event's `coverage` field through the
+`--coverage-*` flags — the verdict, the counts, and one `--coverage-root` per root, verbatim from
+what `implement` reported. Omit all four on a run that produced no verdict; do not invent one. A green gate that read none of
 the changed paths is **green-but-uncovered**: it still passes, it is still exit `0`, and nothing
 is refused, but the journal must not record it identically to a gate that proved something. The
 overlap is a heuristic; `references/journal.md` has the field's shape and the caveat that travels
@@ -249,9 +250,14 @@ The PR is a **draft**, always. Journal the final `stage` event once ship returns
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from review --to ship --mode unattended
 ```
 
-Then journal a **`disclosure`** event for anything ship reported that this run did not prove — a
+```bash
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event disclosure --stage ship --kind <slug> --detail <what was not proven, verbatim> --pr <pr url>
+```
+
+Journal a **`disclosure`** event for anything ship reported that this run did not prove — a
 non-empty `human_only` block in `task.md`, or a change to the plugin's own files that the run could
-not exercise. Take it **from ship's report**, not from your own reading of the tree: the journal is
+not exercise. Repeat `--detail` once per item, and omit `--pr` under `--no-pr`, where the field is
+recorded as `null`. Take it **from ship's report**, not from your own reading of the tree: the journal is
 append-only and the project treats it as evidence, so an invented line is worse than a missing one.
 If ship's report is silent on both, say *that* in the report rather than deriving them here.
 
