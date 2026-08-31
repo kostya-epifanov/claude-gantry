@@ -11,6 +11,21 @@ bash scripts/verify.sh
 That is lint, manifest validation, frontmatter validation, link checking, and the secret scan. CI
 runs the same script, so a green local run means a green CI run.
 
+**The converse does not hold, and that is deliberate.** `verify.sh` enumerates tracked files *and*
+untracked ones that no ignore rule covers, because the files a gantry run writes — `task.md`,
+`plan.md`, a new `lib/*.sh` — are still untracked when the gate runs and tracked by the time CI sees
+them. Checking only what is committed made the gate blind to exactly those files. The price is that
+a **red** local run can be caused by something CI will never see: an untracked virtualenv, a
+scratch directory, a stray copy of a file. The remedy is the ordinary git one — add the path to
+`.gitignore` if it concerns everyone, or to `.git/info/exclude` if it is only yours. Do not narrow
+the enumeration in `verify.sh`; that restores the blind spot.
+
+One caveat on that, worth knowing before you debug a disagreement: `--exclude-standard` also honours
+your global `core.excludesFile`, which nobody else has. Two contributors can therefore enumerate
+different file sets from the same tree. It cannot cause a green-here-red-in-CI split — a globally
+ignored file never reaches CI either — but it can explain why a check fires for one of you and not
+the other.
+
 ## Adding a skill
 
 A skill is a directory under `skills/` with a `SKILL.md` in it. The `name:` in the frontmatter must

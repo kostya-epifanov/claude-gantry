@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+**Fixed**
+- **`scripts/verify.sh` could not see the files a run had just written.** All six of its
+  enumerations were a bare `git ls-files`, which lists tracked files only — so at gate time
+  `task.md` and `plan.md` were invisible to the line-number-citation check, the forbidden-string
+  sweep and the relative-link check. `implement` runs the gate; `ship` commits minutes later; CI
+  then runs the identical script with those files tracked. Green locally, red in CI, on the
+  pipeline's own artifacts — and not hypothetically: `plan` tells you to paste the explorer's
+  output into *Affected areas*, and the explorer returns citations in exactly the form the citation
+  check forbids. A lane in this repo hit it and stripped them by hand. The same hole covered a
+  `lib/*.sh` written during `implement`, which was never parsed or shellchecked until after it was
+  pushed. Every site now enumerates with `git ls-files --cached --others --exclude-standard`
+  through one named helper, so a seventh site cannot be added without the flags.
+
+  The change is a **no-op in CI**, where a fresh checkout has no untracked files at all. All of the
+  new coverage is local, which is the asymmetry it set out to close.
+
+  Two limits, both documented rather than designed around. A red local run no longer implies a red
+  CI run — an untracked virtualenv or scratch directory is now inspected, and the remedy is to
+  ignore the path, not to narrow the enumeration; this is written up in CONTRIBUTING where a
+  contributor will meet it. And `scripts/secret-scan.sh` still enumerates tracked files only, on
+  purpose: it is the publish gate, its header reasons about the choice explicitly, and widening it
+  is a separate judgement with its own false-positive risk.
+
+**Added**
+- `tests/cases/verify_untracked.sh` — the assertion that the above stays fixed. A fixture repo with
+  an untracked `task.md` carrying a citation, an untracked script with a syntax error, and two
+  copies of the citation in files excluded by the tracked `.gitignore` and by `.git/info/exclude`
+  respectively. It asserts the first two are caught, the last two are not, and that removing the
+  offenders returns both checks to clean. Negative-tested: three of its nine assertions fail
+  against the pre-fix script, and the other six — the ones guarding an over-correction that would
+  start sweeping the run's own journal and gate logs — pass either way.
+
 ## 0.3.0
 
 **The first released version.** 0.1.0 and 0.2.0 were developed in the open but never tagged or
