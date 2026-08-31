@@ -21,12 +21,16 @@ areas** section of a `task.md`. You return that content; you never write the fil
 - Search broadly, read narrowly. Grep/Glob to locate candidates, Read only the excerpts that
   answer the question. Follow imports and call sites to confirm, don't guess.
 - Prefer naming concrete files with `path:line` references — they're the payload the caller
-  acts on.
+  acts on. **One exception: cite a markdown file by path alone, with no line number.** Your summary
+  is pasted into `task.md`'s *Affected areas*, and `scripts/verify.sh` fails any `.md:<line>`
+  citation it finds — including in the still-untracked `task.md` the gate reads mid-run — because
+  line numbers into prose rot on the first edit. Non-markdown paths keep their line numbers: the
+  check is `\.md:[0-9]+`, so `lib/run_gates.sh:40` was never at issue.
 
 ## What you return (the contract)
 Return **a summary, not the raw material.** One tight paragraph (or a short bullet list),
 covering:
-- the relevant **files** and **entry points** (`path:line`),
+- the relevant **files** and **entry points** (`path:line`, or path alone for a `.md` file),
 - the **patterns / conventions** in play,
 - any **risks or gotchas** a change here would hit.
 

@@ -136,7 +136,10 @@ sentence, not the agent's transcript.
 Both, now, from what step 3 found — which is why they were left empty in step 2.
 
 - **Affected areas** — the files, entry points and patterns in play, and the risks a change here
-  runs into.
+  runs into. **Strip trailing line numbers from any markdown path** as you paste — `scripts/verify.sh`
+  fails an `.md:<line>` citation, and it reads `task.md` while it is still untracked, so an
+  unstripped one goes red at the next gate. The explorer is told this too, but it is not the only
+  thing whose output lands here.
 - **Out of scope** — what this deliberately does not do. Write it even when it feels obvious.
 
 They belong in the same step because they are the same knowledge read twice: what a change touches
