@@ -38,7 +38,7 @@ remembering the conversation.
 ```mermaid
 flowchart TD
   W["/gantry:worktree<br/>branch + worktree"] --> P["/gantry:plan<br/>writes task.md + plan.md"]
-  P --> G["/gantry:grill<br/>a fresh critic attacks the plan"]
+  P --> G["/gantry:plan-grill<br/>a fresh critic attacks the plan"]
   G --> I["/gantry:implement<br/>status: implementing — the hook arms"]
   I --> GATE{"gate<br/>run_gates.sh"}
   GATE -- "red" --> I
@@ -62,7 +62,7 @@ inside the phases, where each sub-job gets a read-only agent scoped to it.
 flowchart TD
   E["/gantry:auto<br/>/gantry:auto-unattended"] --> W["gantry:worktree"]
   subgraph D ["the driver invokes each phase skill in turn"]
-    P["/gantry:plan"] --> G["/gantry:grill"]
+    P["/gantry:plan"] --> G["/gantry:plan-grill"]
     G --> I["/gantry:implement"]
     I --> GATE{"gate<br/>--strict when unattended"}
     GATE -- "red" --> I
@@ -106,7 +106,7 @@ keeps the three ways of running from drifting into three subtly different pipeli
 | `/gantry:auto-unattended` | The same chain with nobody watching, ending at a **draft** PR. |
 | `/gantry:worktree` | Create a worktree under `.claude/worktrees/` from an up-to-date parent, and enter it. |
 | `/gantry:plan` | Write the contract and the plan — `task.md` and `plan.md` — asking what needs asking. |
-| `/gantry:grill` | Attack the plan with a fresh critic, before being wrong costs an implementation. |
+| `/gantry:plan-grill` | Attack the plan with a fresh critic, before being wrong costs an implementation. |
 | `/gantry:implement` | Carry out the plan, then prove it with the gate. |
 | `/gantry:review` | Independent review of the diff: fix what's in scope, hand over what isn't. |
 | `/gantry:handover` | Write `handover.md` — what this change deliberately left, and the next action. |
@@ -126,7 +126,7 @@ pull request:
 | File | Written by | Answers |
 |---|---|---|
 | `task.md` | `/gantry:plan` | what this is, when it's done, what it deliberately isn't |
-| `plan.md` | `/gantry:plan`, revised by `/gantry:grill` | what the change was supposed to be |
+| `plan.md` | `/gantry:plan`, revised by `/gantry:plan-grill` | what the change was supposed to be |
 | `handover.md` | `/gantry:handover` | what this change left alone, and why |
 
 They are also how the chain survives you leaving it. `task.md`'s `status:` is the phase marker, and

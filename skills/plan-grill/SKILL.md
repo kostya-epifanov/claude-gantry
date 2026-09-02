@@ -1,11 +1,11 @@
 ---
-name: grill
-description: Attack the plan before the code is written — a fresh critic sub-agent reads task.md and plan.md cold and hunts for the assumptions, unfalsifiable criteria, and missing steps that would surface halfway through implementing. Use when the user types "/gantry:grill", or asks to review, critique, stress-test, or poke holes in a plan.
+name: plan-grill
+description: Attack the plan before the code is written — a fresh critic sub-agent reads task.md and plan.md cold and hunts for the assumptions, unfalsifiable criteria, and missing steps that would surface halfway through implementing. Use when the user types "/gantry:plan-grill", or asks to review, critique, stress-test, or poke holes in a plan.
 argument-hint: ""
 allowed-tools: Bash, Read, Edit, Skill, Agent, AskUserQuestion
 ---
 
-# gantry:grill
+# gantry:plan-grill
 
 Take the plan apart before it costs anything to be wrong. This phase sits between `/gantry:plan`
 and `/gantry:implement` for one reason: a defect found in `plan.md` costs a paragraph, and the same
@@ -14,7 +14,7 @@ defect found in `implement` costs the implementation.
 ## Always delegate. That is the whole skill.
 
 **Dispatch a fresh sub-agent for the critique, every time, in every mode — including when a human
-typed `/gantry:grill` directly.** A context that just wrote the plan cannot grill it: it already
+typed `/gantry:plan-grill` directly.** A context that just wrote the plan cannot grill it: it already
 believes the assumptions, has already dismissed the alternatives, and will reliably rate its own
 reasoning higher than a stranger would. Self-critique from the authoring context is theatre.
 

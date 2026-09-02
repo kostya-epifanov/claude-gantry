@@ -63,7 +63,7 @@ flowchart TB
     U["gantry:auto-unattended — never pauses, draft PR"]
   end
   subgraph chain ["the phase skills — one procedure, whoever runs it"]
-    P["gantry:plan → task.md + plan.md"] --> GR["gantry:grill → a fresh critic"]
+    P["gantry:plan → task.md + plan.md"] --> GR["gantry:plan-grill → a fresh critic"]
     GR --> I["gantry:implement → owns the gate"]
     I --> RV["gantry:review → fix or hand over"]
   end
@@ -164,7 +164,7 @@ owns each, and whether it is committed, is the whole protocol:
 | Artifact | Written by | Committed | Why |
 |---|---|---|---|
 | `task.md` | `gantry:plan` (Affected areas pasted from the explorer) | **yes** | it is the contract a reviewer reads the PR against |
-| `plan.md` | `gantry:plan`, revised by `gantry:grill` | **yes** | the thing a human skims before implementation starts |
+| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | **yes** | the thing a human skims before implementation starts |
 | `handover.md` | `gantry:handover`, when review defers something | **yes** | what this change deliberately left, and the next action |
 | `journal.jsonl` | `gantry:auto-unattended`, append-only | no — `.git/info/exclude` | a run artifact, not a deliverable |
 | gate logs | the gate script | no — same exclusion | evidence, kept out of the diff |
@@ -254,7 +254,7 @@ however it is prompted.
 | Agent | Tools | Model | Dispatched by | Role |
 |---|---|---|---|---|
 | `gantry-explorer` | Read, Grep, Glob | haiku | `gantry:plan`, when the surface is unfamiliar or wide | read-only scout; produces the text for `task.md`'s Affected areas. Physically cannot write it. |
-| `gantry-critic` | Read, Grep, Glob | opus | `gantry:grill`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
+| `gantry-critic` | Read, Grep, Glob | opus | `gantry:plan-grill`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
 | `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
 
 There is deliberately no planner or implementer agent. Writing is what those phases *are*, so an

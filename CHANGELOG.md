@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+**Changed**
+- **BREAKING — `/gantry:grill` is now `/gantry:plan-grill`.** The critique phase is the second
+  half of planning: it reads `task.md` and `plan.md`, revises `plan.md`, and produces nothing
+  else. The new name says so, and sorts it beside `/gantry:plan` at the point where a user picks
+  a command. There is no alias, because gantry has no alias mechanism — the old command simply
+  stops resolving. Update anything that types it.
+
+  **The phase vocabulary deliberately did not move.** `status: grilled`, the detector's
+  `PHASE=grill`, and the journal's `--phase grill` are all unchanged, so the command is now
+  `plan-grill` while the state it drives is still `grill`. The asymmetry is the price of not
+  invalidating data that already exists: those tokens are written into every `task.md` on disk
+  and into every journal line already recorded, and renaming them would have broken
+  `lib/detect_stage.sh`'s status map, the readiness hook's status vocabulary, and
+  `tests/cases/stage_phases.sh` in exchange for nothing.
+
 ## 0.4.0
 
 **Six changes developed in parallel, merged as one release.** Each was planned, grilled,

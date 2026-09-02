@@ -1,102 +1,244 @@
 ---
-id: 2026-08-31-v0.4-integration
-title: Integrate the six parallel lanes into 0.4.0, resolving what they disagreed about
+id: 2026-09-02-rename-grill-to-plan-grill
+title: Rename the /gantry:grill skill to /gantry:plan-grill
 project: claude-gantry
-branch: integration/v0.4-batch
-mode: semi-auto           # semi-auto | auto | unattended — which mode is driving
-status: shipped           # planning | planned | grilled | implementing | implemented |
+branch: refactor/rename-grill-to-plan-grill
+mode: unattended          # semi-auto | auto | unattended — which mode is driving
+status: shipped             # planning | planned | grilled | implementing | implemented |
                           # reviewed | shipped | blocked. The readiness hook arms on
                           # exactly `implementing` and ignores every other value.
 ---
 
 ## Context & goal
 
-Six changes were planned, implemented, gated and shipped in parallel worktrees, one per lane, each
-against its own contract and each opening its own draft pull request:
+The critique phase is invoked as `/gantry:grill`. The name says what it does to a plan but not
+what it operates on, and it sorts nowhere near `/gantry:plan` in a skill listing even though it is
+the second half of planning — it reads `task.md` and `plan.md`, revises `plan.md`, and produces
+nothing else. Renaming it to `/gantry:plan-grill` puts it next to the phase it belongs to and makes
+the pairing legible at the point where a user picks a command.
 
-| Lane | Branch | PR | Tickets |
-|---|---|---|---|
-| A | `fix/journal-append-helper` | #10 | GANTRY-4, GANTRY-7 |
-| B | `fix/detector-inherited-task-and-plan-order` | #9 | GANTRY-5, GANTRY-9, GANTRY-13 |
-| C | `fix/verify-sees-untracked-files` | #7 | GANTRY-6 |
-| D | `feat/gate-coverage-report` | #6 | GANTRY-8 |
-| E | `feat/ship-discloses-what-was-not-proven` | #8 | GANTRY-11, GANTRY-12, GANTRY-14 |
-| F | `fix/agent-env-claims-cite-source` | #5 | GANTRY-10 |
+The rename is deliberately scoped to the **command string**. gantry's phase vocabulary is a
+separate namespace that is written to disk and parsed back: `lib/detect_stage.sh` derives
+`PHASE=grill` from `status: grilled`, `hooks/readiness-gate.sh` carries its own copy of the status
+parser, and `lib/journal_append.sh` writes `--phase grill` into every journal line. Those tokens
+appear in every `task.md` a user already has on disk and in the journal of every run already
+recorded.
 
-All six are green on their own gate and on CI. That is not the same as being green together, and
-this task is the difference. Two lanes wrote into the journal a shape a third had just made
-impossible, and both merged clean because neither touched the other's file: lane D documented a
-`coverage` object on the `gate` event, lane E documented a whole new `disclosure` event, and lane A
-— landing separately — replaced the hand-built `jq` idiom with `lib/journal_append.sh`, which
-validates the events and fields it will write and refuses anything else. `git` had nothing to
-complain about. The result would have been a release whose own documentation instructed the driver
-to run a command the release refuses.
+One correction to that reasoning, found by the critique and carried here rather than quietly
+dropped: `lib/journal_append.sh` does **not** validate `--phase` against an enum. It enumerates
+`--event` and `--result`; `--phase` is only required to be present, and is then passed through to
+`jq` as free text. A corrupted `--phase plan-grill` would be written silently rather than
+refused. The boundary decision stands on its other two legs — the `case "$STATUS"` map in
+`lib/detect_stage.sh`, and the `task.md` files already on disk — but this change has less of a
+safety net than it first appeared, which is why the guard below is written over the diff rather
+than over a list of files.
+Renaming them would invalidate that data for no gain, so the command moves and the state stays.
 
-The goal is one branch that carries all six, resolved against each other rather than merely merged,
-and released as **0.4.0**.
+The consequence is intentional and worth stating plainly: after this change the command is
+`/gantry:plan-grill` while the phase it drives is still called `grill`. That asymmetry is the price
+of not breaking on-disk state, and it is documented rather than smoothed over.
+
+This is a **breaking change** for anyone who types the old command or scripts it. gantry has no
+alias mechanism, so `/gantry:grill` simply stops resolving.
 
 ## Acceptance criteria
 
-- [x] All six lane branches are merged, one merge commit each, with no lane's work dropped.
-- [x] Every conflict `git` reported is resolved by hand — no `-X ours`/`-X theirs` over a real
-      disagreement.
-- [x] `lib/detect_stage.sh` carries both lanes' additions: `TASK:inherited` and the `HOOK:` rename
-      from B, `HUMAN_ONLY:` from E, and the detector runs and prints all of them.
-- [x] `lib/journal_append.sh` accepts every journal line this release's own documentation tells a
-      driver to write, including D's `coverage` object and E's `disclosure` event.
-- [x] Every `journal_append.sh` invocation documented under `skills/auto-unattended/` is *executed*
-      by `tests/cases/journal_append.sh`, not merely scanned.
-- [x] `bash scripts/verify.sh` exits 0, which runs `bash tests/run.sh` and every other check CI runs.
-- [x] `.claude-plugin/plugin.json` reads `0.4.0` and `CHANGELOG.md`'s top section is `## 0.4.0`,
-      covering all six lanes — including the two that wrote no changelog entry of their own.
-- [x] `handover.md` carries every finding the six lanes deferred and still open, and nothing that
-      this integration went on to fix.
+**The rename landed.**
+
+- [x] `skills/plan-grill/SKILL.md` exists and `skills/grill/` does not.
+- [x] That file's frontmatter `name:` is `plan-grill`, matching its directory — the identity
+      `scripts/verify.sh` asserts for every skill.
+- [x] Its body heading is `# gantry:plan-grill`, and its `description:` quotes
+      `"/gantry:plan-grill"`.
+- [x] `lib/detect_stage.sh` carries the new string, asserted **positively**:
+      `grep -n 'NEXT="/gantry:plan-grill"' lib/detect_stage.sh` finds it. The completeness grep
+      below only proves the old string is gone, so a typo like `plan-gril` would pass it, pass
+      `scripts/verify.sh`, and pass the suite — nothing under `tests/` asserts `NEXT` at all.
+
+**It is complete.**
+
+- [x] The completeness sweep in *How to verify* prints nothing. It excludes `CHANGELOG.md`,
+      `handover.md`, `task.md` and `plan.md` — the four files whose subject *is* the rename, which
+      quote the old name on purpose — and every other file must be clean.
+
+      The task framed this as "`CHANGELOG.md` only". That cannot hold: gantry commits `task.md` and
+      `plan.md` with the branch, and a contract for a rename necessarily quotes the name being
+      renamed. The exclusion is path-anchored rather than written as `--exclude=task.md`, which
+      matches basenames and would silently also excuse `examples/task.md` and
+      `skills/plan/templates/task.md`.
+
+**The state vocabulary survived it.** A file-level guard is not available here, which is the
+critique's main structural finding. Seven files this change legitimately edits *also* contain
+`grilled` or `--phase grill`; and two of the files a naive guard would name contain no `grill`
+string at all, so asserting they were not touched cannot fail. Worse, three of the ways this could
+go wrong are silent — the hook is inert for any status that is not exactly `implementing`, the
+journal does not validate `--phase`, and `detect_stage.sh` routes an unrecognised status to the
+same phase `grilled` produces. So the guard is token-level, over the whole diff:
+
+- [x] The **state-token census** in *How to verify* prints identical output for `master` and for
+      the working tree: one line per token, with the same count against each. Every token this
+      change must not move is enumerated, and the comparison is over the whole tree rather than
+      over a file list, so it is blind to neither a corrupted token in a file that was edited for
+      good reason nor one in a file nobody expected to change.
+
+      **Four files are excluded, and the rule behind the list is what matters.** `task.md`,
+      `plan.md`, `CHANGELOG.md` and `handover.md` are this change's own documentation: each one
+      quotes the old command, or the state tokens, or both, precisely in order to record that the
+      first moved and the second did not. Every other file in the tree must be clean. Any check
+      here that does not exclude all four will read this change's own prose as the corruption it
+      is looking for.
+
+      That was not obvious in advance and both omissions were caught rather than foreseen. Review
+      found the census running without `CHANGELOG.md`, where it reported `grilled` 22 against
+      master's 21 — a false alarm on the exact vocabulary it exists to protect. Re-running the
+      checks after the deferral was written found the same hole for `handover.md`, whose new
+      section describes the rename in the same terms. A guard that cries wolf on the change's own
+      documentation gets read past, which is the failure mode both fixes are aimed at.
+
+      A first attempt at this guard swept the diff for removed lines matching a state token. It
+      does not work, and this run proved it: two lines matched immediately, both legitimate — a
+      sentence in `skills/implement/SKILL.md` that contains the word "grilled" *and* the command
+      being renamed, and `task.md`'s own `status:` line, whose trailing comment lists the whole
+      status vocabulary. A guard that cries wolf on every correct edit gets read past. Counting
+      occurrences is falsifiable where matching lines is not.
+
+- [x] No corrupted token is introduced in the other direction: the added-token sweep in
+      *How to verify* prints nothing.
+- [x] `examples/task.md` and `skills/plan/templates/task.md` are byte-identical to each other
+      **and** unchanged against `master`. `scripts/verify.sh` only compares the two to each other,
+      so an identical edit to both would pass it — the second half of this is what catches that.
+
+**The record is honest.**
+
+- [x] `CHANGELOG.md` gains one new `Unreleased` entry marking the rename BREAKING; every existing
+      entry is unchanged against `master`.
+
+**The gate is green.**
+
+- [x] `bash scripts/verify.sh` exits 0.
+- [x] `bash scripts/context_budget.sh` exits 0.
+
 
 ## How to verify
 
 ```yaml
 verification:
   automated:
-    lint: true              # shellcheck, via scripts/verify.sh
-    tests: true             # bash tests/run.sh, 15 cases
+    lint: true
+    tests: true
   human_only:
-    - "Whether resolving lane B's HOOK: prose against lane D's coverage prose in
-       skills/implement/SKILL.md kept both claims intact, rather than producing a
-       paragraph that reads well and says less than either lane meant."
-    - "Whether the two fixes this integration made beyond conflict resolution —
-       verify.sh's mktemp guard and gantry-explorer's markdown citations — belong in
-       this pull request or in their own. Both are recorded as deliberate integrator
-       decisions and both are single, revertable commits."
+    - "Type /gantry:plan-grill in a session with the rebuilt plugin installed, and confirm it
+       resolves and dispatches a critic. Claude Code loads skills/ from the INSTALLED plugin, so
+       the session that makes this change cannot execute the command it renames. Every criterion
+       above is textual or structural; none of them proves the new command actually works."
+    - "Confirm /gantry:grill no longer resolves, so the breaking change is real rather than
+       assumed."
 ```
+
+Run, from the worktree root:
+
+```bash
+# the rename landed — asserted positively, on the new strings
+sed -n 's/^name:[[:space:]]*//p' skills/plan-grill/SKILL.md | head -1     # -> plan-grill
+grep -n 'NEXT="/gantry:plan-grill"' lib/detect_stage.sh
+
+# completeness — must print nothing
+grep -rn "gantry:grill\|skills/grill" . --include='*.md' --include='*.sh' --include='*.json' \
+  | grep -vE '^(\./)?(CHANGELOG|handover|task|plan)\.md:'
+
+# the state vocabulary survived — these two must print IDENTICAL output
+git grep -hoE 'grilled|PHASE=grill|--phase grill|--to grill|--from grill' master \
+  -- . ':(exclude)task.md' ':(exclude)plan.md' \
+  ':(exclude)CHANGELOG.md' ':(exclude)handover.md' | sort | uniq -c
+git grep -hoE 'grilled|PHASE=grill|--phase grill|--to grill|--from grill' \
+  -- . ':(exclude)task.md' ':(exclude)plan.md' \
+  ':(exclude)CHANGELOG.md' ':(exclude)handover.md' | sort | uniq -c
+
+# and nothing corrupted in the other direction — must print nothing
+git diff master -- . ':(exclude)task.md' ':(exclude)plan.md' \
+  ':(exclude)CHANGELOG.md' ':(exclude)handover.md' \
+  | grep '^+' | grep -E 'plan-grilled|PHASE=plan-grill|phase plan-grill'
+
+# the template pair — against each other, and against master
+diff examples/task.md skills/plan/templates/task.md
+git diff --stat master -- examples/task.md skills/plan/templates/task.md   # must be empty
+
+bash scripts/context_budget.sh
+bash scripts/verify.sh
+```
+
 
 ## Out of scope
 
-- **Merging the six lane pull requests.** They stay open. This branch is a seventh pull request
-  that supersedes them; closing them is a decision for whoever reviews this one.
-- **The board.** No Notion ticket is moved, closed, or filed by this change.
-- **The findings in `handover.md`.** Nine remain open on purpose, including the three lane B named
-  as the unclosed half of GANTRY-5. Fixing any of them here would put unreviewed work inside a
-  merge.
-- **Retro-fitting lane D's `--strict` refusal**, which its own contract excluded.
-- **The commit-trailer disagreement.** `CONTRIBUTING.md` forbids a `Co-Authored-By` trailer and the
-  last twenty commits carry one. All six lanes followed the written rule and so does this branch;
-  which of the two is wrong is a separate decision.
+- **The phase and status vocabulary.** `PHASE=grill`, `status: grilled`, and the journal's
+  `--phase grill` stay exactly as they are, along with the tests and the hook parser that read
+  them. This is the boundary the whole task is drawn around.
+- **Bare-word `grill` used as the phase name or as a verb** — prose chain listings
+  (`plan, grill, implement, review, ship`), `plugin.json`'s description, "a plan that was never
+  grilled". These name the phase, not the command. A chain written with `/gantry:` prefixes is
+  the opposite case and **is** in scope — `skills/auto/references/orchestration.md` has one,
+  and the slash makes every element of it a command string.
+- **A back-compatibility alias.** gantry has no alias mechanism and this task does not invent one.
+- **The version bump.** The entry lands under `Unreleased`; choosing the release number is the
+  release's job.
+- **The deferred findings recorded in `handover.md`.** Their *pointers* follow the rename; the
+  findings themselves stay deferred and unaddressed.
+- **Closing the gap that makes a state-token corruption silent** — `lib/journal_append.sh` does
+  not validate `--phase`, `lib/detect_stage.sh` routes an unknown status to the same phase
+  `grilled` produces, and the hook test asserts only `rc 0`. Found while establishing this
+  change's own boundary, deferred as a behavioural change to two scripts; written up in
+  `handover.md`.
+- **Re-measuring the always-on token figure.** The rename moves the character count by five and
+  `CEILING` is not approached; the `~90` figure in the docs table is left alone.
 
 ## Affected areas
 
-- `lib/detect_stage.sh` — the only source file both B and E rewrote. Their additions are
-  independent (`task_is_inherited()` / `human_only_state()`) and both edit the output block.
-- `lib/journal_append.sh` — where D's and E's journal shapes meet A's validator. Gains four
-  `--coverage-*` flags and the `disclosure` event.
-- `scripts/verify.sh` — C's enumeration change, plus the `mktemp -d` guard three lanes recorded and
-  none owned.
-- `agents/gantry-explorer.md`, `skills/plan/SKILL.md` — the producer C's change turned into a local
-  gate failure.
-- `skills/implement/SKILL.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md` — prose that four lanes
-  edited in the same place.
-- `handover.md` — four lanes' deferrals, merged the way `skills/handover` documents: added to,
-  never overwritten.
+One executable reference, and the rest prose. Nothing here is logic — the command string appears
+in no conditional.
+
+- `lib/detect_stage.sh` — the only script that emits the command. One `case` arm sets
+  `NEXT="/gantry:grill"`. The `case "$STATUS"` arms above it that set `PHASE=grill` are the state
+  half and must not be touched; the two live within twenty lines of each other, which is the main
+  hazard in this change.
+- `skills/grill/SKILL.md` — the skill itself: directory name, `name:` frontmatter, `description:`,
+  the `# gantry:grill` heading, and a self-reference in the body.
+- `README.md` — two mermaid nodes and two table rows.
+- `docs/SKILLS.md` — its own section heading, the command line beneath it, and the `grill` row in
+  the context-cost table, which is keyed by skill directory name rather than by phase.
+- `docs/ARCHITECTURE.md` — a mermaid node, the artifacts table, the agent roster table.
+- `docs/METHOD.md` — one sentence about always dispatching a fresh sub-agent.
+- `agents/gantry-critic.md` — names the skill that dispatches it.
+- `skills/plan/SKILL.md` — three references, one of which is the "next command" line the phase
+  prints.
+- `skills/implement/SKILL.md` — names the cheaper phase to go back to.
+- `skills/auto/SKILL.md`, `skills/auto/references/orchestration.md` — the supervised driver.
+- `skills/auto-unattended/SKILL.md`, `skills/auto-unattended/references/delegation.md` — the
+  unattended driver.
+- `handover.md` — four references, discussed under Open questions.
+- `CHANGELOG.md` — gains an entry; existing entries are not edited.
+
+**Risks.**
+
+- `scripts/verify.sh` asserts `name:` equals the directory basename, so a half-done rename is red
+  rather than silently wrong. It also rejects any `.md:<line>` citation and checks that every
+  relative markdown link resolves — both are ways prose edits break. No markdown link currently
+  targets `skills/grill/`, so the link check has nothing to catch here.
+- `scripts/context_budget.sh` sums `description:` characters against `CEILING=6250`; the tree sits
+  at 5783. This change costs five characters. It is not a risk on its own, but `feat/v0.4.1` is in
+  flight against the same headroom, so the budget wants re-checking after any merge.
 
 ## Open questions
 
-None.
+Both entries below were raised by the task and delegated to this phase to settle, not left to a
+human — so they are recorded decided, with what settled them.
+
+- [x] Should `handover.md`'s four references follow the rename? — **Yes.** They are actionable
+      pointers: they name `skills/grill/SKILL.md` as the file a future implementer edits to fix a
+      deferred finding, and one names `/gantry:grill` as the command that misbehaves on a clean
+      branch. After the rename that path does not exist, so leaving them makes the next action
+      unfollowable. This is not the same as rewriting history — `handover.md` is a live work item,
+      not a record of what shipped.
+- [x] What happens to `CHANGELOG.md`? — **Existing entries are not touched; one new `Unreleased`
+      entry is added.** The 0.4.0 and earlier entries describe what shipped under the old name and
+      are accurate as written. The new entry names `/gantry:grill` in order to say it is gone,
+      which is why the acceptance grep expects `CHANGELOG.md` to be the one surviving match.

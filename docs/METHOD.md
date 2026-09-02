@@ -253,7 +253,7 @@ find problems, it re-derives the reasoning that produced the plan and finds it s
 from the authoring context reliably returns "looks good", and returning "looks good" is exactly the
 outcome that makes the step worthless.
 
-So `gantry:grill` **always** dispatches a fresh sub-agent, in every mode, including when a human
+So `gantry:plan-grill` **always** dispatches a fresh sub-agent, in every mode, including when a human
 typed the command. The critic gets the file paths and no planning conversation. It knows what the
 next engineer will know, which is the standard the plan actually has to meet.
 

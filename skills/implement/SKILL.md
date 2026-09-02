@@ -61,7 +61,7 @@ Route on what it prints:
   scope* later. Continue.
 - `FORKS:none` → nothing is open. Proceed.
 - `PHASE:not-a-repo` → stop.
-- **`STATUS:planned`** → the plan was never grilled. Warn, name `/gantry:grill` as the cheaper
+- **`STATUS:planned`** → the plan was never grilled. Warn, name `/gantry:plan-grill` as the cheaper
   path, and continue if the user wants to. A warning, not a refusal.
 - `PHASE:implement` → the normal entry, whether from `grilled` or resuming a previous
   `implementing` run. On a resume, read what is already changed (`git status`, `git diff`) before
