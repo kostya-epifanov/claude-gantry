@@ -209,22 +209,26 @@ Do not commit `journal.jsonl` at any point.
 
 ## Stage 5 — Review
 
-**Invoke `/gantry:review`.**
+**Invoke `/gantry:review --fix`.**
 
 It gets an independent read — `/code-review` if available, otherwise a reviewer sub-agent it
-dispatches itself — fixes what is clearly in scope, re-runs the gate, and invokes
-`gantry:handover` for what it defers. With no human to arbitrate, `review` defers rather than
-expands — which is the right default, and means a `handover.md` is the normal outcome here rather
-than an exceptional one.
+dispatches itself — verifies each finding against the repo, fixes what is clearly in scope, re-runs
+the gate, and invokes `gantry:handover` for what it defers. With no human to arbitrate, `review`
+defers rather than expands — which is the right default, and means a `handover.md` is the normal
+outcome here rather than an exceptional one.
 
-Record which review tier actually ran. If it fell through to self-review, the report must say so:
+**`--fix` is not optional here.** Without it review is read-only: it would report what it found and
+edit nothing, and an unattended run would open a draft PR carrying defects its own review had
+already identified.
+
+Record which review source actually ran. If it fell through to self-review, the report must say so:
 an unattended run that also reviewed itself has had no independent scrutiny at all.
 
-Journal a `phase` event, naming the tier and any sub-agent it dispatched:
+Journal a `phase` event, naming the source and any sub-agent it dispatched:
 
 ```bash
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from implement --to review --mode unattended
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase review --result ok --agent gantry-reviewer --summary <which tier ran, what it found, what was deferred> --artifact handover.md
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase review --result ok --agent gantry-reviewer --summary <which source ran, what it found, what was deferred> --artifact handover.md
 ```
 
 Drop `--agent` when `/code-review` ran instead of a sub-agent; `agents` is then `[]`, which is the
@@ -232,14 +236,15 @@ documented way to record that a phase dispatched none.
 
 ## Stage 6 — Ship
 
-Set `task.md` to `status: shipped` **first**, then **invoke `gantry:ship --draft --reviewed`**,
-passing `--no-pr` and `--base` through if given. That order matters: ship commits the tree, so a
-status written afterwards would miss the commit — the PR would carry a stale `status:` and the
-worktree would be left dirty.
+Set `task.md` to `status: shipped` **first**, then **invoke `gantry:ship --draft`**, passing
+`--no-pr` and `--base` through if given. That order matters: ship commits the tree, so a status
+written afterwards would miss the commit — the PR would carry a stale `status:` and the worktree
+would be left dirty.
 
-`--reviewed` is not optional here. Ship runs its own `/code-review --fix` stage for callers who
-reach it directly; stage 5 already reviewed this change, and a second pass would let `--fix` apply
-findings `/gantry:review` deliberately deferred to `handover.md`.
+**Pass no review flag.** Ship reviews only when asked, and stage 5 already reviewed this change.
+Passing `--review` or `--review-fix` here would review the same diff a second time — and under
+`--review-fix`, reopen and apply findings `/gantry:review` deliberately deferred to
+`handover.md`.
 
 `task.md`, `plan.md`, and any `handover.md` are committed with the change. `journal.jsonl` and the
 gate logs stay excluded.

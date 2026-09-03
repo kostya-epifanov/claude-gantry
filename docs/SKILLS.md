@@ -60,8 +60,7 @@ absent artifact is a normal state rather than an error — which is exactly why 
 conditioned on the mode. Typed by hand, an open fork is a warning; dispatched by a driver, it is a
 decision nobody would be present to make.
 
-`ship` re-checks the gate in **one** case: its review stage passed `--fix` to `/code-review` and
-that changed the tree. Fixes made after the gate went green are unproven code, so a red result
+`ship` re-checks the gate in **one** case: a `--review-fix` it was asked for changed the tree. Fixes made after the gate went green are unproven code, so a red result
 there stops the push. Ship runs no gate otherwise — it commits, pushes, and opens the PR from
 wherever the branch is. What stops a red tree reaching a PR is still `implement` (and, where the
 repo has registered it, the readiness hook); ship's re-run covers only the edits ship itself
@@ -121,23 +120,35 @@ This phase owns the gate loop, because "implemented" and "passes the checks" are
 
 ## `/gantry:review` — independent read, then act
 
-`/gantry:review`
+`/gantry:review [--tier <medium|high|xhigh|max>] [--fix]`
 
-Three tiers, and it **always names which one ran**: `/code-review`, then a `gantry-reviewer`
+Three **sources**, and it **always names which one ran**: `/code-review`, then a `gantry-reviewer`
 sub-agent, then self-review — the last being materially weaker, which is exactly why hiding it
-would make the report useless.
+would make the report useless. `--tier` sets the effort level passed to the first of those
+(default `high`); `ultra` is refused by name, being billed and user-triggered. Sources and tiers
+are different axes, and the report names both.
 
-Then it triages. Findings inside the change's own footprint get fixed and the gate re-run; findings
-outside the contract get **deferred**, not fixed. The dividing line is scope, not difficulty: a
-one-line fix outside the contract is still deferred, because widening a change to absorb what
-review turned up is how a focused diff becomes an unreviewable one.
+**Every finding is verified against the repo before it is reported or fixed.** Reviewers report
+things that are not true, and in the read-only mode below the report is the entire output — so an
+unverified finding is the whole of what the caller receives. What does not survive is dropped and
+counted, never listed.
+
+Then it triages. Findings inside the change's own footprint are **fixed only under `--fix`**;
+findings outside the contract get **deferred**, never fixed. The dividing line is scope, not
+difficulty: a one-line fix outside the contract is still deferred, because widening a change to
+absorb what review turned up is how a focused diff becomes an unreviewable one.
+
+**Read-only without `--fix`**, where read-only means the code under review. It still writes
+`task.md`'s status — always, because that is what `detect_stage.sh` reads to move the chain on —
+and `handover.md` when something was deferred.
 
 Gets the diff with `git diff <base>` plus `git status --short`, because the tree is normally
 uncommitted at this point and a three-dot range would come back empty.
 
-- **Refuses:** to expand scope in order to fix a finding.
-- **Invokes:** `gantry:handover` for everything deferred.
-- **Scripts:** `lib/run_gates.sh`, after any fix.
+- **Refuses:** to expand scope in order to fix a finding; to pass `--fix` through to
+  `/code-review`; an out-of-set `--tier`, without falling back to `high`.
+- **Invokes:** `gantry:handover` for everything deferred, with or without `--fix`.
+- **Scripts:** `lib/run_gates.sh`, after any fix it makes.
 
 ## `/gantry:handover` — what this change left
 
@@ -202,20 +213,22 @@ ran, the gate's exit code on every run, and whether the hook's firing conditions
 
 ## `/gantry:ship` — commit, review, push, PR
 
-`/gantry:ship [--no-pr] [--draft] [--reviewed] [--base <branch>]`
+`/gantry:ship [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--base <branch>]`
 
 An idempotent stage machine. It runs `detect_state.sh` once, routes on the reported stage, and
-falls through the remaining steps without re-detecting — **except** after its review stage, which
-can create a commit and therefore forces a re-detect before the push.
+falls through the remaining steps without re-detecting — **except** after a review flag, which can
+create a commit and therefore forces a re-detect before the push.
 
-Between the commit and the push it invokes `/code-review --fix` over the branch diff: the last
-point at which a fix is still cheap, and the only review a caller who types `/gantry:ship` directly
-would otherwise get. Findings are applied, committed separately, and the gate is re-run over them;
-a red gate stops the push. `--reviewed` skips that stage, and **both drivers always pass it** —
-the chain has already run `/gantry:review`, whose deferrals `--fix` would otherwise reopen.
+**Ship does not review.** There is no review stage on its path, and a bare `/gantry:ship` never
+invokes a reviewer: a review is slow, expensive and worth choosing, so it is asked for rather than
+suppressed. `--review` invokes `gantry:review` between the commit and the push; `--review-fix`
+invokes it with `--fix`, so findings are applied, committed separately, and the gate re-run over
+them, with a red gate stopping the push. Both take an optional tier — `--review=<tier>` — which
+ship forwards **unvalidated**, because `gantry:review` owns that list and a second copy would
+drift. A review you asked for can block the ship; a missing reviewer never does.
 
-Unlike `/gantry:review`, this stage passes `--fix` and does no triage. That is the point: it exists
-for the case with no `task.md` to triage against, and the two never both run.
+The drivers pass no review flag: the chain runs `/gantry:review --fix` as its own phase, and a
+second pass here would reopen the deferrals that phase recorded in `handover.md`.
 
 Typing `/gantry:ship` **is** the go-ahead — it does not ask for stage-by-stage confirmation. It
 matches the *target repo's* commit conventions, including whether that repo uses trailers, which is

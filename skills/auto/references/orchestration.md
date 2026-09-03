@@ -241,15 +241,16 @@ The drivers orchestrate existing skills rather than duplicating them:
 - **`gantry:worktree`** for the branch, the worktree, and the parent fetch. Don't reimplement any of
   it. The exception is `--here`, which skips it and runs on the current branch — guarding against
   the default branch and a detached HEAD first.
-- **`gantry:ship`** for commit → review → push → PR. It is idempotent, detects its own stage, and
+- **`gantry:ship`** for commit → push → PR. It is idempotent, detects its own stage, and
   matches the *target repo's* commit conventions — which is why the drivers don't hardcode gantry's
   own no-trailer style, since they run in arbitrary repos. Pass `--no-pr`, `--base`, and (unattended
   only) `--draft` through.
 
-  **Always pass `--reviewed` as well.** Ship has its own `/code-review --fix` stage for callers who
-  reach it directly; the chain has already run `/gantry:review` by then, and a second pass would
-  let `--fix` apply findings that phase deliberately deferred to `handover.md`. This is not
-  optional and it is not conditional on the mode.
+  **Pass no review flag.** Ship reviews only when asked — `--review` and `--review-fix` are the
+  only way a reviewer runs from it — and the chain has already run `/gantry:review` as its own
+  phase by then. A second pass would review the same diff twice, and under `--review-fix` would
+  reopen and apply findings that phase deliberately deferred to `handover.md`. This holds in every
+  mode.
 
 No skill in gantry carries `disable-model-invocation`: a gated skill cannot be invoked by an agent
 at all, only by a human typing the command, which would make the whole pipeline undelegatable. See

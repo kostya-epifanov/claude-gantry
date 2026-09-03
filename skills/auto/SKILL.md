@@ -119,12 +119,17 @@ Take from its report: the gate's exit code, and whether the hook's firing condit
 
 ## Stage 6 — Review
 
-**Invoke `/gantry:review`.**
+**Invoke `/gantry:review --fix`.**
 
 It gets an independent read of the diff — `/code-review` if available, otherwise a reviewer
-sub-agent it dispatches itself — then fixes what is clearly in scope, re-runs the gate after any
-fix, and invokes `gantry:handover` for anything it deferred. Read back which of its three tiers
-actually ran; if it fell through to self-review, your report must say so.
+sub-agent it dispatches itself — verifies each finding against the repo, then fixes what is clearly
+in scope, re-runs the gate after any fix, and invokes `gantry:handover` for anything it deferred.
+Read back which of its three sources actually ran; if it fell through to self-review, your report
+must say so.
+
+**`--fix` is not optional here.** Review is read-only without it: it would report the findings and
+edit nothing, and the chain would ship a change it had reviewed and not repaired. The flag is what
+licenses the in-scope fixes and the gate re-run that follows them.
 
 If review set `status: blocked`, stop and surface it.
 
@@ -138,13 +143,13 @@ One gate in front of every side effect, since `gantry:ship` won't pause once inv
 
 Set `task.md` to `status: shipped` **first** — ship commits the tree, so a status written
 afterwards would miss the commit and leave the chain reading as unshipped. Then **invoke
-`gantry:ship --reviewed`.** It is exactly this tail — idempotent, stage-detecting, and it matches
-the *target repo's* commit conventions rather than gantry's. Pass `--no-pr` and `--base` through if
-they were given.
+`gantry:ship`.** It is exactly this tail — idempotent, stage-detecting, and it matches the *target
+repo's* commit conventions rather than gantry's. Pass `--no-pr` and `--base` through if they were
+given.
 
-`--reviewed` is not optional here. Ship runs its own `/code-review --fix` stage for callers who
-reach it directly; stage 6 already reviewed this change, and a second pass would let `--fix` apply
-findings `/gantry:review` deliberately deferred to `handover.md`.
+**Pass no review flag.** Ship reviews only when asked, and stage 6 already reviewed this change.
+Passing `--review` or `--review-fix` here would review the same diff a second time — and under
+`--review-fix`, reopen and apply findings `/gantry:review` deliberately deferred to `handover.md`.
 
 `task.md`, `plan.md`, and any `handover.md` are committed with the change; they are the record of
 what was decided and what was left.
