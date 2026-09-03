@@ -25,7 +25,7 @@ self-contradicting on its face.
 
 It matters because `TASK:` is not what the other phases route on. `skills/plan/SKILL.md` is the
 only consumer taught the new value; `skills/implement/SKILL.md`, `skills/review/SKILL.md` and
-`skills/grill/SKILL.md` all route on `PHASE`/`STATUS`. Run any of them directly on a
+`skills/plan-grill/SKILL.md` all route on `PHASE`/`STATUS`. Run any of them directly on a
 freshly-branched worktree — without going through `plan` first — and they are still told the work
 is finished.
 
@@ -53,8 +53,8 @@ choice down before touching either.
 **What it is.** `plan.md` is committed with every PR for the same reason `task.md` is, so a
 freshly branched worktree inherits both. Only `task.md` gained a third value. `PLAN:present` is
 therefore true on a clean branch in the same misleading way `TASK:present` was, and
-`skills/grill/SKILL.md` routes `PLAN:present` to "continue, whatever `STATUS` says" — so
-`/gantry:grill` run before `/gantry:plan` on a clean branch will dispatch a critic against the
+`skills/plan-grill/SKILL.md` routes `PLAN:present` to "continue, whatever `STATUS` says" — so
+`/gantry:plan-grill` run before `/gantry:plan` on a clean branch will dispatch a critic against the
 *previous* merged plan and return findings about work that already shipped.
 
 **Why it was deferred.** The contract covers `task.md`. It is also not a straight copy of the
@@ -72,7 +72,7 @@ check would follow the same shape and could reuse `inherited_base_rev()` as-is.
 **Next action.** Settle whether byte-identity alone is sufficient evidence for `plan.md` given
 there is no status to corroborate it. If it is, `PLAN:inherited` is a five-line function reusing
 `inherited_base_rev()`; if it is not, the honest answer may be to leave `plan.md` alone and instead
-have `grill` refuse when `TASK:inherited`, which is one bullet in `skills/grill/SKILL.md` and needs
+have `grill` refuse when `TASK:inherited`, which is one bullet in `skills/plan-grill/SKILL.md` and needs
 no new detection at all.
 ### The renamed `HOOK:` value has not been checked against a live hook
 
@@ -225,3 +225,54 @@ so its own runs report `undeclared`.
 to get through, where it says it (`task.md` frontmatter is the obvious candidate, since it is
 already the contract), and whether an unattended run may set it for itself — which is the question
 that decides whether the refusal means anything at all.
+
+## `refactor/rename-grill-to-plan-grill`
+### A corruption of the phase/status vocabulary is silent in three places at once
+
+**What it is.** The rename of `/gantry:grill` to `/gantry:plan-grill` had to leave `PHASE=grill`,
+`status: grilled` and the journal's `--phase grill` untouched, because those tokens are written
+into every `task.md` already on disk and every journal line already recorded. Establishing that the
+boundary held turned out to be harder than expected, for a reason that outlives this task: **nothing
+in the repo would have gone red if it had not.**
+
+Three independent gaps line up:
+
+- `lib/journal_append.sh` validates `--event`, and validates `--result` for `phase` and `gate`
+  events, but `--phase` is only required to be *present*. Its value is passed through to `jq` as
+  free text, so `--phase plan-grill` is written to `journal.jsonl` silently rather than refused.
+- `lib/detect_stage.sh`'s status `case` has a catch-all arm that routes an unrecognised status to
+  `PHASE=implement` — which is exactly what `grilled` routes to. A mistyped or half-renamed status
+  is therefore indistinguishable from a correct one at the detector's output.
+- `hooks/readiness-gate.sh` arms on exactly `implementing` and is inert for everything else, so
+  `tests/cases/hook_inert_unless_armed.sh` — which loops the whole status vocabulary asserting only
+  `rc 0` — passes for a corrupted value just as happily as for a real one.
+
+The consequence is that the status vocabulary is a contract with no enforcement anywhere: it can be
+mistyped in a skill body, in a test, or on a command line, and the suite stays green.
+
+**Why it was deferred.** The rename's contract is a command string. Closing any of these is a
+behavioural change to a script, and the second one is not small: making `detect_stage.sh` fail
+closed on an unknown status changes what `implement`, `review` and `ship` do when they meet one,
+which is four skills' routing and wants its own plan and its own critique.
+
+**What was already established.** The three locations above were each read directly and confirmed,
+not inferred — the critic checked `journal_append.sh` for a phase enum and found none, and the
+catch-all arm and the hook's firing condition were both read in place. The rename branch worked
+around the gap with a per-change guard rather than a repo-level one: a **census** that counts every
+state token across the whole tree on `master` and on the working tree and requires the two tallies
+to match exactly. That guard is recorded in that branch's `task.md` and `plan.md`. It works, and it
+is worth knowing why it is not the fix: it is written per change, it has to enumerate the tokens by
+hand, and it caught nothing here only because the sweep was already correct. It also failed on its
+own first outing by forgetting to exclude `CHANGELOG.md`, which is the kind of mistake a check
+living in the repo would not repeat.
+
+Note also that these three gaps are not equally severe. The journal one writes bad data that
+nothing downstream can detect. The detector one silently misroutes. The hook one is only a missing
+assertion in a test — the hook's own behaviour is correct.
+
+**Next action.** Add a `--phase` enum to `lib/journal_append.sh`, matching the shape of the
+existing `--event` enumeration, with `plan | grill | implement | review` as the values. It is
+self-contained, it cannot affect routing, and it is the one of the three that is currently writing
+unverifiable data into an append-only file the project treats as evidence. Do that first and
+separately; then decide the `detect_stage.sh` catch-all on its own terms, because that one is a
+routing change to four skills rather than a validation fix.

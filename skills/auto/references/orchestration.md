@@ -36,7 +36,7 @@ is driving and how often it stops.
 Semi-auto has no driver skill — it *is* the phase skills, typed in order:
 
 ```
-/gantry:worktree → /gantry:plan → /gantry:grill → /gantry:implement → /gantry:review --fix
+/gantry:worktree → /gantry:plan → /gantry:plan-grill → /gantry:implement → /gantry:review --fix
                  → /gantry:handover (only if something was deferred) → /gantry:ship
 ```
 

@@ -155,7 +155,7 @@ On `FORKS:unknown` the file has no such section: say so and continue.
 
 ## Stage 3 — Grill
 
-**Invoke `/gantry:grill`.** It dispatches a fresh critic against the artifacts on disk — paths, not
+**Invoke `/gantry:plan-grill`.** It dispatches a fresh critic against the artifacts on disk — paths, not
 contents — and triages what comes back.
 
 This phase matters more here than anywhere else: it is the only scrutiny the plan will get before

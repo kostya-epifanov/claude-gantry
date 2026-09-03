@@ -529,7 +529,7 @@ esac
 
 case "$PHASE" in
   plan)      NEXT="/gantry:plan" ;;
-  grill)     NEXT="/gantry:grill" ;;
+  grill)     NEXT="/gantry:plan-grill" ;;
   implement) NEXT="/gantry:implement" ;;
   review)    NEXT="/gantry:review" ;;
   ship)      NEXT="/gantry:ship" ;;

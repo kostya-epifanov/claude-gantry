@@ -79,7 +79,7 @@ On `FORKS:unknown`, say the section is missing and continue.
 
 ## Stage 3 — Grill
 
-**Invoke `/gantry:grill`.**
+**Invoke `/gantry:plan-grill`.**
 
 It dispatches a fresh critic against the artifacts on disk and triages what comes back. That
 delegation is the skill's own central rule — it happens in every mode, including this one, and it

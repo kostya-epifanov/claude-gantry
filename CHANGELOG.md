@@ -13,6 +13,11 @@ removed** rather than deprecated — it existed only to suppress a stage that no
 run still passing it is passing a flag ship does not document. Both drivers were updated in the
 same change. If you type `/gantry:ship` expecting a review, you now want `--review`.
 
+**Two breaking changes ship together.** The second is the rename of `/gantry:grill` to
+`/gantry:plan-grill`, described under *Changed*. They were developed in separate worktrees and
+resolved against each other here; the only place they touched the same line was the chain the
+drivers type, which now reads `plan → plan-grill → implement → review --fix`.
+
 **Added**
 - **`ship --review` and `ship --review-fix`** — the only ways a reviewer runs from ship. `--review`
   reviews and reports without touching the code; `--review-fix` also applies what triage keeps. The
@@ -42,6 +47,19 @@ same change. If you type `/gantry:ship` expecting a review, you now want `--revi
   failing CI and one shipping.
 
 **Changed**
+- **BREAKING — `/gantry:grill` is now `/gantry:plan-grill`.** The critique phase is the second
+  half of planning: it reads `task.md` and `plan.md`, revises `plan.md`, and produces nothing
+  else. The new name says so, and sorts it beside `/gantry:plan` at the point where a user picks
+  a command. There is no alias, because gantry has no alias mechanism — the old command simply
+  stops resolving. Update anything that types it.
+
+  **The phase vocabulary deliberately did not move.** `status: grilled`, the detector's
+  `PHASE=grill`, and the journal's `--phase grill` are all unchanged, so the command is now
+  `plan-grill` while the state it drives is still `grill`. The asymmetry is the price of not
+  invalidating data that already exists: those tokens are written into every `task.md` on disk
+  and into every journal line already recorded, and renaming them would have broken
+  `lib/detect_stage.sh`'s status map, the readiness hook's status vocabulary, and
+  `tests/cases/stage_phases.sh` in exchange for nothing.
 - `ship`'s stages renumbered: the review stage is gone, so push, PR and done are now 3, 4 and 5.
   Roughly fourteen in-file references to stage numbers moved with them, including two that would
   otherwise have routed `--no-pr` past the disclosure checks.

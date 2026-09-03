@@ -86,9 +86,9 @@ when it isn't, and says which it did.
 - **Invokes:** the explorer, conditionally.
 - **Templates:** the repo's `docs/templates/task.md` if it has one, else `templates/task.md`.
 
-## `/gantry:grill` — attack the plan
+## `/gantry:plan-grill` — attack the plan
 
-`/gantry:grill`
+`/gantry:plan-grill`
 
 Hunts unstated assumptions, unfalsifiable acceptance criteria, steps that will fail on contact with
 the code, missing work, and scope drift. Revises `plan.md` and records what changed.
@@ -340,7 +340,7 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 | auto | ~130 |
 | auto-unattended | ~130 |
 | plan | ~70 |
-| grill | ~90 |
+| plan-grill | ~90 |
 | implement | ~80 |
 | review | ~80 |
 | handover | ~90 |

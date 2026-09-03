@@ -21,7 +21,7 @@ step 3, and are written in step 4. Knowing what a change touches is what tells y
 touch, so writing the boundary from the task description alone is guessing — and both
 `gantry:review` and `gantry:handover` then read that guess as a contract.
 
-This is the first phase of the gantry chain. The next is `/gantry:grill`, which attacks what you
+This is the first phase of the gantry chain. The next is `/gantry:plan-grill`, which attacks what you
 wrote here.
 
 ## Ask, don't assume
@@ -175,7 +175,7 @@ Run the detector again and read its **`FORKS:`** line. It, not your recollection
 this plan may leave the stage:
 
 - **`FORKS:none`** → set `task.md` frontmatter to `status: planned`. That is what tells
-  `/gantry:grill`, and every later phase, where this task stands — the phases read it from disk,
+  `/gantry:plan-grill`, and every later phase, where this task stands — the phases read it from disk,
   never from the conversation.
 - **`FORKS:open`** → **leave `status: planning`** and report the open forks. `planned` is the
   assertion that an implementer may be dispatched against this plan, and while a fork is open that
@@ -191,5 +191,5 @@ was dispatched or you read the code yourself, and the **`FORKS:` value with the 
 forks** — listing each one, if any survived. A fork left open is the single most important thing in
 this report: it is what stops the chain, and the reader needs to know what decision is waiting.
 
-End by naming the next command: `/gantry:grill` on `FORKS:none`, or the fork itself on
+End by naming the next command: `/gantry:plan-grill` on `FORKS:none`, or the fork itself on
 `FORKS:open` — there is nothing to grill a plan for until someone decides.

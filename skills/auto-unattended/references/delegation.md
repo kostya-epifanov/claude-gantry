@@ -24,7 +24,7 @@ All live at the **root of the task's worktree**.
 | Artifact | Written by | Committed? |
 |---|---|---|
 | `task.md` | `gantry:plan` (Affected areas from the explorer) | **yes** — the contract a reviewer reads |
-| `plan.md` | `gantry:plan`, revised by `gantry:grill` | **yes** — what the change was supposed to be |
+| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | **yes** — what the change was supposed to be |
 | `handover.md` | `gantry:handover`, when review defers something | **yes** — what this change deliberately left |
 | `journal.jsonl` | the orchestrator, append-only | **no** — a run artifact; excluded via `.git/info/exclude` |
 | gate logs | the gate script / the readiness hook | **no** — same exclusion |
@@ -48,7 +48,7 @@ pair of eyes inside it.
 | Phase | You | It dispatches | Returns (its contract) |
 |---|---|---|---|
 | plan | `/gantry:plan` | **explorer** (Read/Grep/Glob, Haiku), when the surface warrants it | the artifact paths + a short rationale |
-| grill | `/gantry:grill` | **critic** (Read/Grep/Glob, Opus), **always** | findings by severity + the plan path |
+| grill | `/gantry:plan-grill` | **critic** (Read/Grep/Glob, Opus), **always** | findings by severity + the plan path |
 | implement | `/gantry:implement` | — | a change summary + the gate's exit code |
 | review | `/gantry:review --fix` | **reviewer** (Read/Grep/Glob/Bash, Opus), when `/code-review` is unavailable | findings, what was fixed, what was deferred |
 | gate | *(script)* | — | an exit code |
