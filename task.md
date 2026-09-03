@@ -4,7 +4,7 @@ title: Integrate PR #13 and PR #12 into master as 0.4.1
 project: claude-gantry
 branch: integration/v0.4.1-batch
 mode: semi-auto           # semi-auto | auto | unattended — which mode is driving
-status: implementing      # planning | planned | grilled | implementing | implemented |
+status: shipped           # planning | planned | grilled | implementing | implemented |
                           # reviewed | shipped | blocked. The readiness hook arms on
                           # exactly `implementing` and ignores every other value.
 ---
