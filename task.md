@@ -65,6 +65,10 @@ verification:
     - "Whether the manifest description edit — 'grill' to 'plan-grill' in the phase
        list — is wanted. It is the plugin's trigger surface, paid every session, and
        #12 did not touch the file."
+    - "Whether the three findings this integration fixed belong in the merge or in
+       #13's own branch. Each is drift visible only once both merges are in the tree,
+       each is a separate revertable commit, and the five that were design decisions
+       rather than drift went to handover.md instead."
 ```
 
 ## Out of scope

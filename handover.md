@@ -276,3 +276,85 @@ self-contained, it cannot affect routing, and it is the one of the three that is
 unverifiable data into an append-only file the project treats as evidence. Do that first and
 separately; then decide the `detect_stage.sh` catch-all on its own terms, because that one is a
 routing change to four skills rather than a validation fix.
+
+## `integration/v0.4.1-batch`
+
+Five findings from `/code-review high` over the merged tree. All five are internal to #13's
+redesign of `ship` and `review` — none was introduced by the merge, and none can be fixed without
+making a design decision that belongs to whoever owns that change. Three other findings from the
+same run *were* fixed here, because each was drift that exists only in the merged tree: the
+detector's `NEXT` (434f7a8), the drivers' phase-skill list (7cdcaf2), and the deleted no-gate
+disclosure (c4cc133).
+
+### `review` writes `status: reviewed` on a path that can move the task backwards
+
+**What it is.** `skills/review/SKILL.md` step 7 sets `status: reviewed` **always**, and #13 gave it
+a new caller: `ship --review` / `--review-fix`. Both drivers set `status: shipped` *before*
+invoking ship (`skills/auto/SKILL.md`, `skills/auto-unattended/SKILL.md`), and ship never writes
+the field itself. So a human who types `/gantry:ship --review` to resume a run the drivers left at
+`shipped` gets the status rewritten backwards to `reviewed`; ship's own instruction to commit
+review's edits on their own then commits that regression, and `detect_stage.sh` reads the pushed
+branch as still needing `/gantry:ship`.
+
+**Why it was deferred.** The unconditional write is deliberate and well argued in the file — gating
+it on `--fix` would strand a read-only review outside the state machine — so the fix is not to make
+it conditional. It is to decide whether `reviewed` may ever overwrite a *later* status, which is a
+statement about the status ordering that no file currently owns.
+
+**Next action.** Decide whether `skills/review/SKILL.md` step 7 should be "set `reviewed` unless
+the current status is already past it", and if so, where the ordering lives — most likely beside
+the status map in `lib/detect_stage.sh`, since that is the only place the sequence is written down.
+
+### `review`'s "the tree is usually uncommitted at this point" is false on the new ship path
+
+**What it is.** `skills/review/SKILL.md` step 1 states the tree is usually uncommitted because
+`gantry:ship` has not run yet. Under `--review`/`--review-fix` ship *has* run: its stage 2 commits
+before the review section is reached. That stale premise combines badly with the rule directly
+above it — `STATUS:planned` or `grilled` plus a clean tree means "nothing to review; say so and
+name `NEXT`". A `/gantry:ship --review-fix` on a branch whose `task.md` is stale can therefore
+report "nothing to review" against a diff that was just committed, and ship reports a review it
+never got.
+
+**Why it was deferred.** Rewriting step 1's entry conditions means deciding what review reads when
+the tree is clean — the committed diff against the base, presumably — and that is a new behaviour,
+not a correction.
+
+**Next action.** Give step 1 a third case for "invoked by ship, tree clean, `AHEAD` non-zero":
+review the committed range rather than the working tree.
+
+### The drivers' `allowed-tools` cannot satisfy review's new verification step
+
+**What it is.** #13 made verification its own step in `skills/review/SKILL.md`, and it requires
+checking each finding against the file it names. Neither `skills/auto/SKILL.md` nor
+`skills/auto-unattended/SKILL.md` lists `Grep` or `Glob` in `allowed-tools`, and both invoke
+`/gantry:review --fix`. On this repo's own account of the mechanism — stated in
+`skills/ship/SKILL.md`, that frontmatter *restricts* rather than grants — the verification step
+cannot search the repo when review runs under a driver.
+
+**Why it was deferred.** #13 widened ship's `allowed-tools` for exactly this reasoning, so the
+precedent says widen the drivers too. But the claim rests on the repo's description of the harness
+rather than on anything tested here, and a permissions change to the two unattended entry points is
+not something to fold into a merge commit.
+
+**Next action.** Confirm the restrict-not-grant behaviour against the harness, then add `Grep,
+Glob` to both drivers in one change with ship's rationale quoted.
+
+### `--no-pr` with a review flag has two defensible readings
+
+**What it is.** `skills/ship/SKILL.md` specifies `--no-pr` as "commit → push only", and the review
+section's entry-point table never mentions it. The old text said outright that `--no-pr` skipped
+the review. So `/gantry:ship --no-pr --review-fix` reads either as "no review" or as "review, then
+push" — and the section's own rule that an explicitly requested review must never silently not
+happen argues for the second.
+
+**Next action.** One row in the entry-point table, whichever way it is decided.
+
+### `review --tier` refuses `low`, which `/code-review` supports
+
+**What it is.** The allow-list is `medium | high | xhigh | max`, and anything outside it is a hard
+stop. `/code-review` documents `low` as a valid level. `/gantry:ship --review=low` — forwarded
+unvalidated by design — therefore stops the run after stage 2 has already committed, because the
+caller asked for the cheapest review available.
+
+**Next action.** Either add `low` to the list, or refuse it by name with a reason, the way `ultra`
+is refused. The silent-downgrade argument for keeping the list strict is unaffected either way.
