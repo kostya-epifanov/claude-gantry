@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.4.1
+
+**Reviewing is now something you ask `ship` for.** `gantry:ship` ran `/code-review --fix` on its
+default path, which made the slowest, most expensive step in the chain the one you got by accident:
+a caller who wanted a branch pushed paid for a review they had not asked for, and the documented
+escape was `--reviewed`, a flag whose whole meaning was "assert a review happened so this one
+stops". A step most invocations want to skip is not a default; it is a tax with an opt-out.
+
+**Breaking.** `/gantry:ship` no longer reviews anything unless asked, and **`--reviewed` is
+removed** rather than deprecated — it existed only to suppress a stage that no longer exists, so a
+run still passing it is passing a flag ship does not document. Both drivers were updated in the
+same change. If you type `/gantry:ship` expecting a review, you now want `--review`.
+
+**Added**
+- **`ship --review` and `ship --review-fix`** — the only ways a reviewer runs from ship. `--review`
+  reviews and reports without touching the code; `--review-fix` also applies what triage keeps. The
+  tier rides on the flag (`--review=xhigh`), bare forms meaning `high`, and ship forwards it
+  **unvalidated**: `gantry:review` owns the valid-value list, and a second copy is how two skills
+  come to disagree about it. A review you asked for can block the ship — a missing reviewer, as
+  before, never does.
+- **`review --tier <medium|high|xhigh|max>`**, default `high`, replacing a hardcoded `high`. An
+  out-of-set value stops the run and names the valid values rather than falling back, because an
+  errored invocation is exactly what this skill reads as "`/code-review` is unavailable" — so a
+  typo'd tier would have silently downgraded the run to a sub-agent. `ultra` is refused by name,
+  keeping the existing reason: it is billed and user-triggered, and an unattended run has nobody
+  present to authorise it.
+- **`review --fix`, and a read-only default.** Review now makes no change to the code under review
+  unless asked. It still writes gantry's own artifacts — `task.md`'s status *always*, because that
+  is what `detect_stage.sh` reads to move the chain on, and `handover.md` when something was
+  deferred. Gating the status write on `--fix` would have stranded a read-only review outside the
+  state machine. Both drivers pass `--fix`, so the chains behave exactly as they did.
+- **A verification step in `review`, before findings are reported.** Checking findings against the
+  repo was one clause scoped to "before acting". It is now its own step, and it covers reporting:
+  in read-only mode the report is the entire output, so an unverified finding is the whole of what
+  the caller receives. The report carries two tallies — what came back, and what survived.
+- Two sweeps in `scripts/verify.sh`: `skills/ship/SKILL.md` contains no `/code-review` invocation,
+  and `--reviewed` appears nowhere. Both were confirmed to fail against the pre-change tree before
+  being trusted. They prove the file contains no invocation, not that a model executing it performs
+  no review — a weaker claim, honestly weaker, and still the difference between a regression
+  failing CI and one shipping.
+
+**Changed**
+- `ship`'s stages renumbered: the review stage is gone, so push, PR and done are now 3, 4 and 5.
+  Roughly fourteen in-file references to stage numbers moved with them, including two that would
+  otherwise have routed `--no-pr` past the disclosure checks.
+- `ship` re-detects after **either** review flag, not just the fixing one. A read-only review can
+  still write `handover.md`, and everything downstream branches on `AHEAD` and `DIRTY`.
+- `ship`'s `allowed-tools` gains `Agent` and `AskUserQuestion`. Frontmatter restricts rather than
+  grants, so without them `--review` would have degraded to self-review and review's triage round
+  could not have asked anything.
+- `review`'s three **sources** are no longer called "tiers", which now means effort. The two were
+  different axes sharing one word, in the line whose job is recording how independent a review was.
+
 ## 0.4.0
 
 **Six changes developed in parallel, merged as one release.** Each was planned, grilled,

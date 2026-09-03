@@ -1,8 +1,8 @@
 ---
 name: ship
-description: Advances the current branch one clean step closer to a merged PR, doing only what isn't done yet — commits outstanding changes, reviews them with /code-review unless the review is skipped, pushes to the upstream, opens a pull request, and once the PR exists and is up to date, reports its status and waits. Idempotent — it detects the stage and picks up from there, so it's safe to run repeatedly. Pass --no-pr to stop after the push without opening a PR, --draft to open the PR as a draft, or --reviewed to skip the review when one already ran. Use when the user types "/gantry:ship", or asks to ship, to commit and push, to open a PR for this branch, or to "get this out for review". Refuses to run on the repo's default branch.
-argument-hint: [--no-pr] [--draft] [--reviewed] [--base <branch>]
-allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Skill
+description: Advances the current branch one clean step closer to a merged PR, doing only what isn't done yet — commits outstanding changes, pushes to the upstream, opens a pull request, and once the PR exists and is up to date, reports its status and waits. Idempotent — it detects the stage and picks up from there, so it's safe to run repeatedly. Pass --no-pr to stop after the push without opening a PR, --draft to open the PR as a draft, or --review / --review-fix to run gantry:review before the push. Use when the user types "/gantry:ship", or asks to ship, to commit and push, to open a PR for this branch, or to "get this out for review". Refuses to run on the repo's default branch.
+argument-hint: [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--base <branch>]
+allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Skill, Agent, AskUserQuestion
 ---
 
 # gantry:ship
@@ -15,20 +15,21 @@ Typing `/gantry:ship` **is** the go-ahead to commit, push, and open the PR — d
 confirmation stage by stage. Do still stop on the guards below (default branch, diverged branch,
 nothing to ship). This skill runs in any repo, so follow *that* repo's conventions, not gantry's.
 
-**`--no-pr`**: if `$ARGUMENTS` contains `--no-pr`, run commit → push only. Skip stages 3 and 5
-entirely and treat the push as the finish line — after pushing, go straight to the report and note
-the PR was intentionally not opened, and that the review was skipped with it. This is the mode
-`/gantry:auto --no-pr` passes through. **One thing survives the skip:** stage 5's disclosure
-checks. The push still happens, so a `--no-pr` run that changed the plugin's own files, or shipped
-a task with unproven acceptance criteria, still has to say so — in the report, since there is no
-body to say it in.
+**Ship does not review.** There is no review stage on the path above, and a bare `/gantry:ship`
+never invokes `/code-review` or `gantry:review`. A review is slow, expensive and worth choosing, so
+it is something you ask for by flag — see *Review, only when you asked for it* below.
 
-**`--reviewed`**: the change has already been reviewed; skip stage 3. Both drivers pass it, because
-the chain runs `/gantry:review` as its own phase and a second review here would let `--fix` apply
-findings that phase deliberately deferred. Pass it by hand when you have just reviewed the diff
-yourself, or when re-running ship after it stopped part-way (see stage 3). It is an assertion that
-a review happened, so it is a flag rather than something inferred — see stage 3 for why the
-`status:` in `task.md` is deliberately not consulted.
+**`--no-pr`**: if `$ARGUMENTS` contains `--no-pr`, run commit → push only. Skip stage 4 entirely and
+treat the push as the finish line — after pushing, go straight to the report and note the PR was
+intentionally not opened. This is the mode `/gantry:auto --no-pr` passes through. **One thing
+survives the skip:** stage 4's disclosure checks. The push still happens, so a `--no-pr` run that
+changed the plugin's own files, or shipped a task with unproven acceptance criteria, still has to
+say so — in the report, since there is no body to say it in.
+
+**`--review`** / **`--review-fix`**: invoke `gantry:review` before the push. `--review` reviews and
+reports without touching the code; `--review-fix` also applies the findings triage keeps. Both take
+an optional tier — `--review=<tier>`, `--review-fix=<tier>` — and the bare forms mean `high`. See
+the section below, which is where the whole behaviour lives.
 
 **`--base <branch>`**: if `$ARGUMENTS` names a base branch, pass it straight through to the
 detector (below) so it overrides base detection, and open the PR against it. Use it when the repo
@@ -39,7 +40,7 @@ is a usage error (the detector exits non-zero). `/gantry:auto --base <branch>` p
 **`--draft`**: open the pull request as a draft (`gh pr create --draft`). Use it when nobody has
 reviewed the change live — which is why `/gantry:auto-unattended` always passes it. A draft doesn't
 request reviewers, so it says "this is finished but unwatched" rather than "please look now". It
-only affects stage 5; with `--no-pr` it does nothing.
+only affects stage 4; with `--no-pr` it does nothing.
 
 ## Steps
 
@@ -65,17 +66,19 @@ and a final `STAGE:` — the entry point. Route on `STAGE`:
   to integrate first (`git pull --rebase`) and re-run. Never force-push to resolve this.
 - `no-diff` → clean and pushed but no commits over `BASE` — there's nothing to open a PR for. Report
   and stop.
-- `commit` → go to stage 2, then flow on through review, push, and PR.
-- `push` → skip to stage 3.
-- `pr` → skip to stage 3. The branch is already pushed, but the PR has not been opened, so the
-  review still has somewhere useful to land.
-- `done` → skip to stage 6. The PR already exists; there is nothing left to review before it.
+- `commit` → go to stage 2, then flow on through push and PR.
+- `push` → skip to stage 3 — **through** the review section below, if a review flag was given.
+- `pr` → skip to stage 4. The branch is already pushed; the PR has not been opened. A review flag
+  still runs first — see *Review, only when you asked for it*, which says what `pr` does.
+- `done` → skip to stage 5. The PR already exists.
+
+A review flag is the one thing these skips must not jump over: the section that describes it sits
+between stages 2 and 3, and it carries its own entry-point table for exactly this reason.
 
 Completing one stage lands you at the top of the next, so once you enter at the routed stage,
-continue straight down without re-detecting — **with one exception: stage 3 can create a commit,
-and if it does, you must re-run the script before continuing.** Everything after it branches on
-`AHEAD` and `DIRTY`, and deciding from a read taken before the review would push the wrong thing,
-or nothing at all.
+continue straight down without re-detecting — **with one exception: a review flag can create a
+commit, and if it does, you must re-run the script before continuing.** That exception belongs to
+the review section below, which says when it applies.
 
 ### 2. Commit
 
@@ -89,106 +92,101 @@ Look before writing the message: `git status` and `git diff` (or `git diff --sta
 - **Message**: a concise imperative subject, plus a short body if the change warrants it. Match the
   repo's recent `git log` style, including whether it uses commit trailers — some repos do, some
   (like gantry) deliberately don't. Follow the ambient convention.
-- **Re-read the subject before committing it**, under the same rule stage 5 applies to the PR body:
+- **Re-read the subject before committing it**, under the same rule stage 4 applies to the PR body:
   *a claim about how something works either cites the file that establishes it, or it does not go
-  in the subject.* This is the **only** point at which the subject is free to fix. After stage 4 it
-  is on the remote, and stage 4 does not rewrite history to correct prose.
+  in the subject.* This is the **only** point at which the subject is free to fix. After stage 3 it
+  is on the remote, and stage 3 does not rewrite history to correct prose.
 
 ```bash
 git commit -m "<subject>"        # add -m for a body paragraph if warranted
 ```
 
-### 3. Review the change
+### Review, only when you asked for it
 
-The last point at which a fix is still cheap. Skip it and say which of these applied:
+**Not a stage.** It has no number because it is not on the path: with neither flag given, nothing
+in this section runs and nothing invokes a reviewer. That is the default, and it is deliberate.
 
-- **`--no-pr`** — the caller asked for commit → push and nothing else. Be honest about the trade in
-  the report: the push still happens, so `--no-pr` pushes code this stage did not read. It is the
-  one path where ship's own review is skipped and something still leaves the machine.
-- **`--reviewed`** — a review already ran. The drivers always pass this, because the chain runs
-  `/gantry:review` as its own phase.
+- **`--review`** → invoke `gantry:review`. It reviews, verifies its findings, triages them against
+  `task.md` and reports. It does not touch the code under review.
+- **`--review-fix`** → invoke `gantry:review --fix`. Same, and it applies the findings triage keeps.
 
-Otherwise, invoke `/code-review` over the branch diff, **naming an effort level**:
+**The tier rides on the flag.** `--review=<tier>` and `--review-fix=<tier>` map to
+`/gantry:review --tier <tier>` and `/gantry:review --tier <tier> --fix`; the bare forms mean `high`.
+**Do not validate the tier here.** `gantry:review` owns the valid-value list and rejects anything
+outside it — duplicating that list is how two skills come to disagree about it. If review rejects
+the value it stops without dispatching anything, and by then stage 2 has already committed: nothing
+has been pushed, the commit stands, and the run is resumed by fixing the flag and running ship
+again. Say exactly that in the report rather than leaving the state to be guessed at.
 
+**Where it runs, at each entry point.** "Before the push" only describes one of them, and an
+explicitly requested review must never silently not happen:
+
+- `commit` → after stage 2's commit, before stage 3's push.
+- `push` → nothing to commit; run it before stage 3's push.
+- `pr` → **the branch is already pushed.** Run the review anyway; if it commits anything, push that
+  before opening the PR, so the PR is never opened over a tip older than the review that informed
+  it. This is the entry point where doing nothing would be a silent failure.
+- `done` → the PR is already open. Say the flag had no effect and why; do not review a change that
+  has already been published as though it could still change the outcome here.
+- `no-diff` / the other guards → the run stops before this section is reached.
+
+**The gate belongs to the review, and a red one stops the ship.** `gantry:review --fix` re-runs
+`lib/run_gates.sh` over its own fixes before it returns — ship runs no gate of its own, so read
+the exit code out of review's report and treat a non-zero one as terminal: **no push, no PR**.
+A fix made after the gate went green is unproven code, and `--review-fix` is the only path on
+which ship could carry unproven code to a remote. Report the exit code and what failed.
+
+If the review changed files, commit them on their own — separately from stage 2's commit, so the
+review's edits stay legible as review edits rather than folded into the change being reviewed.
+Name the commit for what it actually holds: `--review-fix` produces applied findings, while a bare
+`--review` produces only `handover.md`.
+
+```bash
+git add -A && git commit -m "Apply review findings"            # --review-fix
+git add -A && git commit -m "Record deferred review findings"  # --review, handover.md only
 ```
-/code-review high --fix
+
+**Then re-detect — after either flag, not just `--review-fix`, and after that commit rather than
+before it.** Both flags can move the tree: `--review-fix` through the fixes it applies, and
+`--review` through `handover.md`, which a read-only review still writes when it defers something.
+Everything downstream branches on `AHEAD` and `DIRTY`, so a read taken before the review — or
+taken before the commit the review caused — would push the wrong thing, or nothing at all.
+
+```bash
+bash "$GANTRY/skills/ship/scripts/detect_state.sh"     # again, after the review and its commit
 ```
 
-Name the level explicitly. With none given it reuses whatever was typed last in the session, which
-makes two runs of this stage incomparable for a reason that has nothing to do with the diff.
+**A review you asked for can stop the ship.** If `gantry:review` reports the change unsafe to ship
+— it sets `status: blocked` for exactly this — stop: no push, no PR. This is a deliberate
+difference from a missing reviewer, which never blocks anything: you asked for this review, so its
+verdict counts. Report what it found.
 
-**Invoke it rather than survey for it.** If the invocation errors, `/code-review` is unavailable —
-report that **with the cause** and continue to the push. A review is advice here; a missing reviewer
-never blocks a ship. The gate is what blocks.
-
-This is why this skill's `allowed-tools` carries `Write`, `Edit`, `Grep` and `Glob` even though ship
-itself writes no artifact: frontmatter *restricts* what is permitted while the skill is active, so
-`--fix` cannot apply a single byte through a skill that has not allowed the tools it edits with. A
-review that cannot write reports as a clean no-op, which is indistinguishable from a diff with
+**Why this skill's `allowed-tools` is as wide as it is.** Frontmatter *restricts* what is permitted
+while the skill is active, so an invoked sub-skill cannot use a tool this one has not allowed.
+`Write` and `Edit` are what let `--review-fix` apply a single byte; `Agent` is what lets review fall
+back to a sub-agent when `/code-review` is unavailable, instead of silently degrading to
+self-review; `AskUserQuestion` is what lets its triage round ask about an ambiguous finding. Ship
+writes no artifact of its own, so this list looks over-broad until you know that — do not trim it.
+A review that cannot write reports as a clean no-op, which is indistinguishable from a diff with
 nothing wrong in it.
 
-Then:
-
-1. **If `--fix` changed nothing, you are done with this stage.** No commit, no gate run. This is the
-   common case and it stays cheap.
-2. **If it did change something**, commit those edits on their own:
-
-   ```bash
-   git add -A && git commit -m "Apply review findings"
-   ```
-
-   Separately from stage 2's commit, so the review's edits stay legible as review edits rather than
-   folded into the change being reviewed.
-3. **Then re-run the gate**, because a fix made after the gate went green is unproven code:
-
-   ```bash
-   bash "$GANTRY/lib/run_gates.sh"
-   ```
-
-   Same contract as `/gantry:implement`: `0` green · `1`+ red · `2` the gate could not run.
-   **Red stops the ship** — no push, no PR. Report the exit code and what failed.
-
-   Note what a `0` does and does not prove here. Ship runs the gate **without `--strict`**, so a
-   repo where no checks are detected exits `0` rather than the `3` that `--strict` would give.
-   In that repo the review's edits are pushed **unproven** — nothing ran over them. Say so in the
-   report rather than reporting a green gate; "the gate passed" and "there was no gate" are not
-   the same result, and this is the one stage that can push code no check has seen.
-4. **Re-run `detect_state.sh`** before continuing, since you just committed.
-
-**Why `--fix` here, when `/gantry:review` forbids it.** That skill refuses `--fix` because its
-triage step weighs every finding against `task.md`'s *Out of scope*, and `--fix` would apply
-findings the contract excludes. That reasoning does not transfer: this stage exists for the caller
-who typed `/gantry:ship` on a change with no contract on disk and no triage step to protect, and
-the two never both run — `--reviewed` guarantees it. Do not import review's triage procedure here;
-if a change needs triage, it needs `/gantry:review`.
-
-**Why the guard is a flag and not `task.md`'s `status:`.** Both drivers set `status: shipped`
-*before* invoking ship, for an unrelated reason — so a status test would be satisfied by something
-that was not a review. And a task left at `reviewed` from an earlier run, then edited further and
-shipped again, would skip review of genuinely unreviewed code. A flag is written down; a status is
-inferred.
-
-Note for the report: whether this stage ran, and **how many files `--fix` touched**. Do not report a
-findings tally — nothing here establishes that a reviewed-versus-applied count is available, and an
-invented number is worse than none.
-
-### 4. Push
+### 3. Push
 
 ```bash
 git push -u origin HEAD     # when UPSTREAM was NONE (first push of this branch)
 git push                    # when an upstream already exists and AHEAD > 0
 ```
 
-Take `UPSTREAM` and `AHEAD` from the **most recent** detector read — stage 3 may have committed
-since the first one.
+Take `UPSTREAM` and `AHEAD` from the **most recent** detector read — a review flag may have
+committed since the first one.
 
 If the push is rejected because the remote moved, stop and report it — let the user integrate
 (`git pull --rebase`) rather than force-pushing.
 
-### 5. Open the PR
+### 4. Open the PR
 
 Skip this stage entirely if `--no-pr` was given — the push was the finish line. Go straight to the
-**Report** (not stage 6, which reads a PR that doesn't exist) and note the PR was intentionally not
+**Report** (not stage 5, which reads a PR that doesn't exist) and note the PR was intentionally not
 opened. **Run the two disclosure checks below anyway** and put their answers in the report; the
 push already happened, so skipping them would mean shipping the plugin's own change, or a task with
 unproven acceptance criteria, with nothing anywhere saying so.
@@ -288,8 +286,9 @@ Three outcomes, and the skill owes the reader whichever one happened:
 #### Re-read what you just wrote
 
 The last thing before `gh pr create`, and the only scrutiny this prose will get. `grill` read
-`task.md` and `plan.md`; `/gantry:review` read the diff. **Neither read this title, this body, or
-the commit subject** — all three are written last, by the context most invested in the result.
+`task.md` and `plan.md`; `/gantry:review` read the diff, if it was asked to. **None of them read
+this title, this body, or the commit subject** — all three are written last, by the context most
+invested in the result.
 
 One rule, narrow on purpose:
 
@@ -307,7 +306,7 @@ and the diff. Anything you cannot point at a file for is **struck, not softened*
 still an assertion nobody verified.
 
 The subject was already checked in stage 2, where amending was free. A problem found with it *here*
-is on the remote already, and stage 4 does not rewrite history to correct prose: say so in the body
+is on the remote already, and stage 3 does not rewrite history to correct prose: say so in the body
 instead.
 
 **Why this lives here and not in `/gantry:review`.** That phase runs against the diff, before ship
@@ -325,7 +324,7 @@ gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body "<body>"
 
 Report the PR URL it prints.
 
-### 6. Done — report and wait
+### 5. Done — report and wait
 
 The branch is fully shipped: PR open, nothing left to push. Pull the current status so "wait" is
 informed, not blind:
@@ -341,15 +340,17 @@ thing worth flagging here.
 
 ## Report
 
-State what actually happened this run — which stages ran (committed / reviewed / pushed / opened
-PR), the commit subject, the PR URL, **whether the PR is a draft or ready for review**, and the
-terminal status.
+State what actually happened this run — which stages ran (committed / pushed / opened PR), the
+commit subject, the PR URL, **whether the PR is a draft or ready for review**, and the terminal
+status.
 
-For the review stage: whether it ran or was skipped and why, how many files `--fix` touched, and
-the gate's exit code if the fixes made one necessary. If `/code-review` was unavailable, say so
-**with the cause** — "unavailable" with no cause is how a silent downgrade hides.
+**Whether a review ran, and it only ran if you asked.** Say which flag was given, at which tier, and
+whether it was `--review` or `--review-fix`; how many files the fixes touched, if any; and the gate
+exit code `gantry:review` reported over those fixes. If no flag was given, say the run was not reviewed —
+plainly, as a fact about this run rather than an omission. If `gantry:review` rejected the tier, say
+that the commit stands and nothing was pushed. If it blocked the ship, lead with that.
 
-**Both stage 5 disclosures, always — including under `--no-pr`, where the report is the only place
+**Both stage 4 disclosures, always — including under `--no-pr`, where the report is the only place
 they can land.** Say whether the `human_only` heading was emitted and why (or why not), and what
 the executing-plugin check concluded: the version that ran, that the check was inert because the
 repo is not a plugin, that it was suppressed because the plugin root and the repo are the same
@@ -357,8 +358,8 @@ tree, or that the version could not be determined. The driver journals this from
 so an omission here becomes an omission in an append-only log.
 
 If a guard stopped it (on the default branch, diverged, nothing to ship, gh unavailable), say which
-and what the user should do next. **When a run stops after the review but before the PR** — the
-`gh missing`/`unauth` case is the common one — tell the user to re-run with `--reviewed`. Ship
-records nothing, so a bare re-run reviews and edits an already-pushed branch a second time.
+and what the user should do next. **When a run stops after a review but before the PR** — the
+`gh missing`/`unauth` case is the common one — a bare re-run is safe: ship reviews only when asked,
+so re-running without a review flag will not review the branch a second time.
 
 Be honest about anything skipped or unverified.

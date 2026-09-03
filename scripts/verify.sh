@@ -96,6 +96,49 @@ head2 "no leftovers from the extraction"
 out="$(repo_files -z -- ':!scripts' | xargs -0 grep -InE '\bkit:|\$KIT\b|kit@skills-dir|homebase|raw_specs|OPEN-QUESTIONS|Slice [0-9]' 2>/dev/null)"
 [ -z "$out" ] && ok "none" || { bad "pre-rename references survive"; printf '%s\n' "$out"; }
 
+head2 "ship reviews only when asked"
+# `gantry:ship` used to run `/code-review --fix` on its default path. Review is
+# now something a caller asks for with --review/--review-fix, and the whole point
+# of the change is that a bare `/gantry:ship` never invokes a reviewer. Nothing in
+# this repo executes a SKILL.md, so this is the strongest mechanical statement
+# available: the file must contain no INVOCATION of /code-review.
+#
+# What the pattern matches, and what it deliberately does not. An invocation is
+# written on its own line, in a fenced block or as a bare command — so the anchor
+# is a line whose first non-blank content is `/code-review`. Prose that merely
+# names the command mid-sentence (ship's own "never invokes `/code-review`", and
+# the note that review falls back to a sub-agent when it is unavailable) is not
+# an invocation and must keep passing, or the check would forbid the file from
+# explaining itself.
+#
+# This proves the file does not CONTAIN an invocation. It cannot prove a model
+# executing the file performs no review by other means; that would need a harness
+# that runs a SKILL.md, which does not exist here. A weaker claim, honestly
+# weaker, and still the difference between a regression failing CI and shipping.
+out="$(grep -nE '^[[:space:]]*/code-review\b' skills/ship/SKILL.md 2>/dev/null)"
+[ -z "$out" ] && ok "no /code-review invocation in skills/ship/SKILL.md" \
+  || { bad "skills/ship/SKILL.md invokes /code-review on its own path"; printf '%s\n' "$out"; }
+
+head2 "the --reviewed flag is gone"
+# --reviewed existed only to suppress ship's default review stage. With that
+# stage removed the flag has nothing to skip, so it was deleted rather than
+# deprecated — which makes a stray reference a real defect: a driver passing a
+# flag ship no longer documents.
+#
+# Three files name it legitimately and are excluded. task.md and plan.md are this
+# task's own artifacts, which describe the removal and are committed with it.
+# CHANGELOG.md documents `ship --reviewed` as a shipped 0.3.x feature; rewriting
+# a historical entry to satisfy a grep would falsify the release record, so the
+# file is excluded instead. Same pathspec idiom as the extraction check above.
+#
+# This file is excluded too, and for the plainest possible reason: the sweep has
+# to name the string it bans, so it matches itself. The extraction check above
+# solves the identical problem by excluding all of `scripts`; this one excludes
+# only itself, so a stray `--reviewed` in any other script is still caught.
+out="$(repo_files -z -- ':!task.md' ':!plan.md' ':!CHANGELOG.md' ':!scripts/verify.sh' \
+  | xargs -0 grep -InE -- '--reviewed' 2>/dev/null)"
+[ -z "$out" ] && ok "none" || { bad "--reviewed survives"; printf '%s\n' "$out"; }
+
 head2 "relative links resolve"
 # NB: `grep` exiting 1 on "no matches" is normal here, and under `set -o pipefail`
 # it would otherwise be read as a failure. Hence the `|| true`.

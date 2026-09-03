@@ -65,11 +65,11 @@ flowchart TB
   subgraph chain ["the phase skills — one procedure, whoever runs it"]
     P["gantry:plan → task.md + plan.md"] --> GR["gantry:grill → a fresh critic"]
     GR --> I["gantry:implement → owns the gate"]
-    I --> RV["gantry:review → fix or hand over"]
+    I --> RV["gantry:review → report, fix with --fix, hand over"]
   end
   W["gantry:worktree — branch, worktree, parent fetch"] --> P
   H["gantry:handover → handover.md"]
-  S["gantry:ship — commit, review, push, PR"]
+  S["gantry:ship — commit, push, PR"]
   A --> W
   U --> W
   You["you, typing them"] --> W
@@ -149,12 +149,14 @@ rewrites remote history on your behalf.
 `detect_state.sh` can emit — the node *ids* are mermaid-safe spellings, so `commitst`, `pushst` and
 `prst` are the states the script reports as `commit`, `push` and `pr` (likewise `notarepo`,
 `ondefault` and `nodiff` for `not-a-repo`, `on-default` and `no-diff`). `review` is not among them:
-it is not an entry point, it runs on the way through from `commit`, `push`, or `pr`, and it is
-skipped entirely by `--no-pr` or `--reviewed`. Drawing it in would claim a `STAGE` that does not exist. What it does change is the
-fall-through rule above it: the review stage can create a commit, so the skill **re-detects** after
-it rather than deciding the push from the original read. It is also the one case where a re-run is
-not free — ship records nothing, so a run that stops between the review and the PR (`gh` missing,
-say) should be resumed with `--reviewed`.
+it is not an entry point, it is not on the default path at all, and it runs only when `--review`
+or `--review-fix` asks for it. Drawing it in would claim a `STAGE` that does not exist. What it
+does change is the fall-through rule above it: **either** review flag can move the tree —
+`--review-fix` through its fixes, `--review` through the `handover.md` a read-only review still
+writes — so the skill **re-detects** afterwards rather than deciding the push from the original
+read. A run that stops between a review and the PR (`gh` missing, say) is safe to resume with a
+bare re-run: ship reviews only when asked, so re-running without a review flag will not review the
+branch twice.
 
 ## The artifact contract
 
