@@ -531,7 +531,7 @@ case "$PHASE" in
   plan)      NEXT="/gantry:plan" ;;
   grill)     NEXT="/gantry:plan-grill" ;;
   implement) NEXT="/gantry:implement" ;;
-  review)    NEXT="/gantry:review" ;;
+  review)    NEXT="/gantry:review --fix" ;;
   ship)      NEXT="/gantry:ship" ;;
   "done")    NEXT="none — already shipped" ;;
   blocked)   NEXT="none — task.md says blocked; read it before continuing" ;;
