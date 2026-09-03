@@ -164,8 +164,11 @@ Nothing deferred → no `handover.md`. An empty handover file is noise in the di
 ### 7. Record the status
 
 Set `task.md` frontmatter to `status: reviewed` — **always, `--fix` or not.** The review happened;
-that is what the status records. It is also the chain's memory: `lib/detect_stage.sh` is its only
-reader, and it is what moves the phase on to `ship`. Gating this write on `--fix` would strand a
+that is what the status records. It is also the chain's memory: `lib/detect_stage.sh` reads it to
+decide the phase, and is what moves this task on to `ship`. It is not the only reader —
+`hooks/readiness-gate.sh` parses the same field with a copy of the same function, kept
+byte-identical by a check in `scripts/verify.sh` — which is another reason not to make this write
+conditional. Gating it on `--fix` would strand a
 read-only review outside the state machine, leaving the detector to report `/gantry:review` as the
 next command against a diff that was just reviewed.
 
