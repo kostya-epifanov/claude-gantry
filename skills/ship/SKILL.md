@@ -91,7 +91,7 @@ Look before writing the message: `git status` and `git diff` (or `git diff --sta
   pause.
 - **Message**: a concise imperative subject, plus a short body if the change warrants it. Match the
   repo's recent `git log` style, including whether it uses commit trailers — some repos do, some
-  (like gantry) deliberately don't. Follow the ambient convention.
+  deliberately don't. Follow the ambient convention.
 - **Re-read the subject before committing it**, under the same rule stage 4 applies to the PR body:
   *a claim about how something works either cites the file that establishes it, or it does not go
   in the subject.* This is the **only** point at which the subject is free to fix. After stage 3 it

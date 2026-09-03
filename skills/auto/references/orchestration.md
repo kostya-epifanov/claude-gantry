@@ -242,8 +242,8 @@ The drivers orchestrate existing skills rather than duplicating them:
   it. The exception is `--here`, which skips it and runs on the current branch — guarding against
   the default branch and a detached HEAD first.
 - **`gantry:ship`** for commit → push → PR. It is idempotent, detects its own stage, and
-  matches the *target repo's* commit conventions — which is why the drivers don't hardcode gantry's
-  own no-trailer style, since they run in arbitrary repos. Pass `--no-pr`, `--base`, and (unattended
+  matches the *target repo's* commit conventions — which is why the drivers don't hardcode any one
+  repo's trailer style, since they run in arbitrary repos. Pass `--no-pr`, `--base`, and (unattended
   only) `--draft` through.
 
   **Pass no review flag.** Ship reviews only when asked — `--review` and `--review-fix` are the

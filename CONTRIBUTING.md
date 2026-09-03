@@ -50,7 +50,7 @@ table in the same commit.
   surface, and it is what every session pays for.
 - **Document the limits.** Every honest caveat in these docs is load-bearing. If a check can
   false-green, say so where someone will read it.
-- **Commits:** concise imperative subject, no `Co-Authored-By` trailer, no time annotations.
+- **Commits:** concise imperative subject, no time annotations.
 
 ## Testing a change locally
 
