@@ -1,6 +1,6 @@
 ---
 name: auto
-description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, grill, implement, review, ship) by invoking each phase skill in turn. Supervised: it confirms the plan once, then pauses once more before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
+description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, plan-grill, implement, review, ship) by invoking each phase skill in turn. Supervised: it confirms the plan once, then pauses once more before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
 argument-hint: "[task] [--no-pr] [--branch <name>] [--here] [--base <branch>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion
 ---
@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion
 # gantry:auto
 
 One command from a task description to an open pull request, supervised. It creates the branch and
-worktree, then walks the gantry chain — **plan → grill → implement → review → ship** — invoking
+worktree, then walks the gantry chain — **plan → plan-grill → implement → review → ship** — invoking
 each phase skill in turn and pausing twice for you.
 
 **This skill contains no phase logic.** Planning, grilling, implementing, reviewing, and shipping

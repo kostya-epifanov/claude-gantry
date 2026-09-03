@@ -1,13 +1,13 @@
 ---
 name: auto-unattended
-description: Runs a task from description to draft pull request with no human in the loop — creates a worktree, drives the gantry chain (plan, grill, implement, review, ship) by invoking each phase skill in turn, keeps a journal.jsonl trail, and treats the repo's checks as the only blocker. Refuses to push if no checks were found. Built for headless use on a build box or in CI. Use when the user types "/gantry:auto-unattended" with a task, or asks to run something unattended, autonomously, or without supervision.
+description: Runs a task from description to draft pull request with no human in the loop — creates a worktree, drives the gantry chain (plan, plan-grill, implement, review, ship) by invoking each phase skill in turn, keeps a journal.jsonl trail, and treats the repo's checks as the only blocker. Refuses to push if no checks were found. Built for headless use on a build box or in CI. Use when the user types "/gantry:auto-unattended" with a task, or asks to run something unattended, autonomously, or without supervision.
 argument-hint: "[task] [--no-pr] [--branch <name>] [--here] [--base <branch>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent
 ---
 
 # gantry:auto-unattended
 
-The gantry chain with nobody watching: worktree → **plan → grill → implement → review** → draft PR.
+The gantry chain with nobody watching: worktree → **plan → plan-grill → implement → review** → draft PR.
 No checkpoints, no questions, one blocker — the gate.
 
 Built for `claude -p "/gantry:auto-unattended <task>" --dangerously-skip-permissions` on a build box
