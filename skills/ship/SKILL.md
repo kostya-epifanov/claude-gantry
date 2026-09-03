@@ -136,6 +136,13 @@ the exit code out of review's report and treat a non-zero one as terminal: **no 
 A fix made after the gate went green is unproven code, and `--review-fix` is the only path on
 which ship could carry unproven code to a remote. Report the exit code and what failed.
 
+**And note what a `0` does not prove.** Under `--review-fix` the review runs `run_gates.sh`
+*without* `--strict` on the supervised path, so a repo where no checks are detected exits `0` —
+the `NO-GATES` notice — rather than the `3` that `--strict` would give. In that repo the review's
+edits are pushed **unproven**: nothing ran over them. Say so in the report instead of reporting a
+green gate. "The gate passed" and "there was no gate" are not the same result, and this is still
+the one path that can push code no check has seen.
+
 If the review changed files, commit them on their own — separately from stage 2's commit, so the
 review's edits stay legible as review edits rather than folded into the change being reviewed.
 Name the commit for what it actually holds: `--review-fix` produces applied findings, while a bare
