@@ -200,4 +200,4 @@ roots, and the changed/covered counts from step 5b, with the word *heuristic* at
 diff. These are also the values the orchestrator writes into the journal's `gate` event, so
 report them literally rather than in prose.
 
-Any plan step that changed, and why. End by naming the next command: `/gantry:review`.
+Any plan step that changed, and why. End by naming the next command: `/gantry:review --fix`.

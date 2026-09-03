@@ -44,7 +44,7 @@ flowchart TD
   GATE -- "red" --> I
   GATE -- "green" --> R["/gantry:review<br/>independent read of the diff"]
   R -- "deferred findings" --> H["/gantry:handover<br/>writes handover.md"]
-  R -- "nothing deferred" --> S["/gantry:ship<br/>commit, review, push, PR"]
+  R -- "nothing deferred" --> S["/gantry:ship<br/>commit, push, PR"]
   H --> S
   S --> PR(["PR open — ready for review"])
   PR --> SY["/gantry:sync"]

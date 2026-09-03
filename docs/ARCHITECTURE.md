@@ -65,11 +65,11 @@ flowchart TB
   subgraph chain ["the phase skills — one procedure, whoever runs it"]
     P["gantry:plan → task.md + plan.md"] --> GR["gantry:grill → a fresh critic"]
     GR --> I["gantry:implement → owns the gate"]
-    I --> RV["gantry:review → fix or hand over"]
+    I --> RV["gantry:review → report, fix with --fix, hand over"]
   end
   W["gantry:worktree — branch, worktree, parent fetch"] --> P
   H["gantry:handover → handover.md"]
-  S["gantry:ship — commit, review, push, PR"]
+  S["gantry:ship — commit, push, PR"]
   A --> W
   U --> W
   You["you, typing them"] --> W

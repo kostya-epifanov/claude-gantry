@@ -164,7 +164,9 @@ than the ship invocation:
 - `README.md` — the `/gantry:ship` table row, and the `/gantry:review` row, which promises "fix
   what's in scope, hand over what isn't" as unconditional. **Leave the mermaid `if /code-review is
   absent` edge alone**: it runs from `/gantry:review` to `gantry-reviewer` and describes review's
-  own fallback, which survives this change. Ship was never drawn as reviewing.
+  own fallback, which survives this change. The ship **node** is a separate matter and does go
+  stale — it is labelled "commit, review, push, PR" and must lose the review. Both mermaid blocks
+  carry such a node; so does `docs/ARCHITECTURE.md`.
 - `docs/SKILLS.md` — **both** reference blocks. The ship block (argument line, the
   `--fix`-between-commit-and-push paragraph, the gate-recheck note) *and* the review block, whose
   argument line shows no flags, describes fixing and gate re-running as unconditional, and lists
@@ -265,7 +267,7 @@ fixing, 4 noted. What changed:
   without them `--review` degrades to self-review. → New AC and a step 2 paragraph.
 - **The `allowed-tools` rationale would have been deleted with stage 3** (worth fixing). → Step 1
   now explicitly preserves and relocates it.
-- **The README edit was wrong** (worth fixing). The `if /code-review is absent` edge belongs to
+- **The README edit was half wrong** (worth fixing). The `if /code-review is absent` edge belongs to
   `/gantry:review`, not ship; deleting it would have removed correct documentation. The
   `/gantry:review` table row, which the plan had not listed, is the thing that goes stale. → Step 5
   corrected in both directions.

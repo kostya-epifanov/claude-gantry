@@ -60,11 +60,13 @@ absent artifact is a normal state rather than an error — which is exactly why 
 conditioned on the mode. Typed by hand, an open fork is a warning; dispatched by a driver, it is a
 decision nobody would be present to make.
 
-`ship` re-checks the gate in **one** case: a `--review-fix` it was asked for changed the tree. Fixes made after the gate went green are unproven code, so a red result
-there stops the push. Ship runs no gate otherwise — it commits, pushes, and opens the PR from
-wherever the branch is. What stops a red tree reaching a PR is still `implement` (and, where the
-repo has registered it, the readiness hook); ship's re-run covers only the edits ship itself
-caused.
+`ship` runs **no gate of its own** — it commits, pushes, and opens the PR from wherever the branch
+is. The gate is re-checked in exactly one case, and by `review` rather than by ship: a
+`--review-fix` ship was asked for makes edits, and `gantry:review` re-runs `lib/run_gates.sh` over
+them before returning. Fixes made after the gate went green are unproven code, so ship reads that
+exit code out of review's report and a red result stops the push. What stops a red tree reaching a
+PR is still `implement` (and, where the repo has registered it, the readiness hook); the re-run
+covers only the edits the review itself caused.
 
 ## `/gantry:plan` — the contract and the plan
 
@@ -211,7 +213,7 @@ ran, the gate's exit code on every run, and whether the hook's firing conditions
 
 # Maintenance
 
-## `/gantry:ship` — commit, review, push, PR
+## `/gantry:ship` — commit, push, PR
 
 `/gantry:ship [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--base <branch>]`
 

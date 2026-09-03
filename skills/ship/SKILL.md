@@ -67,9 +67,13 @@ and a final `STAGE:` — the entry point. Route on `STAGE`:
 - `no-diff` → clean and pushed but no commits over `BASE` — there's nothing to open a PR for. Report
   and stop.
 - `commit` → go to stage 2, then flow on through push and PR.
-- `push` → skip to stage 3.
-- `pr` → skip to stage 4. The branch is already pushed; the PR has not been opened.
+- `push` → skip to stage 3 — **through** the review section below, if a review flag was given.
+- `pr` → skip to stage 4. The branch is already pushed; the PR has not been opened. A review flag
+  still runs first — see *Review, only when you asked for it*, which says what `pr` does.
 - `done` → skip to stage 5. The PR already exists.
+
+A review flag is the one thing these skips must not jump over: the section that describes it sits
+between stages 2 and 3, and it carries its own entry-point table for exactly this reason.
 
 Completing one stage lands you at the top of the next, so once you enter at the routed stage,
 continue straight down without re-detecting — **with one exception: a review flag can create a
@@ -126,20 +130,30 @@ explicitly requested review must never silently not happen:
   has already been published as though it could still change the outcome here.
 - `no-diff` / the other guards → the run stops before this section is reached.
 
-**Re-detect afterwards — after either flag, not just `--review-fix`.** Both can move the tree:
-`--review-fix` through the fixes it applies, and `--review` through `handover.md`, which a
-read-only review still writes when it defers something. Everything downstream branches on `AHEAD`
-and `DIRTY`, so a read taken before the review would push the wrong thing, or nothing at all.
-
-```bash
-bash "$GANTRY/skills/ship/scripts/detect_state.sh"     # again, after the review
-```
+**The gate belongs to the review, and a red one stops the ship.** `gantry:review --fix` re-runs
+`lib/run_gates.sh` over its own fixes before it returns — ship runs no gate of its own, so read
+the exit code out of review's report and treat a non-zero one as terminal: **no push, no PR**.
+A fix made after the gate went green is unproven code, and `--review-fix` is the only path on
+which ship could carry unproven code to a remote. Report the exit code and what failed.
 
 If the review changed files, commit them on their own — separately from stage 2's commit, so the
-review's edits stay legible as review edits rather than folded into the change being reviewed:
+review's edits stay legible as review edits rather than folded into the change being reviewed.
+Name the commit for what it actually holds: `--review-fix` produces applied findings, while a bare
+`--review` produces only `handover.md`.
 
 ```bash
-git add -A && git commit -m "Apply review findings"
+git add -A && git commit -m "Apply review findings"            # --review-fix
+git add -A && git commit -m "Record deferred review findings"  # --review, handover.md only
+```
+
+**Then re-detect — after either flag, not just `--review-fix`, and after that commit rather than
+before it.** Both flags can move the tree: `--review-fix` through the fixes it applies, and
+`--review` through `handover.md`, which a read-only review still writes when it defers something.
+Everything downstream branches on `AHEAD` and `DIRTY`, so a read taken before the review — or
+taken before the commit the review caused — would push the wrong thing, or nothing at all.
+
+```bash
+bash "$GANTRY/skills/ship/scripts/detect_state.sh"     # again, after the review and its commit
 ```
 
 **A review you asked for can stop the ship.** If `gantry:review` reports the change unsafe to ship
@@ -331,8 +345,8 @@ commit subject, the PR URL, **whether the PR is a draft or ready for review**, a
 status.
 
 **Whether a review ran, and it only ran if you asked.** Say which flag was given, at which tier, and
-whether it was `--review` or `--review-fix`; how many files the fixes touched, if any; and the gate's
-exit code if the fixes made one necessary. If no flag was given, say the run was not reviewed —
+whether it was `--review` or `--review-fix`; how many files the fixes touched, if any; and the gate
+exit code `gantry:review` reported over those fixes. If no flag was given, say the run was not reviewed —
 plainly, as a fact about this run rather than an omission. If `gantry:review` rejected the tier, say
 that the commit stands and nothing was pushed. If it blocked the ship, lead with that.
 
