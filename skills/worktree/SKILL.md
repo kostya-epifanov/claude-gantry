@@ -122,14 +122,20 @@ This step only *decides*; nothing is created until step 8, so that step 7's excl
   command. Report the SHA it landed on, and state plainly that step 5's base was **not** used.
 - **Neither** → the normal path; continue to step 8 as written.
 
-### 7. Ensure `.claude/worktrees/` is excluded
+### 7. Ensure the run's own files are excluded
 
 `$GANTRY` is this skill's plugin root — resolve it from this file's own location rather than
 hardcoding a path.
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" '**/.claude/worktrees/'
+bash "$GANTRY/lib/ensure_excluded.sh" '**/.claude/worktrees/' /task.md /plan.md /handover.md
 ```
+
+The worktrees directory, plus the three artifacts the chain writes at the worktree root, which are
+never committed (`docs/ARCHITECTURE.md` § *The artifact contract*). `gantry:plan` asserts the same
+three before it writes the first one — this call is the earlier of the two, so a lane is clean from
+the moment it is cut, and asserting twice is free because the script is idempotent. The leading `/`
+anchors each to the worktree root, leaving a project's own nested `task.md` alone.
 
 Not `check-ignore -q … || echo … >>`. That file is shared by every linked worktree — git maps
 `info/` into the common git dir — so the read and the write of two lanes creating worktrees at the

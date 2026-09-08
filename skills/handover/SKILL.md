@@ -1,6 +1,6 @@
 ---
 name: handover
-description: Write handover.md at the worktree root — the findings this change deliberately did not address, why each is out of scope, what was already tried, and the exact next action. Committed with the branch so it reaches the reviewer. Use when the user types "/gantry:handover", or says work is too big, out of scope, or should be handed off.
+description: Write handover.md at the worktree root — the findings this change deliberately did not address, why each is out of scope, what was already tried, and the exact next action. Not committed; gantry:ship quotes it into the pull request body so it reaches the reviewer. Use when the user types "/gantry:handover", or says work is too big, out of scope, or should be handed off.
 argument-hint: [what is being handed over]
 allowed-tools: Bash, Read, Write, Edit
 ---
@@ -8,8 +8,10 @@ allowed-tools: Bash, Read, Write, Edit
 # gantry:handover
 
 Write down the work this change is **not** doing, so that deciding not to do it is a recorded
-decision rather than an omission. The file lands at the worktree root as `handover.md`, is
-committed with the branch, and therefore arrives in front of whoever reviews the pull request.
+decision rather than an omission. The file lands at the worktree root as `handover.md` and is
+**not committed** — it is working state, not the change (`docs/ARCHITECTURE.md` § *The artifact
+contract*). It reaches whoever reviews the pull request because `gantry:ship` quotes it into the PR
+body; the file itself stays in the worktree.
 
 Called by `/gantry:review` for anything it deferred, and useful typed on its own the moment a task
 turns out to be bigger than its contract.

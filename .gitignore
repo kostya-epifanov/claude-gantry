@@ -22,3 +22,12 @@ settings.local.json
 .claude/artifacts/
 .claude/worktrees/
 journal.jsonl
+
+# gantry's own run artifacts. The chain writes these at the worktree root and
+# they are deliberately NOT committed — see docs/ARCHITECTURE.md § "The artifact
+# contract". Anchored so a project's own nested task.md is untouched.
+# In a target repo the drivers assert the same patterns in .git/info/exclude via
+# lib/ensure_excluded.sh, which needs no edit to a tracked file.
+/task.md
+/plan.md
+/handover.md

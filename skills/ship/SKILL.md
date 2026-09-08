@@ -194,9 +194,10 @@ If the push is rejected because the remote moved, stop and report it — let the
 
 Skip this stage entirely if `--no-pr` was given — the push was the finish line. Go straight to the
 **Report** (not stage 5, which reads a PR that doesn't exist) and note the PR was intentionally not
-opened. **Run the two disclosure checks below anyway** and put their answers in the report; the
-push already happened, so skipping them would mean shipping the plugin's own change, or a task with
-unproven acceptance criteria, with nothing anywhere saying so.
+opened. **Run the contract step and both disclosure checks below anyway** and put their answers in
+the report; the push already happened, so skipping them would mean shipping the plugin's own
+change, or a task with unproven acceptance criteria, or a branch whose contract now lives only in
+an uncommitted file, with nothing anywhere saying so.
 
 Otherwise, only when `BASE` differs from `BRANCH` and there are commits over `BASE` (the detector's
 `no-diff` guard already caught the empty case). If `GH` was `missing` or `unauth`, the commit and push still
@@ -206,8 +207,39 @@ Compose from the branch's commits rather than a bare `--fill`. Title = the chang
 body = a short what/why, bulleting the commits when there are several.
 
 For an unattended run the body is the **entire** interface to the reviewer — nobody watched the
-run and nobody will re-derive it — so the two checks below run before the body is composed, and the
+run and nobody will re-derive it — so the checks below run before the body is composed, and the
 re-read runs after it.
+
+#### The contract, which the diff does not carry
+
+`task.md`, `plan.md` and `handover.md` are **not committed** (`docs/ARCHITECTURE.md` § *The
+artifact contract*), so unlike in 0.4.x they are not in the diff and a reviewer cannot open them
+from the pull request. **The body is now the only channel they have**, which makes this step
+load-bearing rather than a nicety: skip it and the reviewer gets a diff with no statement of what
+it was meant to do.
+
+Read what exists at `ROOT` — the detector already reported which do:
+
+```bash
+bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: lines
+```
+
+- **`TASK:present`** → the body carries a `## What this change is for` heading, and under it
+  `task.md`'s **Goal** and **Acceptance criteria** — quoted, not re-summarised. A summary written
+  here is a second source of truth that can drift from the contract the work was actually done
+  against, which is the entire failure this heading exists to prevent. On `TASK:inherited` the file
+  is the *previous* task's contract: do **not** quote it, and say the branch shipped without one.
+- **`HANDOVER:present`** → a `## Deliberately not done` heading carrying `handover.md`'s items, one
+  line each with its reason. This is what `/gantry:review` deferred; a reviewer who cannot see it
+  re-reports every finding the run already triaged.
+- **`PLAN:present`** → not quoted. `plan.md` is how the work got done, not what it promised, and it
+  is usually long. Name it as available in the worktree and leave it there.
+- Any of them **absent** → say so in one line under the relevant heading rather than omitting the
+  heading. A branch shipped with no contract is a fact about the run, and a missing heading is
+  indistinguishable from nobody writing one.
+
+The `--no-pr` path has no body to put this in. Say the same thing in the report instead, under the
+rule that already governs that path's disclosures.
 
 #### What this run did not prove
 

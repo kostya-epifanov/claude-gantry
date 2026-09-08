@@ -151,8 +151,9 @@ given.
 Passing `--review` or `--review-fix` here would review the same diff a second time — and under
 `--review-fix`, reopen and apply findings `/gantry:review` deliberately deferred to `handover.md`.
 
-`task.md`, `plan.md`, and any `handover.md` are committed with the change; they are the record of
-what was decided and what was left.
+`task.md`, `plan.md` and any `handover.md` are **not** committed — they stay in the worktree, and
+ship quotes the contract and the handover into the PR body instead. They are still the record of
+what was decided and what was left; they just are not part of the diff.
 
 `gantry:auto` opens a **ready-for-review** PR. You were in the room for the review, so it does not
 need to arrive as a draft.

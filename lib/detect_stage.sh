@@ -323,11 +323,23 @@ human_only_state() {
 }
 
 # --- the inherited contract -------------------------------------------------
-# gantry commits task.md and plan.md with every pull request, so they sit in the
-# tree on the base branch. A worktree freshly cut from it therefore already
-# contains the PREVIOUS, merged task's contract — and a detector that only knows
-# `present` tells the plan phase a task is under way, which routes it to revise
-# a finished, unrelated contract instead of starting cleanly.
+# TRANSITIONAL, as of 0.5.0. gantry no longer commits task.md or plan.md, so a
+# worktree cut from the base branch no longer inherits anything and this check
+# cannot fire in a repository that has only ever run 0.5.0 or later.
+#
+# It is kept, and must not be deleted as dead code, because it is the whole
+# migration path. A repository that ran gantry 0.4.x or earlier still carries a
+# merged task.md on its base branch, put there by a version that committed it,
+# and nothing in this release goes back and removes it — that is the user's
+# `git rm` to make. Until they do, every worktree they cut still inherits that
+# file, and deleting this check would hand the plan phase exactly the failure
+# below in exactly the repositories that used the old behaviour most.
+#
+# WHY IT WAS NEEDED. Committing task.md and plan.md with every pull request left
+# them in the tree on the base branch. A worktree freshly cut from it therefore
+# already contained the PREVIOUS, merged task's contract — and a detector that
+# only knows `present` tells the plan phase a task is under way, which routes it
+# to revise a finished, unrelated contract instead of starting cleanly.
 #
 # `inherited` is that state, and it is a fact this script establishes rather
 # than a judgement each run re-makes. ALL of the following must hold:

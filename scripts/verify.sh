@@ -125,8 +125,11 @@ head2 "the --reviewed flag is gone"
 # deprecated — which makes a stray reference a real defect: a driver passing a
 # flag ship no longer documents.
 #
-# Three files name it legitimately and are excluded. task.md and plan.md are this
-# task's own artifacts, which describe the removal and are committed with it.
+# Three files name it legitimately and are excluded. task.md and plan.md are the
+# run's own artifacts, which describe the removal; since 0.5.0 they are ignored
+# rather than committed, so repo_files no longer enumerates them at all and these
+# two pathspecs are belt-and-braces for a checkout where the exclusion has not
+# been asserted yet.
 # CHANGELOG.md documents `ship --reviewed` as a shipped 0.3.x feature; rewriting
 # a historical entry to satisfy a grep would falsify the release record, so the
 # file is excluded instead. Same pathspec idiom as the extraction check above.
@@ -138,6 +141,27 @@ head2 "the --reviewed flag is gone"
 out="$(repo_files -z -- ':!task.md' ':!plan.md' ':!CHANGELOG.md' ':!scripts/verify.sh' \
   | xargs -0 grep -InE -- '--reviewed' 2>/dev/null)"
 [ -z "$out" ] && ok "none" || { bad "--reviewed survives"; printf '%s\n' "$out"; }
+
+head2 "the run's own artifacts are not tracked"
+# Since 0.5.0 task.md, plan.md and handover.md are the chain's working state and
+# are never committed — see docs/ARCHITECTURE.md § "The artifact contract". This
+# repo is a target repo of itself, so the rule has to hold here first.
+#
+# Tracked is the thing to test, not ignored. A .gitignore entry does nothing to a
+# file git already tracks, which is exactly how these three sat in this repo's
+# root for four releases while .gitignore would have said otherwise. `git
+# ls-files --error-unmatch` answers the real question and needs no path to exist.
+#
+# Anchored to the root: a repo's own docs/task.md or a fixture under tests/ is
+# somebody else's file and none of this check's business.
+tracked_artifacts=''
+for a in task.md plan.md handover.md; do
+  if git ls-files --error-unmatch "$a" >/dev/null 2>&1; then
+    tracked_artifacts="$tracked_artifacts $a"
+  fi
+done
+[ -z "$tracked_artifacts" ] && ok "none tracked" \
+  || bad "committed at the repo root:$tracked_artifacts — remove them from the index"
 
 head2 "relative links resolve"
 # NB: `grep` exiting 1 on "no matches" is normal here, and under `set -o pipefail`

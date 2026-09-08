@@ -79,9 +79,10 @@ touches. May dispatch the explorer for that study when the surface is unfamiliar
 when it isn't, and says which it did.
 
 - **Refuses:** to clobber a `task.md` or `plan.md` that is in flight — it offers to revise instead.
-  An **inherited** contract is not that case: `task.md` travels with every PR, so a freshly
-  branched worktree holds the last merged one, and the detector says so rather than guessing.
-  There, the skill starts clean without asking.
+  An **inherited** contract is not that case: in a repo that ran 0.4.x or earlier, `task.md` was
+  committed with every PR, so a freshly branched worktree holds the last merged one, and the
+  detector says so rather than guessing. There, the skill starts clean without asking. Since 0.5.0
+  nothing is committed, so this state only arises mid-migration.
 - **Warns:** when you are on the repo's default branch. Writing a plan there harms nothing.
 - **Invokes:** the explorer, conditionally.
 - **Templates:** the repo's `docs/templates/task.md` if it has one, else `templates/task.md`.

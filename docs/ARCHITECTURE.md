@@ -160,16 +160,36 @@ branch twice.
 
 ## The artifact contract
 
-Every mode writes artifacts at the **worktree root** — not just the delegated one, as in v0.1. Who
-owns each, and whether it is committed, is the whole protocol:
+Every mode writes artifacts at the **worktree root** — not just the delegated one, as in v0.1.
+**None of them are committed.** Who owns each, and how it reaches a reader, is the whole protocol:
 
-| Artifact | Written by | Committed | Why |
+| Artifact | Written by | Committed | How a reader gets it |
 |---|---|---|---|
-| `task.md` | `gantry:plan` (Affected areas pasted from the explorer) | **yes** | it is the contract a reviewer reads the PR against |
-| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | **yes** | the thing a human skims before implementation starts |
-| `handover.md` | `gantry:handover`, when review defers something | **yes** | what this change deliberately left, and the next action |
-| `journal.jsonl` | `gantry:auto-unattended`, append-only | no — `.git/info/exclude` | a run artifact, not a deliverable |
+| `task.md` | `gantry:plan` (Affected areas pasted from the explorer) | no — `.git/info/exclude` | `gantry:ship` quotes the contract into the PR body |
+| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | no — same exclusion | the human who approves it reads it in the worktree |
+| `handover.md` | `gantry:handover`, when review defers something | no — same exclusion | `gantry:ship` quotes it into the PR body |
+| `journal.jsonl` | `gantry:auto-unattended`, append-only | no — same exclusion | a run artifact, not a deliverable |
 | gate logs | the gate script | no — same exclusion | evidence, kept out of the diff |
+
+**Why none of them are committed.** They are the chain's working state, not the change. Committing
+them put a file at the repo root of every target repo that nothing ever deleted, so each merged PR
+left the *previous* task's contract sitting in the base branch — which is what `TASK:inherited`
+below exists to detect, a mechanism whose whole cost was paid to undo a decision made here. Two
+lanes running at once collided on paths that had nothing to do with either change, and gantry's own
+repository published three of its dogfooding artifacts to everyone who installed the plugin.
+
+The exclusion goes in **`.git/info/exclude`**, never `.gitignore`: the latter is tracked, so
+writing to it would itself be a diff in the user's pull request. `lib/ensure_excluded.sh` asserts
+the patterns — `/task.md`, `/plan.md`, `/handover.md`, each anchored so a project's own nested
+`task.md` is untouched — and is idempotent, so every phase that writes one may assert them first.
+gantry's own repository additionally lists them in its `.gitignore`, because there it is the target
+repo and a fresh clone should be safe before any gantry command has run.
+
+**What a reviewer loses, and where it went.** The contract used to reach the reviewer by riding
+along in the diff. It now reaches them through the pull request body, which `gantry:ship` composes
+— see *Stage 4* in `skills/ship/SKILL.md`. That is a strictly better channel for it: the body is
+read, the root-level file was scrolled past, and an unattended run already treated the body as the
+entire interface to the reviewer.
 
 These files are also the chain's memory. `task.md`'s `status:` is the phase marker, and
 `lib/detect_stage.sh` is the single reader of it — so a fresh session, a sub-agent, and a
