@@ -16,6 +16,25 @@ jobs:
       - name: Run the verification suite
         run: bash scripts/verify.sh
 
+  # The body is the reviewer's interface to the change, and GitHub renders it in
+  # comment mode — a single newline inside a paragraph becomes a <br>. Every
+  # markdown file in this repository is hard-wrapped at 100 columns, so a body
+  # written in the same habit arrives as a ragged column. Nine of the first
+  # sixteen pull requests here shipped that way before anybody noticed.
+  #
+  # It runs only on a pull request, because that is the only event that carries
+  # a body. `env:` rather than interpolation: a body is attacker-controlled text
+  # and must never be pasted into a shell script.
+  pr-body-renders-as-prose:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the pull request body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "$PR_BODY" | bash scripts/check_pr_body.sh -
+
   # A release and its manifest must not be able to disagree. The tag is what
   # people install; plugin.json's version is what the plugin reports about
   # itself, and a mismatch between them is invisible until someone is debugging

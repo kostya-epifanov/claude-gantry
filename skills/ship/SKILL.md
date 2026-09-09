@@ -209,6 +209,23 @@ happened — report that, print the manual `gh pr create` command, and stop.
 Compose from the branch's commits rather than a bare `--fill`. Title = the change in one line;
 body = a short what/why, bulleting the commits when there are several.
 
+**Do not hard-wrap the body.** GitHub renders a pull request body in *comment* mode, where a single
+newline inside a paragraph becomes a `<br>` — so a body wrapped at a column, the way this and most
+repositories wrap their markdown files, arrives as a ragged column broken mid-sentence. Write each
+paragraph, each list item and each table row on **one line** however long it runs, and let the
+browser wrap it. Blank lines still separate blocks, and fenced code is still line-for-line.
+
+This is the opposite of the rule for the **commit message** in stage 2, and deliberately so: a
+commit message is read in a terminal that does not wrap it for you, so it stays wrapped. Two
+renderers, two rules, and the body is the one the reviewer reads.
+
+`scripts/check_pr_body.sh` decides this rather than judgement — pipe the composed body through it
+before `gh pr create`, and fix what it names:
+
+```bash
+printf '%s' "<body>" | bash "$GANTRY/scripts/check_pr_body.sh" -
+```
+
 For an unattended run the body is the **entire** interface to the reviewer — nobody watched the
 run and nobody will re-derive it — so the checks below run before the body is composed, and the
 re-read runs after it.
