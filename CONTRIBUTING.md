@@ -97,6 +97,12 @@ toolchain writes and what `.github/workflows/validate.yml` checks, and `claude p
 both halves from `plugin.json` rather than from what you typed — which is the point. Cutting one by
 hand reintroduces exactly the drift the check exists to catch.
 
+The README's version badge reads `plugin.json` on `master` directly, rather than the latest
+release. It therefore turns over on the merge that bumps the version, not on the tag — and it
+cannot show a number the plugin does not report about itself. `tag-matches-manifest` is what keeps
+the tag honest to that same number, so the badge and the release cannot drift apart without the
+release failing first.
+
 Pushing the tag runs `tag-matches-manifest`, which fails the release if the tag and the manifest
 disagree about either the plugin's name or its version. Then publish a GitHub release against the
 tag whose body is that version's `CHANGELOG.md` section, so a breaking change and its upgrade step

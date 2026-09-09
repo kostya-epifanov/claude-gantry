@@ -1,5 +1,7 @@
 # gantry
 
+[![version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fkostya-epifanov%2Fclaude-gantry%2Fmaster%2F.claude-plugin%2Fplugin.json&query=%24.version&label=version&color=blue)](https://github.com/kostya-epifanov/claude-gantry/releases)
+
 **A worktree-to-PR workflow for Claude Code.** Twelve skills that take a task from a fresh branch
 through planning, a critique of that plan, implementation, an unskippable gate, review, and a pull
 request.
