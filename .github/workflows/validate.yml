@@ -3,7 +3,7 @@ name: validate
 on:
   push:
     branches: [master]
-    tags: ['v*']
+    tags: ['*--v*']
   pull_request:
 
 jobs:
@@ -20,17 +20,30 @@ jobs:
   # people install; plugin.json's version is what the plugin reports about
   # itself, and a mismatch between them is invisible until someone is debugging
   # the wrong version.
+  #
+  # The tag is `gantry--v0.5.0`, not `v0.5.0`: that is the shape `claude plugin
+  # tag` writes, and it is the only shape worth checking, because a release cut
+  # any other way is a release cut by hand. The `{plugin}--v{version}` prefix is
+  # what lets one repository carry more than one plugin without its tags
+  # colliding — this one carries a single plugin, but the format is the
+  # toolchain's, not ours to redefine.
   tag-matches-manifest:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/') && contains(github.ref, '--v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Compare the tag against plugin.json
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          name="${GITHUB_REF_NAME%%--v*}"
+          tag="${GITHUB_REF_NAME##*--v}"
           manifest="$(jq -r '.version' .claude-plugin/plugin.json)"
-          echo "tag=$tag manifest=$manifest"
+          declared="$(jq -r '.name' .claude-plugin/plugin.json)"
+          echo "tag=$name $tag manifest=$declared $manifest"
+          if [ "$name" != "$declared" ]; then
+            echo "::error::tag names plugin $name, plugin.json declares $declared"
+            exit 1
+          fi
           if [ "$tag" != "$manifest" ]; then
-            echo "::error::tag v$tag does not match plugin.json version $manifest"
+            echo "::error::tag $GITHUB_REF_NAME does not match plugin.json version $manifest"
             exit 1
           fi
