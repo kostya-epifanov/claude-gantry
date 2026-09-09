@@ -74,3 +74,30 @@ bash tests/run.sh hook_           # just the cases whose name matches
 Each case is standalone — `bash tests/cases/<name>.sh` runs one on its own. A change to
 `lib/run_gates.sh` or `hooks/readiness-gate.sh` should arrive with a case, and the honest check on a
 new one is that it fails before your fix and passes after.
+
+## Cutting a release
+
+A release is a git tag. There is no build step and nothing is uploaded — `/plugin marketplace add`
+reads `.claude-plugin/marketplace.json` out of the repository, so the tag is the whole artifact.
+
+Three things must agree, and the order below is what keeps them agreeing:
+
+1. **`.claude-plugin/plugin.json`'s `version`**, bumped in the pull request that earns the bump.
+2. **`CHANGELOG.md`**, with a section under that same number. Write it in the same commit — a
+   version bumped without one is a release nobody can read.
+3. **The tag**, cut from `master` only after both have merged.
+
+```bash
+claude plugin tag --dry-run .     # prints the tag it would create; check it first
+claude plugin tag --push .        # creates it and pushes it to origin
+```
+
+The tag is `gantry--v0.5.0`, **not** `v0.5.0`. That `{plugin}--v{version}` shape is what the
+toolchain writes and what `.github/workflows/validate.yml` checks, and `claude plugin tag` derives
+both halves from `plugin.json` rather than from what you typed — which is the point. Cutting one by
+hand reintroduces exactly the drift the check exists to catch.
+
+Pushing the tag runs `tag-matches-manifest`, which fails the release if the tag and the manifest
+disagree about either the plugin's name or its version. Then publish a GitHub release against the
+tag whose body is that version's `CHANGELOG.md` section, so a breaking change and its upgrade step
+are visible to somebody deciding whether to install.
