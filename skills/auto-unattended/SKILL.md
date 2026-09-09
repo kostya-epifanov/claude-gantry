@@ -112,9 +112,9 @@ Set `task.md`'s `mode:` to `unattended` — that is how `implement` and `review`
 `--strict` without being told. **Never clobber a task that is in flight**: under `--here`,
 `TASK:present` means stop and report, not overwrite.
 
-`TASK:inherited` is not that case and must not be treated as it. `task.md` is committed with every
-pull request, so a branch cut from the base branch is born holding the last merged contract —
-which is the normal state of a worktree this skill just created, not a task someone is working on.
+`TASK:inherited` is not that case and must not be treated as it. In a repo that ran 0.4.x or
+earlier `task.md` was committed with every pull request, so a branch cut from the base branch is
+born holding the last merged contract — not a task someone is working on.
 The detector distinguishes the two rather than leaving it to judgement, and `gantry:plan` routes
 `inherited` to a clean start. Read the value and let it decide; a blanket "never overwrite" here
 would stop every run on its own worktree.
@@ -246,8 +246,9 @@ Passing `--review` or `--review-fix` here would review the same diff a second ti
 `--review-fix`, reopen and apply findings `/gantry:review` deliberately deferred to
 `handover.md`.
 
-`task.md`, `plan.md`, and any `handover.md` are committed with the change. `journal.jsonl` and the
-gate logs stay excluded.
+`task.md`, `plan.md` and any `handover.md` are **not** committed — they are excluded alongside
+`journal.jsonl` and the gate logs. Ship quotes the contract and the handover into the PR body,
+which for an unattended run is the reviewer's only interface to either.
 
 The PR is a **draft**, always. Journal the final `stage` event once ship returns:
 

@@ -76,7 +76,7 @@ A review flag is the one thing these skips must not jump over: the section that 
 between stages 2 and 3, and it carries its own entry-point table for exactly this reason.
 
 Completing one stage lands you at the top of the next, so once you enter at the routed stage,
-continue straight down without re-detecting — **with one exception: a review flag can create a
+continue straight down without re-detecting — **with one exception: `--review-fix` can create a
 commit, and if it does, you must re-run the script before continuing.** That exception belongs to
 the review section below, which says when it applies.
 
@@ -145,22 +145,25 @@ the one path that can push code no check has seen.
 
 If the review changed files, commit them on their own — separately from stage 2's commit, so the
 review's edits stay legible as review edits rather than folded into the change being reviewed.
-Name the commit for what it actually holds: `--review-fix` produces applied findings, while a bare
-`--review` produces only `handover.md`.
+That is `--review-fix`, and only it:
 
 ```bash
 git add -A && git commit -m "Apply review findings"            # --review-fix
-git add -A && git commit -m "Record deferred review findings"  # --review, handover.md only
 ```
 
-**Then re-detect — after either flag, not just `--review-fix`, and after that commit rather than
-before it.** Both flags can move the tree: `--review-fix` through the fixes it applies, and
-`--review` through `handover.md`, which a read-only review still writes when it defers something.
-Everything downstream branches on `AHEAD` and `DIRTY`, so a read taken before the review — or
-taken before the commit the review caused — would push the wrong thing, or nothing at all.
+**A bare `--review` has nothing to commit.** The only files a read-only review writes are
+`handover.md` and `task.md`'s status, and since 0.5.0 both are excluded (`docs/ARCHITECTURE.md`
+§ *The artifact contract*) — so `git add -A` would stage nothing and the commit would fail on an
+empty index. Do not run one. What it deferred still reaches the reviewer, through stage 4's body
+rather than through the diff.
+
+**Then re-detect — after `--review-fix`, and after the commit it caused rather than before it.**
+Everything downstream branches on `AHEAD` and `DIRTY`, so a read taken before the fixes, or before
+the commit they caused, would push the wrong thing, or nothing at all. After a bare `--review` the
+tree is where stage 2 left it and the original read still holds.
 
 ```bash
-bash "$GANTRY/skills/ship/scripts/detect_state.sh"     # again, after the review and its commit
+bash "$GANTRY/skills/ship/scripts/detect_state.sh"     # again, after --review-fix and its commit
 ```
 
 **A review you asked for can stop the ship.** If `gantry:review` reports the change unsafe to ship
@@ -194,9 +197,10 @@ If the push is rejected because the remote moved, stop and report it — let the
 
 Skip this stage entirely if `--no-pr` was given — the push was the finish line. Go straight to the
 **Report** (not stage 5, which reads a PR that doesn't exist) and note the PR was intentionally not
-opened. **Run the two disclosure checks below anyway** and put their answers in the report; the
-push already happened, so skipping them would mean shipping the plugin's own change, or a task with
-unproven acceptance criteria, with nothing anywhere saying so.
+opened. **Run the contract step and both disclosure checks below anyway** and put their answers in
+the report; the push already happened, so skipping them would mean shipping the plugin's own
+change, or a task with unproven acceptance criteria, or a branch whose contract now lives only in
+an uncommitted file, with nothing anywhere saying so.
 
 Otherwise, only when `BASE` differs from `BRANCH` and there are commits over `BASE` (the detector's
 `no-diff` guard already caught the empty case). If `GH` was `missing` or `unauth`, the commit and push still
@@ -206,8 +210,39 @@ Compose from the branch's commits rather than a bare `--fill`. Title = the chang
 body = a short what/why, bulleting the commits when there are several.
 
 For an unattended run the body is the **entire** interface to the reviewer — nobody watched the
-run and nobody will re-derive it — so the two checks below run before the body is composed, and the
+run and nobody will re-derive it — so the checks below run before the body is composed, and the
 re-read runs after it.
+
+#### The contract, which the diff does not carry
+
+`task.md`, `plan.md` and `handover.md` are **not committed** (`docs/ARCHITECTURE.md` § *The
+artifact contract*), so unlike in 0.4.x they are not in the diff and a reviewer cannot open them
+from the pull request. **The body is now the only channel they have**, which makes this step
+load-bearing rather than a nicety: skip it and the reviewer gets a diff with no statement of what
+it was meant to do.
+
+Read what exists at `ROOT` — the detector already reported which do:
+
+```bash
+bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: lines
+```
+
+- **`TASK:present`** → the body carries a `## What this change is for` heading, and under it
+  `task.md`'s **Goal** and **Acceptance criteria** — quoted, not re-summarised. A summary written
+  here is a second source of truth that can drift from the contract the work was actually done
+  against, which is the entire failure this heading exists to prevent. On `TASK:inherited` the file
+  is the *previous* task's contract: do **not** quote it, and say the branch shipped without one.
+- **`HANDOVER:present`** → a `## Deliberately not done` heading carrying `handover.md`'s items, one
+  line each with its reason. This is what `/gantry:review` deferred; a reviewer who cannot see it
+  re-reports every finding the run already triaged.
+- **`PLAN:present`** → not quoted. `plan.md` is how the work got done, not what it promised, and it
+  is usually long. Name it as available in the worktree and leave it there.
+- Any of them **absent** → say so in one line under the relevant heading rather than omitting the
+  heading. A branch shipped with no contract is a fact about the run, and a missing heading is
+  indistinguishable from nobody writing one.
+
+The `--no-pr` path has no body to put this in. Say the same thing in the report instead, under the
+rule that already governs that path's disclosures.
 
 #### What this run did not prove
 

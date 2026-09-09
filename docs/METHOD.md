@@ -268,8 +268,10 @@ pipeline did. Not because on-disk state is elegant, but because:
 - **A contract written before the code is read cannot be quietly redefined by the plan.** `task.md`'s
   goal, acceptance criteria and how-to-verify are filled in *first*, from the task description, and
   the rest of the run is judged against them.
-- **A reviewer needs the contract, not just the diff.** `task.md` and `plan.md` are committed, so
-  the PR carries the thing it should be reviewed against.
+- **A reviewer needs the contract, not just the diff.** `task.md` is quoted into the pull request
+  body by `gantry:ship`, so the PR carries the thing it should be reviewed against. The files
+  themselves are not committed — they are the run's working state, and a deliverable that nothing
+  ever deletes accumulates in the base branch of every repo the chain touches.
 - **A run survives a restart.** Context is lost constantly — compaction, a crash, a new session.
   Anything that only existed in the conversation is gone; anything on disk is not.
 

@@ -9,7 +9,9 @@ allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Agent, AskUserQuestion
 
 Turn a task description into two files at the worktree root: **`task.md`**, the contract — what
 this is, when it is done, and what it deliberately is not — and **`plan.md`**, the ordered steps
-to get there. Both are committed with the branch, so they travel with the pull request.
+to get there. Neither is committed — they are the run's working state, not the change. What the
+reviewer needs from `task.md` reaches the pull request because `gantry:ship` quotes it into the
+body; step 2 below is what keeps both files out of git in the first place.
 
 Write the task's **intent** — what this is, when it is done, how it will be checked — before
 reading much code, and all of it before writing any. A plan produced after the fact is a
@@ -61,10 +63,13 @@ It prints `ROOT`, `BRANCH`, `TASK`/`PLAN`/`HANDOVER` presence, `STATUS`, `GATES`
 
 - `PHASE:not-a-repo` → stop; there is nowhere to write the artifacts.
 - **`TASK:absent`** → the normal path. Continue to step 2.
-- **`TASK:inherited`** → the file on disk is the **previous** task's contract. gantry commits
-  `task.md` with every pull request, so a branch cut from the base branch is born holding the
-  last merged one — nothing is under way here. **This is a clean start:** write both files
-  fresh, do not ask, and do not revise. Continue to step 2.
+- **`TASK:inherited`** → the file on disk is the **previous** task's contract. gantry no longer
+  commits `task.md`, so this can only appear in a repository that ran 0.4.x or earlier and still
+  carries a merged `task.md` on its base branch — a branch cut from it is born holding the last
+  merged one, and nothing is under way here. **This is a clean start:** write both files fresh, do
+  not ask, and do not revise. Continue to step 2. Mention in the report that the base branch still
+  carries a committed `task.md` from an older gantry, and that `git rm task.md plan.md` on the base
+  retires this state for good.
 
   Overwriting a contract is normally the one thing this step forbids, so it is worth saying what
   makes this safe: the detector *establishes* the value rather than guessing it — `task.md` must be
@@ -87,7 +92,27 @@ mainline harms nothing.
 
 ### 2. Write `task.md`
 
-Start from the template, in this order:
+**First, keep it out of git.** `task.md`, `plan.md` and `handover.md` are the chain's working
+state, not the change, and they are never committed — see `docs/ARCHITECTURE.md` § *The artifact
+contract*. Assert that before writing the first one, so the file is excluded from the moment it
+exists rather than after `ship` has already had a chance to sweep it in with `git add -A`:
+
+```bash
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md
+```
+
+The leading `/` anchors each pattern to the worktree root, so a repo with its own `docs/task.md` or
+`specs/plan.md` is untouched. It writes to `.git/info/exclude`, which is untracked — **never**
+`.gitignore`, which would put an edit to a tracked file in the user's pull request. The script is
+idempotent and race-safe, so running it on every plan costs nothing and two lanes doing it at once
+still leave one copy of each line.
+
+One thing it cannot do: a pattern does not untrack a file git already tracks. In a repository that
+ran 0.4.x these three may be **committed on the base branch**, in which case they will still show
+as modified rather than ignored. That is the `TASK:inherited` case above; say so, and leave the
+`git rm` to the user.
+
+Then start from the template, in this order:
 
 1. the target repo's own `docs/templates/task.md`, if it has one;
 2. otherwise `$GANTRY/skills/plan/templates/task.md`;

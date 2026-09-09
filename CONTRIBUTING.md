@@ -50,7 +50,9 @@ table in the same commit.
   surface, and it is what every session pays for.
 - **Document the limits.** Every honest caveat in these docs is load-bearing. If a check can
   false-green, say so where someone will read it.
-- **Commits:** concise imperative subject, no `Co-Authored-By` trailer, no time annotations.
+- **Commits:** concise imperative subject; a `Co-Authored-By` trailer when a model wrote the
+  change; no session or chat links, and no time annotations. A session link points at something
+  only its author can open, so it reads as provenance while providing none.
 
 ## Testing a change locally
 

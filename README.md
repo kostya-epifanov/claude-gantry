@@ -120,8 +120,10 @@ Full reference: [docs/SKILLS.md](docs/SKILLS.md). The argument behind the design
 
 ## The artifacts
 
-Three files land at the worktree root and are committed with the branch, so they arrive with the
-pull request:
+Three files land at the worktree root. They are **not committed** — they are the run's working
+state, not the change — so they stay out of your diff and out of your base branch. What a reviewer
+needs from them arrives another way: `/gantry:ship` quotes the contract and the handover into the
+pull request body.
 
 | File | Written by | Answers |
 |---|---|---|
@@ -132,6 +134,12 @@ pull request:
 They are also how the chain survives you leaving it. `task.md`'s `status:` is the phase marker, and
 every skill reads it from disk — so a fresh session, a sub-agent, and a resumed conversation all
 reach the same answer about where the work stands.
+
+The exclusion is asserted in `.git/info/exclude`, which is untracked, so gantry never edits a
+tracked file of yours to do it. The patterns are anchored (`/task.md`), so a `docs/task.md` of your
+own is left alone. **Upgrading from 0.4.x?** Your base branch may still carry a `task.md` and
+`plan.md` that an older gantry committed; remove them from the index once and the chain stops
+inheriting them.
 
 ## The gate
 

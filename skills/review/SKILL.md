@@ -157,9 +157,11 @@ same artifact this does.
 
 **This happens with or without `--fix`.** A deferral is a fact about the review, not an edit to the
 change, and the drivers journal `handover.md` as this phase's artifact. It is the one file a
-read-only run still writes, and the reason ship re-detects after a bare `--review`.
+read-only run still writes — and since 0.5.0 it is excluded rather than committed, so writing it
+moves nothing `gantry:ship` has to re-detect. It reaches the reviewer through the pull request
+body, which ship composes.
 
-Nothing deferred → no `handover.md`. An empty handover file is noise in the diff.
+Nothing deferred → no `handover.md`. An empty handover file is noise in that body.
 
 ### 7. Record the status
 

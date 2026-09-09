@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.5.0
+
+**The chain's own files stop landing in your repository.** `task.md`, `plan.md` and `handover.md`
+were written at the worktree root and committed with the branch, on the reasoning that a reviewer
+needs the contract and not just the diff. The reasoning was right and the mechanism was wrong. They
+are working state, not the change, and nothing ever deleted them — so every merged pull request
+left the previous task's contract sitting in the base branch, two lanes running at once collided on
+paths belonging to neither change, and gantry's own repository published three of its dogfooding
+artifacts to everyone who installed the plugin.
+
+**Breaking.** The three files are now excluded, in `.git/info/exclude` via `lib/ensure_excluded.sh`
+— never `.gitignore`, which is tracked and would put an edit to your file in your own pull request.
+Patterns are anchored (`/task.md`), so a `docs/task.md` or a `specs/plan.md` of yours is untouched.
+`gantry:worktree` asserts them when it cuts the lane and `gantry:plan` again before it writes the
+first one, so the file is excluded from the moment it exists rather than after `ship` has had a
+chance to sweep it in with `git add -A`.
+
+**What the reviewer gets instead.** `gantry:ship` now composes the contract into the pull request
+body: a `## What this change is for` heading quoting `task.md`'s Goal and Acceptance criteria, and
+a `## Deliberately not done` heading quoting `handover.md`'s items. `plan.md` is named but not
+quoted — it is how the work got done rather than what it promised, and it is usually long. The body
+is a better channel than the file ever was: it is read rather than scrolled past, and an unattended
+run already treated it as the reviewer's entire interface.
+
+**Upgrading.** Nothing happens to files git already tracks — an exclude pattern does not untrack
+anything. If you ran 0.4.x, your base branch still carries a merged `task.md` and `plan.md`; remove
+them from the index once and you are done. Until you do, `TASK:inherited` keeps working and
+`gantry:plan` still starts clean rather than revising a finished contract, so an un-migrated repo
+degrades to the old, correct behaviour instead of breaking. That detection is **kept deliberately**
+and is documented as transitional in `lib/detect_stage.sh`; it is not dead code to sweep up.
+
+**Added**
+- **`scripts/verify.sh` asserts the rule on gantry itself** — the repo is a target repo of its own
+  plugin, so `task.md`, `plan.md` and `handover.md` being tracked at its root is now a red gate. The
+  check tests *tracked*, not *ignored*: a `.gitignore` entry does nothing to a file git already
+  tracks, which is precisely how these three sat in this repo for four releases.
+
+**Changed**
+- `docs/ARCHITECTURE.md` § *The artifact contract* — the Committed column is now `no` for all
+  three, with the reasoning and the replacement channel.
+- `gantry:handover` no longer claims the file is committed with the branch.
+- `gantry:auto` and `gantry:auto-unattended` no longer claim the artifacts ship with the change.
+- `gantry:ship` no longer tells a bare `--review` to commit `handover.md`. With the file excluded
+  that `git add -A` stages nothing and the commit fails on an empty index, so the instruction is
+  gone and the re-detect it justified now belongs to `--review-fix` alone.
+
+**Removed**
+- The three files from this repository's index. They remain on disk, untracked, and in history.
+
 ## 0.4.1
 
 **Reviewing is now something you ask `ship` for.** `gantry:ship` ran `/code-review --fix` on its
