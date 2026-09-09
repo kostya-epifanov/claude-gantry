@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.1
+
+**Pull request bodies stop arriving as a ragged column.** GitHub renders a body in *comment* mode,
+where a single newline inside a paragraph becomes a `<br>`. Every markdown file in this repository
+is hard-wrapped at 100 columns, `gantry:ship` composed bodies in the same habit, and nothing said
+the two renderers disagree — so a body written as prose arrived broken mid-sentence. Nine of this
+repository's first sixteen pull requests shipped that way, 315 spurious breaks between them.
+
+`gantry:ship` now says to put each paragraph, list item and table row on one line and let the
+browser wrap it, and says plainly that this is the **opposite** of the rule for a commit message
+one stage earlier — a commit message is read in a terminal that does not wrap for you.
+
+**Added**
+- **`scripts/check_pr_body.sh`** — exit code `1` on a body that was hard-wrapped, naming each line.
+  A sentence in a `SKILL.md` is what already failed here, so the rule is a script: fenced code,
+  tables, headings, rules, raw HTML and one list item following another are exempt, because none of
+  them produce a `<br>`; a line ending in two spaces asked for its break. Blockquote markers are
+  stripped before any of that is decided, so a quoted list is judged as the list it is.
+- **A `pr-body-renders-as-prose` CI job**, on `pull_request` only — the only event carrying a body.
+  The body reaches the script through `env:` rather than interpolation, because it is
+  attacker-controlled text that must never be pasted into a shell script.
+- **`tests/cases/check_pr_body.sh`** — thirteen assertions, each shape confirmed against GitHub's
+  own renderer before it was written down. The checker was also run against all sixteen of this
+  repository's pull request bodies and agrees with that renderer on every one.
+
 ## 0.5.0
 
 **The chain's own files stop landing in your repository.** `task.md`, `plan.md` and `handover.md`

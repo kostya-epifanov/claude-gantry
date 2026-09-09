@@ -11,6 +11,12 @@ bash scripts/verify.sh
 That is lint, manifest validation, frontmatter validation, link checking, and the secret scan. CI
 runs the same script, so a green local run means a green CI run.
 
+CI runs one check `verify.sh` cannot: `scripts/check_pr_body.sh`, over the pull request body, which
+does not exist until you open one. **Do not hard-wrap that body.** GitHub renders it in comment
+mode, where a single newline inside a paragraph becomes a `<br>`, so the 100-column habit every
+`.md` file here follows renders as a ragged column. One line per paragraph, per list item and per
+table row.
+
 **The converse does not hold, and that is deliberate.** `verify.sh` enumerates tracked files *and*
 untracked ones that no ignore rule covers, because the files a gantry run writes — `task.md`,
 `plan.md`, a new `lib/*.sh` — are still untracked when the gate runs and tracked by the time CI sees
