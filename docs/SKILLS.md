@@ -219,7 +219,7 @@ ran, the gate's exit code on every run, and whether the hook's firing conditions
 `/gantry:ship [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--base <branch>]`
 
 An idempotent stage machine. It runs `detect_state.sh` once, routes on the reported stage, and
-falls through the remaining steps without re-detecting — **except** after a review flag, which can
+falls through the remaining steps without re-detecting — **except** after `--review-fix`, which can
 create a commit and therefore forces a re-detect before the push.
 
 **Ship does not review.** There is no review stage on its path, and a bare `/gantry:ship` never

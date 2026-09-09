@@ -151,10 +151,10 @@ rewrites remote history on your behalf.
 `ondefault` and `nodiff` for `not-a-repo`, `on-default` and `no-diff`). `review` is not among them:
 it is not an entry point, it is not on the default path at all, and it runs only when `--review`
 or `--review-fix` asks for it. Drawing it in would claim a `STAGE` that does not exist. What it
-does change is the fall-through rule above it: **either** review flag can move the tree —
-`--review-fix` through its fixes, `--review` through the `handover.md` a read-only review still
-writes — so the skill **re-detects** afterwards rather than deciding the push from the original
-read. A run that stops between a review and the PR (`gh` missing, say) is safe to resume with a
+does change is the fall-through rule above it: `--review-fix` can move the tree through the fixes
+it applies, so the skill **re-detects** afterwards rather than deciding the push from the original
+read. A bare `--review` cannot, since 0.5.0: the only files it writes are `handover.md` and
+`task.md`'s status, and the artifact contract above excludes both. A run that stops between a review and the PR (`gh` missing, say) is safe to resume with a
 bare re-run: ship reviews only when asked, so re-running without a review flag will not review the
 branch twice.
 

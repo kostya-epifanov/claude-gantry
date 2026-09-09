@@ -76,7 +76,7 @@ A review flag is the one thing these skips must not jump over: the section that 
 between stages 2 and 3, and it carries its own entry-point table for exactly this reason.
 
 Completing one stage lands you at the top of the next, so once you enter at the routed stage,
-continue straight down without re-detecting — **with one exception: a review flag can create a
+continue straight down without re-detecting — **with one exception: `--review-fix` can create a
 commit, and if it does, you must re-run the script before continuing.** That exception belongs to
 the review section below, which says when it applies.
 
@@ -145,22 +145,25 @@ the one path that can push code no check has seen.
 
 If the review changed files, commit them on their own — separately from stage 2's commit, so the
 review's edits stay legible as review edits rather than folded into the change being reviewed.
-Name the commit for what it actually holds: `--review-fix` produces applied findings, while a bare
-`--review` produces only `handover.md`.
+That is `--review-fix`, and only it:
 
 ```bash
 git add -A && git commit -m "Apply review findings"            # --review-fix
-git add -A && git commit -m "Record deferred review findings"  # --review, handover.md only
 ```
 
-**Then re-detect — after either flag, not just `--review-fix`, and after that commit rather than
-before it.** Both flags can move the tree: `--review-fix` through the fixes it applies, and
-`--review` through `handover.md`, which a read-only review still writes when it defers something.
-Everything downstream branches on `AHEAD` and `DIRTY`, so a read taken before the review — or
-taken before the commit the review caused — would push the wrong thing, or nothing at all.
+**A bare `--review` has nothing to commit.** The only files a read-only review writes are
+`handover.md` and `task.md`'s status, and since 0.5.0 both are excluded (`docs/ARCHITECTURE.md`
+§ *The artifact contract*) — so `git add -A` would stage nothing and the commit would fail on an
+empty index. Do not run one. What it deferred still reaches the reviewer, through stage 4's body
+rather than through the diff.
+
+**Then re-detect — after `--review-fix`, and after the commit it caused rather than before it.**
+Everything downstream branches on `AHEAD` and `DIRTY`, so a read taken before the fixes, or before
+the commit they caused, would push the wrong thing, or nothing at all. After a bare `--review` the
+tree is where stage 2 left it and the original read still holds.
 
 ```bash
-bash "$GANTRY/skills/ship/scripts/detect_state.sh"     # again, after the review and its commit
+bash "$GANTRY/skills/ship/scripts/detect_state.sh"     # again, after --review-fix and its commit
 ```
 
 **A review you asked for can stop the ship.** If `gantry:review` reports the change unsafe to ship

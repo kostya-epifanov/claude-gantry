@@ -42,6 +42,9 @@ and is documented as transitional in `lib/detect_stage.sh`; it is not dead code 
   three, with the reasoning and the replacement channel.
 - `gantry:handover` no longer claims the file is committed with the branch.
 - `gantry:auto` and `gantry:auto-unattended` no longer claim the artifacts ship with the change.
+- `gantry:ship` no longer tells a bare `--review` to commit `handover.md`. With the file excluded
+  that `git add -A` stages nothing and the commit fails on an empty index, so the instruction is
+  gone and the re-detect it justified now belongs to `--review-fix` alone.
 
 **Removed**
 - The three files from this repository's index. They remain on disk, untracked, and in history.
