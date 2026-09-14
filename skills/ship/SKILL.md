@@ -344,10 +344,10 @@ Three outcomes, and the skill owes the reader whichever one happened:
 
 #### Re-read what you just wrote
 
-The last thing before `gh pr create`, and the only scrutiny this prose will get. `grill` read
-`task.md` and `plan.md`; `/gantry:review` read the diff, if it was asked to. **None of them read
-this title, this body, or the commit subject** — all three are written last, by the context most
-invested in the result.
+The last thing before `gh pr create`, and the only scrutiny this prose will get.
+`/gantry:plan-grill` read `task.md` and `plan.md`; `/gantry:review` read the diff, if it was asked
+to. **None of them read this title, this body, or the commit subject** — all three are written
+last, by the context most invested in the result.
 
 One rule, narrow on purpose:
 

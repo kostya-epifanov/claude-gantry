@@ -17,10 +17,10 @@ deliberate: the same phases run whether you type them yourself, run them here, o
 unattended, so they cannot drift into three subtly different pipelines.
 
 **You do not dispatch sub-agents; the phases do.** `plan` dispatches the explorer when the surface
-warrants it, `grill` always dispatches a fresh critic, `review` dispatches an independent reviewer.
-Each of those is scoped to its own sub-job and is read-only by tool list. `Agent` stays in this
-skill's `allowed-tools` for that reason and no other: a skill's frontmatter restricts what is
-permitted, it does not grant, so a phase cannot dispatch what the driver has not allowed.
+warrants it, `plan-grill` always dispatches a fresh critic, `review` dispatches an independent
+reviewer. Each of those is scoped to its own sub-job and is read-only by tool list. `Agent` stays
+in this skill's `allowed-tools` for that reason and no other: a skill's frontmatter restricts what
+is permitted, it does not grant, so a phase cannot dispatch what the driver has not allowed.
 
 For an unattended run to a draft PR, use `gantry:auto-unattended`. To drive it yourself, type the
 phase skills in order.

@@ -22,7 +22,7 @@ gantry/
 │   ├── detect_stage.sh      where a task sits on the chain
 │   ├── journal_append.sh    argv → one journal.jsonl line
 │   └── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
-├── agents/gantry-*.md       → the delegation roster    (4)
+├── agents/gantry-*.md       → the delegation roster    (3)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
 └── examples/gates.sh        a starter repo-owned gate
 ```
@@ -98,7 +98,7 @@ delegation trustworthy:
 So a driver **invokes** `/gantry:plan` — rather than restating the planning procedure into a
 prompt, which is how two copies of a procedure start disagreeing. Delegation happens one level
 down, inside the phase, where the sub-job is narrow enough for a tool boundary to mean something:
-`plan` dispatches the explorer when the surface warrants it, `grill` always dispatches a fresh
+`plan` dispatches the explorer when the surface warrants it, `plan-grill` always dispatches a fresh
 critic, `review` dispatches an independent reviewer.
 
 **That split is what lets every shipped agent be read-only.** A phase has to write — `task.md`,
@@ -154,9 +154,9 @@ or `--review-fix` asks for it. Drawing it in would claim a `STAGE` that does not
 does change is the fall-through rule above it: `--review-fix` can move the tree through the fixes
 it applies, so the skill **re-detects** afterwards rather than deciding the push from the original
 read. A bare `--review` cannot, since 0.5.0: the only files it writes are `handover.md` and
-`task.md`'s status, and the artifact contract above excludes both. A run that stops between a review and the PR (`gh` missing, say) is safe to resume with a
-bare re-run: ship reviews only when asked, so re-running without a review flag will not review the
-branch twice.
+`task.md`'s status, and the artifact contract below excludes both. A run that stops between a
+review and the PR (`gh` missing, say) is safe to resume with a bare re-run: ship reviews only when
+asked, so re-running without a review flag will not review the branch twice.
 
 ## The artifact contract
 
@@ -192,8 +192,9 @@ read, the root-level file was scrolled past, and an unattended run already treat
 entire interface to the reviewer.
 
 These files are also the chain's memory. `task.md`'s `status:` is the phase marker, and
-`lib/detect_stage.sh` is the single reader of it — so a fresh session, a sub-agent, and a
-conversation you dropped out of and came back to all resolve the same phase. **No phase skill may
+`lib/detect_stage.sh` is the one place a phase reads it from — so a fresh session, a sub-agent, and
+a conversation you dropped out of and came back to all resolve the same phase. (The readiness hook
+reads the same field with a byte-identical copy of the parser; see below.) **No phase skill may
 infer where it is from the conversation**, because in two of the three modes there isn't one.
 
 That the artifacts now exist in every mode is what fixed the v0.1 hole where the readiness hook —
@@ -218,7 +219,7 @@ planning → planned → grilled → implementing → implemented → reviewed �
  blocked                          blocked
 ```
 
-`planning → blocked` is the open-fork stop: `plan` and `grill` will not advance a task whose
+`planning → blocked` is the open-fork stop: `plan` and `plan-grill` will not advance a task whose
 *Open questions* still holds an undecided fork, and an unattended run journals an `escalation` and
 blocks there rather than guessing at the answer. A supervised run resolves the fork with the user
 instead and continues, so it never reaches that edge.
@@ -269,7 +270,7 @@ rather than silently green. The scan prunes `node_modules`, `build`, `.dart_tool
 
 ## The agent roster
 
-Four agents ship, and **every one of them is read-only**. The tool list is the boundary — not an
+Three agents ship, and **every one of them is read-only**. The tool list is the boundary — not an
 instruction in the body, a property of the agent. An explorer that has no `Write` tool cannot write,
 however it is prompted.
 
