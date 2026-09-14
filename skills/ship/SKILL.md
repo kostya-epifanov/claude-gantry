@@ -2,7 +2,7 @@
 name: ship
 description: Advances the current branch one clean step closer to a merged PR, doing only what isn't done yet — commits outstanding changes, pushes to the upstream, opens a pull request, and once the PR exists and is up to date, reports its status and waits. Idempotent — it detects the stage and picks up from there, so it's safe to run repeatedly. Pass --no-pr to stop after the push without opening a PR, --draft to open the PR as a draft, or --review / --review-fix to run gantry:review before the push. Use when the user types "/gantry:ship", or asks to ship, to commit and push, to open a PR for this branch, or to "get this out for review". Refuses to run on the repo's default branch.
 argument-hint: [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--base <branch>]
-allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Skill, Agent, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Skill, Agent, AskUserQuestion, SendMessage
 ---
 
 # gantry:ship
@@ -88,7 +88,8 @@ Look before writing the message: `git status` and `git diff` (or `git diff --sta
   Otherwise stage everything with `git add -A` and commit that.
 - **One coherent change.** If the outstanding work is clearly several unrelated changes, don't bury
   them in one "ship" commit — pause and ask how to split it. A quick, coherent diff needs no such
-  pause.
+  pause. If `task.md`'s frontmatter names a `lead:`, put this question to the lead instead, as a
+  `fork`, following `$GANTRY/skills/auto/references/lead.md`.
 - **Message**: a concise imperative subject, plus a short body if the change warrants it. Match the
   repo's recent `git log` style, including whether it uses commit trailers — some repos do, some
   (like gantry) deliberately don't. Follow the ambient convention.

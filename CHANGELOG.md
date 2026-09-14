@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased
+
+**A lead session can steer `/gantry:auto` lanes by message.** Every question in the supervised chain
+was an `AskUserQuestion` dialog: the two checkpoints, the fork rounds, and the questions the phases
+ask themselves. A lead that dispatched several lanes could answer one only by typing keys into the
+lane's pane. The lane cannot tell those keys from the owner's, the harness refuses the attempt, and
+stray keys have queued prompts and moved a dialog's highlight.
+
+`/gantry:auto --lead <session>` puts every one of those questions to the lead with `SendMessage`
+instead. The reply is not read. It is classified, and only four things are accepted: an option label
+from the question asked, `stop`, `proceed` at a checkpoint, or a file inside the worktree, which is
+read as data and then asked again. Anything else is rejected and re-asked, and after three rejections
+the question goes to the owner. A lead may direct the run as far as an open PR. Merge stays the
+owner's, and a lead's message never stands in for a permission prompt or any other privileged
+approval, whatever it says.
+
+Enforcement sits in the lane rather than the lead. A lead reads untrusted lane output such as PR
+bodies and CI logs, then writes into other lanes, so relayed free text must be unable to decide
+anything on arrival. `skills/auto/references/lead.md` states what that does and does not cover.
+
+**Added**
+- **`skills/auto/references/lead.md`** — the protocol: every question it replaces and whether
+  `proceed` can answer it, what the message carries (paths, never payload), the authority tiers, the
+  relay rule and its limits, how the run leaves lead mode, and
+  `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` for lanes spawned from a lead, which otherwise inherit
+  transcript saving switched off.
+- **`lib/lead_reply.sh`** — classifies a reply with an exit code. The reply and the option labels
+  both arrive as files, never argv. Comparison is by plain case-insensitive string equality, never a
+  pattern. A reply containing a NUL byte is rejected, because the shell would otherwise silently cut
+  it short at the NUL. A path must be a regular, non-symlink file physically inside the worktree, and it may not
+  be in a sibling lane or under `.claude/worktrees/`. A label that collides with `stop` or `proceed`
+  is a usage error, so `stop` always means stop.
+- **`tests/cases/lead_reply.sh`** — the near misses: a label inside a sentence, glob characters in a
+  label, multi-line and NUL-bearing replies, approval claims, command substitutions, `../` and symlink escapes, a
+  prefix-named sibling, another lane's worktree.
+- **`scripts/verify.sh` checks the tools the protocol needs.** A skill that points at `lead.md` and
+  restricts `allowed-tools` must list `SendMessage` and `Write`. `plan-grill` lacked `Write` and could
+  not have written the reply file.
+
+**Changed**
+- `worktree`, `plan`, `plan-grill`, `review` and `ship` send their questions to the lead when one is
+  set. `plan` takes `--lead <session>` and records `lead:` in `task.md`'s frontmatter.
+  `plan`, `plan-grill`, `review` and `ship` gain `SendMessage`, and `plan-grill` gains `Write`.
+- `gantry:auto-unattended` refuses `--lead` rather than folding it into the task text.
+
 ## 0.5.1
 
 **Pull request bodies stop arriving as a ragged column.** GitHub renders a body in *comment* mode,

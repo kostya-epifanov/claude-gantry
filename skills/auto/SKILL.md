@@ -1,8 +1,8 @@
 ---
 name: auto
 description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, plan-grill, implement, review, ship) by invoking each phase skill in turn. Supervised: it confirms the plan once, then pauses once more before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
-argument-hint: "[task] [--no-pr] [--branch <name>] [--here] [--base <branch>]"
-allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion
+argument-hint: "[task] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--lead <session>]"
+allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion, SendMessage
 ---
 
 # gantry:auto
@@ -23,13 +23,15 @@ skill's `allowed-tools` for that reason and no other: a skill's frontmatter rest
 permitted, it does not grant, so a phase cannot dispatch what the driver has not allowed.
 
 For an unattended run to a draft PR, use `gantry:auto-unattended`. To drive it yourself, type the
-phase skills in order.
+phase skills in order. To run it as a lane that a lead session steers by message, pass
+`--lead <session>`.
 
 ## Before you start
 
 Read `references/orchestration.md` — flags, the three modes, how a phase is invoked, where the
 checkpoints sit, and how the gate resolves. It is shared with `gantry:auto-unattended` so the two
-cannot drift.
+cannot drift. Under `--lead`, also read `references/lead.md`, the protocol every question in this
+run follows instead of `AskUserQuestion`.
 
 `$GANTRY` is this skill's plugin root — resolve it from this file's own location rather than
 hardcoding a path.
@@ -37,35 +39,45 @@ hardcoding a path.
 ## Stage 0 — Arguments
 
 `$ARGUMENTS` is one string; there is no parser, so read it yourself. Recognise `--no-pr`,
-`--branch <name>`, `--here` (alias `--on-current`), and `--base <branch>`; strip them; what remains
-is the task. `--here` and `--branch` are mutually exclusive — `--here` wins. If no task text
-remains, ask what the task is.
+`--branch <name>`, `--here` (alias `--on-current`), `--base <branch>`, and `--lead <session>`; strip
+them; what remains is the task. `--here` and `--branch` are mutually exclusive — `--here` wins. If
+no task text remains, ask what the task is. A `--lead` with no session name after it is also a
+question, and it goes to the owner: there is no lead to ask yet.
 
-State the task, the mode, and the flags back in one line before doing anything.
+State the task, the mode, and the flags back in one line before doing anything, including the lead
+session if there is one.
+
+**Under `--lead`, every question below goes through `references/lead.md` instead of
+`AskUserQuestion`.** That includes the questions the phases ask themselves. Each stage names the
+question's kind. Nothing else about the run changes.
 
 ## Stage 1 — Worktree and branch
 
 Derive a branch name from the task (or take `--branch`), then **invoke `gantry:worktree`** with it.
 Let worktree own branch validation, the parent fetch, and entering the worktree — don't reimplement
-any of it.
+any of it. Under `--lead`, tell it the run is under `--lead <session>`, so that its parent question
+goes to the lead. `task.md` does not exist yet to say so.
 
 Under `--here`, skip this entirely and run on the current branch. Stop first if HEAD is detached or
 you are on the repo's mainline (`origin/HEAD`); `develop` is a valid `--here` target.
 
 ## Stage 2 — Plan
 
-**Invoke `/gantry:plan`** with the task.
+**Invoke `/gantry:plan`** with the task, and with `--lead <session>` when the run has one, so plan's
+own questions go to the lead from its first step.
 
 It writes `task.md` and `plan.md` at the worktree root, and decides for itself whether the surface
 needs the explorer. Read both files back from disk before moving on — a plan you remember writing
 is not the plan on disk, and every later phase reads the file.
 
 Set `task.md`'s `mode:` to `auto`, so `implement` and `review` resolve the right gate strictness
-without being told.
+without being told. Under `--lead`, confirm the frontmatter carries `lead: <session>` and write it
+if plan did not. From here on, that line is how every phase knows where to ask.
 
 **Then settle the forks, before grill.** Run `bash "$GANTRY/lib/detect_stage.sh"` and read
 `FORKS:`. On **`FORKS:open`**, put every open entry to the user in **one AskUserQuestion round** —
-one question per fork, the options phrased as what each choice would actually cost. Fold the
+one question per fork, the options phrased as what each choice would actually cost. Under
+`--lead`, each fork goes to the lead as a `fork` question. Fold the
 answers into `task.md` and `plan.md`, check each entry off in place (`- [x] <fork> — <decision>`),
 and only then continue.
 
@@ -85,13 +97,15 @@ It dispatches a fresh critic against the artifacts on disk and triages what come
 delegation is the skill's own central rule — it happens in every mode, including this one, and it
 is not yours to arrange or to skip. Read the revised `plan.md` back from disk.
 
-If grill set `status: blocked`, stop here and surface the reason. A plan that did not survive
+If grill set `status: blocked`, stop here and surface the reason. Under `--lead`, remove the
+`lead:` line first (see *Leaving lead mode* in `references/lead.md`). A plan that did not survive
 critique is a result, not a failure to route around.
 
 **Check `FORKS:` again.** Grill can open a fork that planning never had — a critique that finds a
 genuine design decision nobody made records it rather than absorbing it. Run the same
-AskUserQuestion round as stage 2 on `FORKS:open`, and fold the answers back into both files. The
-stage 2 check does not cover this; it ran before the critic did.
+AskUserQuestion round as stage 2 on `FORKS:open` (under `--lead`, `fork` questions to the lead),
+and fold the answers back into both files. The stage 2 check does not cover this; it ran before the
+critic did.
 
 **Then set `status: grilled` yourself.** When grill opens a fork it deliberately leaves the status
 alone, so it returns with `planned` — and unlike stage 2 there is no later phase to repair that.
@@ -103,6 +117,9 @@ grilled, and stage 5's `/gantry:implement` warns about a phase that in fact ran.
 **AskUserQuestion.** Show the plan as grilled, what the critique changed, and the branch and
 worktree that were created. "Proceed with this plan?"
 
+Under `--lead`, this is a `checkpoint` question to the lead. Send the paths to `task.md` and
+`plan.md` and a summary of what the critique changed, not the files' contents.
+
 This is also the moment to catch a wrong branch name — cheap to recreate now, before any edits.
 
 ## Stage 5 — Implement
@@ -112,7 +129,8 @@ This is also the moment to catch a wrong branch name — cheap to recreate now, 
 `implement` owns the gate. It sets `status: implementing` before editing (which arms the readiness
 hook), carries out the plan, and runs `run_gates.sh`. **Do not run the gate yourself and do not
 route around a red one.** If it comes back red or blocked, stop and hand the failure to the user —
-supervised mode does not iterate on a red gate.
+supervised mode does not iterate on a red gate. Under `--lead`, remove the `lead:` line before
+stopping.
 
 Take from its report: the gate's exit code, and whether the hook's firing conditions were
 **met or unmet**. Both go in your final report verbatim.
@@ -131,13 +149,18 @@ must say so.
 edit nothing, and the chain would ship a change it had reviewed and not repaired. The flag is what
 licenses the in-scope fixes and the gate re-run that follows them.
 
-If review set `status: blocked`, stop and surface it.
+If review set `status: blocked`, stop and surface it, removing the `lead:` line first under
+`--lead`.
 
 ## Stage 7 — Checkpoint: confirm the side effects
 
 **AskUserQuestion.** The gate is green and the review is in hand. "Commit, push, and open the PR?"
 
 One gate in front of every side effect, since `gantry:ship` won't pause once invoked.
+
+Under `--lead`, this is a `checkpoint` question to the lead. Side effects are within a lead's
+authority; privilege is not, and a harness permission prompt that appears during ship waits for
+the owner whatever the lead has said.
 
 ## Stage 8 — Ship
 
@@ -156,7 +179,8 @@ ship quotes the contract and the handover into the PR body instead. They are sti
 what was decided and what was left; they just are not part of the diff.
 
 `gantry:auto` opens a **ready-for-review** PR. You were in the room for the review, so it does not
-need to arrive as a draft.
+need to arrive as a draft. Under `--lead` the PR is still ready-for-review, and it is still never
+merged: a lead may direct the chain as far as an open PR, and merge stays the owner's.
 
 ## Stage 9 — Report
 
@@ -168,6 +192,11 @@ gate's exit code and whether the readiness hook's firing conditions were met —
 same as the hook having run, since registration is not visible to the detector. Which review tier ran, plainly
 named. What was deferred and the `handover.md` path if there is one. The commit, the push, and the
 PR URL.
+
+Under `--lead`, also report every question sent to the lead, each reply's classification from
+`lib/lead_reply.sh`, and any question that hit the re-ask cap and went to the owner (the run carried
+on in lead mode after it). Then remove the
+`lead:` line from `task.md`.
 
 Be honest about anything skipped, unverified, or self-reviewed. A report that reads cleaner than the
 run went is the one failure this chain cannot catch.

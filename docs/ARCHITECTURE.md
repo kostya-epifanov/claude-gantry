@@ -16,11 +16,12 @@ gantry/
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             skill-local deterministic work, run not read
 │   └── templates/           the task.md fallback
-├── lib/                     shared runtime scripts     (5)
+├── lib/                     shared runtime scripts     (6)
 │   ├── run_gates.sh         the one hard gate
 │   ├── gate_coverage.sh     what the gate actually read — reported, never enforced
 │   ├── detect_stage.sh      where a task sits on the chain
 │   ├── journal_append.sh    argv → one journal.jsonl line
+│   ├── lead_reply.sh        a lead's reply → one accepted token, or rejected
 │   └── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
 ├── agents/gantry-*.md       → the delegation roster    (4)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
@@ -43,7 +44,7 @@ no refusal.
 session refuses a command it cannot verify stays inside the worktree — no substitutions, no
 compound structure — so an orchestrator cannot build a JSON line or do a read-then-append in its
 own argv. Moving that into a script is the only way to keep the caller's command flat. Neither is
-a framework; all five are argv-in, contract-out.
+a framework; all six are argv-in, contract-out.
 
 A skill body enters the conversation when it fires and **stays there for the rest of the session**.
 That is why detail lives in `references/` (loaded only when the skill says to read it) and why
