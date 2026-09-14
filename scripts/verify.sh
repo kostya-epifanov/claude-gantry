@@ -14,11 +14,11 @@ head2() { printf '\n== %s ==\n' "$1"; }
 # Every enumeration below goes through this, and the flags are the whole point.
 #
 # `git ls-files` on its own lists TRACKED files only, which made this gate blind
-# to precisely the files a gantry run creates. `implement` runs the gate while
-# `task.md` and `plan.md` are still untracked; `ship` commits them minutes later;
-# CI then runs this same script with them tracked. Green here, red there, on the
-# pipeline's own artifacts. A `lib/*.sh` written during `implement` had the same
-# hole — never parsed or shellchecked until after it was pushed.
+# to precisely the files a gantry run creates. `implement` runs the gate while a
+# new `lib/*.sh` is still untracked; `ship` commits it minutes later; CI then
+# runs this same script with it tracked — never parsed or shellchecked until
+# after it was pushed. Before 0.5.0 `task.md` and `plan.md` hit the same hole;
+# they are now never committed, so only the code a run writes still does.
 #
 # `--others --exclude-standard` closes it: files that are new get checked, files
 # that are ignored do not. `--exclude-standard` honours three sources, and the

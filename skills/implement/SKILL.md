@@ -87,7 +87,7 @@ Set `task.md` frontmatter to `status: implementing` **before any edit**. (Hard r
 ### 4. Carry out the plan
 
 Work the steps in order. Keep to the plan; when a step turns out to be wrong — and it sometimes
-does, which is the honest reason `grill` exists rather than a promise it never happens:
+does, which is the honest reason `plan-grill` exists rather than a promise it never happens:
 
 - **Supervised** → stop and raise it. A plan that survived a critique and still failed contact with
   the code is worth a human's attention, not a silent patch.

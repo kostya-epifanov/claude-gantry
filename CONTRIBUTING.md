@@ -8,8 +8,10 @@ Run the checks:
 bash scripts/verify.sh
 ```
 
-That is lint, manifest validation, frontmatter validation, link checking, and the secret scan. CI
-runs the same script, so a green local run means a green CI run.
+That is shell syntax and shellcheck, manifest and frontmatter validation, link checking, the
+always-on context budget, drift checks between files that must agree (the hook's and detector's
+frontmatter parsers, the task template and its example), the fixture test suite, and the secret
+scan. CI runs the same script, so a green local run means a green CI run.
 
 CI runs one check `verify.sh` cannot: `scripts/check_pr_body.sh`, over the pull request body, which
 does not exist until you open one. **Do not hard-wrap that body.** GitHub renders it in comment
@@ -18,10 +20,11 @@ mode, where a single newline inside a paragraph becomes a `<br>`, so the 100-col
 table row.
 
 **The converse does not hold, and that is deliberate.** `verify.sh` enumerates tracked files *and*
-untracked ones that no ignore rule covers, because the files a gantry run writes — `task.md`,
-`plan.md`, a new `lib/*.sh` — are still untracked when the gate runs and tracked by the time CI sees
-them. Checking only what is committed made the gate blind to exactly those files. The price is that
-a **red** local run can be caused by something CI will never see: an untracked virtualenv, a
+untracked ones that no ignore rule covers, because the code a gantry run writes — a new `lib/*.sh`,
+say — is still untracked when the gate runs and tracked by the time CI sees it. Checking only what
+is committed made the gate blind to exactly those files. (The run's own `task.md` and `plan.md` are
+ignored and never committed, so they sit outside both enumerations.) The price is that a **red**
+local run can be caused by something CI will never see: an untracked virtualenv, a
 scratch directory, a stray copy of a file. The remedy is the ordinary git one — add the path to
 `.gitignore` if it concerns everyone, or to `.git/info/exclude` if it is only yours. Do not narrow
 the enumeration in `verify.sh`; that restores the blind spot.

@@ -30,8 +30,14 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 # The ceiling, in characters of description text.
 #
 # Set from the v0.3.0 measurement: 5,670 characters across 15 components, which
-# the CLI projects at ~1,464 always-on tokens — call it ~3.9 characters per
-# token — plus about 10% of headroom.
+# the CLI then projected at ~1,464 always-on tokens — ~3.9 characters per token
+# — plus about 10% of headroom.
+#
+# The CLI's estimator has since changed, so the ratio has too. Re-measured at
+# v0.5.1: the v0.3.0 tree now projects at ~1,927 tokens, and the v0.5.1 tree
+# (5,965 characters) at ~2,024 — ~2.95 characters per token, putting this
+# ceiling near ~2,120 tokens with about 5% headroom left. The ceiling itself
+# is unchanged; only the token figure it stands for moved.
 #
 # Headroom is deliberate. Too tight and the check blocks a legitimate skill
 # whose description genuinely needs the words; too loose and it never fires.

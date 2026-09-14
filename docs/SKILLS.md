@@ -52,13 +52,15 @@ Each is invocable on its own and each works out where things stand by running
 state. **None of them reads the conversation**, which is what lets you drop out of the chain, work
 by hand, and pick it back up.
 
-**Three hard refusals, and only three — all `implement`'s:** it refuses to start without a
-`plan.md`, it refuses to start while `task.md`'s *Open questions* still holds an undecided fork
-**and a driver dispatched it**, and it refuses to move past a non-zero gate. Everything else warns
-and proceeds, naming what was missing. Since you may iterate by hand between phases, a stale or
-absent artifact is a normal state rather than an error — which is exactly why the fork refusal is
-conditioned on the mode. Typed by hand, an open fork is a warning; dispatched by a driver, it is a
-decision nobody would be present to make.
+**The chain has three hard refusals about its own state, all `implement`'s:** it refuses to start
+without a `plan.md`, it refuses to start while `task.md`'s *Open questions* still holds an
+undecided fork **and a driver dispatched it**, and it refuses to move past a non-zero gate. The
+other refusals below are narrower — `plan-grill` has nothing to critique without a `plan.md`, and
+`review` rejects an invalid `--tier` — and concern what a phase was asked, not where the chain
+stands. Everything else warns and proceeds, naming what was missing. Since you may iterate by hand
+between phases, a stale or absent artifact is a normal state rather than an error — which is
+exactly why the fork refusal is conditioned on the mode. Typed by hand, an open fork is a warning;
+dispatched by a driver, it is a decision nobody would be present to make.
 
 `ship` runs **no gate of its own** — it commits, pushes, and opens the PR from wherever the branch
 is. The gate is re-checked in exactly one case, and by `review` rather than by ship: a
@@ -158,8 +160,9 @@ uncommitted at this point and a three-dot range would come back empty.
 `/gantry:handover [what]`
 
 Writes `handover.md` at the worktree root: what was deferred, why it is out of scope, what was
-already established including dead ends, and one concrete next action. Committed with the branch,
-so it arrives with the pull request.
+already established including dead ends, and one concrete next action. **Not committed** — it is
+working state, not the change; `gantry:ship` quotes it into the pull request body, which is how it
+reaches the reviewer.
 
 Not the same as `preserve`: this captures deferred **work** for whoever picks up the PR; `preserve`
 captures conversation **reasoning** for the next session, outside the repo. Doing both is often
@@ -250,10 +253,10 @@ the run that makes it. That disclosure is suppressed when the plugin root and th
 tree (the `--plugin-dir` shape), where the edits genuinely did run.
 
 Then it re-reads its own prose. The title, the body and the commit subject are the only text no
-phase reads — `grill` reads the artifacts, `/gantry:review` reads the diff — and they are written
-last, by the context most invested in the result. The rule is narrow: a claim about how something
-works either cites the file that establishes it or does not go in the body. Review is not extended
-to cover this because it runs before ship composes anything.
+phase reads — `plan-grill` reads the artifacts, `/gantry:review` reads the diff — and they are
+written last, by the context most invested in the result. The rule is narrow: a claim about how
+something works either cites the file that establishes it or does not go in the body. Review is not
+extended to cover this because it runs before ship composes anything.
 
 All of these are **disclosures, not refusals**: none withholds the PR, fails the gate, or blocks
 the push.
@@ -338,30 +341,32 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 
 | Component | Always-on |
 |---|---|
-| auto | ~130 |
-| auto-unattended | ~130 |
-| plan | ~70 |
-| plan-grill | ~90 |
-| implement | ~80 |
-| review | ~80 |
-| handover | ~90 |
-| ship | ~160 |
-| sync | ~170 |
-| worktree | ~60 |
-| preserve | ~150 |
-| prune-worktrees | ~90 |
-| the three agents | ~190 combined |
-| **total always-on** | **~1,464** |
+| auto | ~180 |
+| auto-unattended | ~180 |
+| plan | ~100 |
+| plan-grill | ~120 |
+| implement | ~100 |
+| review | ~170 |
+| handover | ~130 |
+| ship | ~230 |
+| sync | ~220 |
+| worktree | ~70 |
+| preserve | ~190 |
+| prune-worktrees | ~110 |
+| the three agents | ~240 combined |
+| **total always-on** | **~2,024** |
 
 **These are measured, not derived** — `claude --plugin-dir . plugin details gantry`, against the
-v0.3 tree. v0.2 published a figure scaled from v0.1's reading, which is exactly the kind of claim
+v0.5.1 tree. v0.2 published a figure scaled from v0.1's reading, which is exactly the kind of claim
 this project argues does not belong in prose; the number is now read from the tool and, more to the
 point, **enforced**: `scripts/context_budget.sh` runs in `scripts/verify.sh` and fails the build
 when the descriptions outgrow a declared ceiling.
 
-Against v0.1's measured ~1,157, v0.3 costs about a quarter more — the price of five phase skills,
-partly offset by deleting `gantry-verifier`, an agent nothing dispatched, which was ~70 of every
-session's budget.
+**The measuring tool itself has moved.** v0.3 was published at ~1,464; today's CLI reads that same
+v0.3 tree at ~1,927. So figures from different CLI versions do not compare. On one ruler, v0.5.1 is
+about 100 tokens (~5%) above v0.3, more than half of it `review`, whose description gained `--fix`
+and `--tier` in 0.4.1. The budget check counts characters, so it catches the text growing but not
+the estimator changing — the latter is what made the previous table stale.
 
 The phase skills carry deliberately terse descriptions, because the drivers and the standalone
 skills are what you actually invoke by name; a phase is usually reached by typing the chain or by a

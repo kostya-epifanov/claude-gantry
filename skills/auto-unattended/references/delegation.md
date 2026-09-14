@@ -23,14 +23,16 @@ All live at the **root of the task's worktree**.
 
 | Artifact | Written by | Committed? |
 |---|---|---|
-| `task.md` | `gantry:plan` (Affected areas from the explorer) | **yes** — the contract a reviewer reads |
-| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | **yes** — what the change was supposed to be |
-| `handover.md` | `gantry:handover`, when review defers something | **yes** — what this change deliberately left |
-| `journal.jsonl` | the orchestrator, append-only | **no** — a run artifact; excluded via `.git/info/exclude` |
+| `task.md` | `gantry:plan` (Affected areas from the explorer) | **no** — excluded via `.git/info/exclude`; ship quotes the contract into the PR body |
+| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | **no** — same exclusion; named in the PR body, not quoted |
+| `handover.md` | `gantry:handover`, when review defers something | **no** — same exclusion; ship quotes it into the PR body |
+| `journal.jsonl` | the orchestrator, append-only | **no** — a run artifact; same exclusion |
 | gate logs | the gate script / the readiness hook | **no** — same exclusion |
 
-The three committed files are the record: what was agreed, what was planned, and what was left.
-Together they let a reviewer judge the change without having been in the run.
+None of them is committed — they are the run's working state, not the change
+(`docs/ARCHITECTURE.md` § *The artifact contract*). The first three are still the record of what
+was agreed, what was planned, and what was left, but a reviewer receives that record through the
+pull request body `gantry:ship` composes, which for an unattended run is their only interface to it.
 
 `task.md`'s shape and the order its sections get filled belong to `gantry:plan`, which owns the
 file. This skill does not write it; it invokes the phase that does, and reads it back.
