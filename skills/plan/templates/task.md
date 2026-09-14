@@ -56,7 +56,7 @@ braindump; each one checked off as it is decided, never deleted — a deleted en
 reads exactly like one that was never raised.
 
 This section is a **precondition, not a note**. `lib/detect_stage.sh` parses it,
-`plan` and `grill` will not mark the task ready while a fork is open, and
+`plan` and `plan-grill` will not mark the task ready while a fork is open, and
 `implement` refuses outright when a driver dispatched it. Supervised runs put the
 open forks to you; unattended runs stop and escalate rather than guess.
 

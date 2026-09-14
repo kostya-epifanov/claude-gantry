@@ -18,8 +18,8 @@ them. It differs from `gantry:auto` in exactly four things: it never pauses, the
 `--strict`, it keeps a journal, and it opens a **draft** PR.
 
 **You do not dispatch sub-agents; the phases do.** `plan` dispatches the explorer when the surface
-warrants it, `grill` always dispatches a fresh critic, `review` dispatches an independent reviewer —
-each scoped to its own sub-job and read-only by tool list. `Agent` is in this skill's
+warrants it, `plan-grill` always dispatches a fresh critic, `review` dispatches an independent
+reviewer — each scoped to its own sub-job and read-only by tool list. `Agent` is in this skill's
 `allowed-tools` for that reason alone: frontmatter restricts what is permitted, it does not grant,
 so a phase cannot dispatch what the driver has not allowed.
 
@@ -284,7 +284,7 @@ Written for someone who was not here, because nobody was:
   conditions were unmet — or whose hook was never registered — was self-policed by a script it
   could have skipped; say so, and say which of the two you actually know.
 - Which review tier ran, named plainly.
-- **Every assumption `plan` or `grill` had to make** because there was nobody to ask. Genuine
+- **Every assumption `plan` or `plan-grill` had to make** because there was nobody to ask. Genuine
   design forks are not on this list — those stop the run rather than becoming assumptions — but
   the judgement calls inside a plan still are, and the reader of a draft PR needs them.
 - **What the run shipped without proving**, repeated from ship's report: whether `task.md` carried

@@ -278,7 +278,9 @@ pipeline did. Not because on-disk state is elegant, but because:
 - **A phase can be resumed by something that was not there.** The skills are individually
   invocable, so you can leave the chain, work by hand, and come back — and a sub-agent or a fresh
   session has to reach the same conclusion you would about where things stand. `task.md`'s
-  `status:` is that answer, and `lib/detect_stage.sh` is its single reader.
+  `status:` is that answer, and `lib/detect_stage.sh` is the one place a phase reads it from. The
+  readiness hook is the other reader, through a byte-identical copy of the same parser that
+  `scripts/verify.sh` keeps from drifting.
 
 `plan.md` is the one artifact worth spending orchestrator context on, because you need it to brief
 the next phase.

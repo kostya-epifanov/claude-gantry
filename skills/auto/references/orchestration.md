@@ -110,8 +110,8 @@ job is to say, at the end, which agents the phases reported actually dispatching
 
 **Why a driver still carries `Agent` in `allowed-tools`.** Not to dispatch phases. A skill's
 frontmatter *restricts* what is permitted while it is active; it does not grant. So a driver must
-permit every tool the phases it invokes need — `Agent` included, or `grill` cannot dispatch its
-critic.
+permit every tool the phases it invokes need — `Agent` included, or `plan-grill` cannot dispatch
+its critic.
 
 If a dispatch fails with an unknown agent type, the repo's roster was added mid-session and needs a
 restart. **Do not silently fall back to doing the work inline** — a phase whose delegation is

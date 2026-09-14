@@ -214,7 +214,9 @@ Two things you should know before you install it, both of which the hook documen
   `.claude/gates.sh` is left completely alone: no directory, no log line, nothing. Once both exist,
   every invocation appends one line to `.claude/artifacts/gate-hook.log`, and a fire writes two —
   one when the gate starts and one when it ends — plus the gate's full output to
-  `.claude/artifacts/gate-<timestamp>-<pid>.log`. Add `.claude/artifacts/` to your `.gitignore`.
+  `.claude/artifacts/gate-<timestamp>-<pid>.log`. `/gantry:implement` asserts `.claude/artifacts/`
+  into `.git/info/exclude` each time it runs the gate, so none of that reaches your diff; add it to
+  your `.gitignore` only if you arm the hook without going through `implement`.
 - **Its own honest limit.** The trigger is `task.md`'s `status:` — a file the model can write. So
   *"the model cannot bypass the gate"* is approximately, not exactly, true. The mitigation is that
   every invocation in an armed repo is logged, so a bypass is visible after the fact rather than
@@ -232,15 +234,18 @@ you can check the number yourself:
 claude plugin details gantry@claude-gantry
 ```
 
-v0.3 measures **~1,464 always-on tokens** for twelve skills and three agents. v0.1 measured
-~1,157 for seven skills and four agents; the growth is the five phase skills, less the ~70 saved by
-deleting an agent nothing dispatched.
+v0.5.1 measures **~2,024 always-on tokens** for twelve skills and three agents.
 
-Unlike v0.2's, that figure is measured rather than derived — a project whose whole argument is that
-a number beats a paragraph should not publish its most-quoted number as a paragraph. And it is
-enforced rather than merely recorded: `scripts/context_budget.sh` fails the build if the
-descriptions grow past a declared ceiling, so this section cannot quietly go stale the way the
-derived one did.
+Read that against earlier figures with care, because the ruler moved. v0.3 published ~1,464, but
+the same v0.3 tree reads **~1,927** under today's CLI — the estimator changed, not the text. On one
+ruler, v0.3 → v0.5.1 grew by about 100 tokens (~5%), which matches the ~5% the description text
+itself grew.
+
+That figure is measured rather than derived — a project whose whole argument is that a number beats
+a paragraph should not publish its most-quoted number as a paragraph. The growth is enforced rather
+than merely recorded: `scripts/context_budget.sh` fails the build if the descriptions grow past a
+declared ceiling. What it cannot catch is the CLI changing how it counts, which is exactly how the
+previous figure went stale — so re-measure rather than trusting this one.
 
 The phase skills carry deliberately short descriptions, because the drivers and the standalone
 skills are what you actually invoke by name. Bodies are paid only when a skill fires.

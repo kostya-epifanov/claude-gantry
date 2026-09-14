@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# detect_stage.sh is the single reader of "where is this task". The phase
+# detect_stage.sh is where every phase reads "where is this task". The phase
 # skills are individually invocable, so none of them may infer its position
 # from the conversation — a fresh session, a sub-agent and a resumed one all
 # have to reach the same answer, and they reach it here.
@@ -13,10 +13,11 @@
 # than trusted.
 #
 # And TASK:present/absent/inherited, where `inherited` is the merged contract
-# that arrives in every freshly branched worktree because task.md is committed
-# with the PR. The asymmetry there is the point and it is what these fixtures
-# pin: reading a live task as inherited destroys work, so every condition the
-# detector cannot establish has to land on `present`.
+# that arrives in a freshly branched worktree of a repo where gantry 0.4.x or
+# earlier committed task.md with every PR. Since 0.5.0 nothing commits it, so
+# the state is migration-only. The asymmetry there is the point and it is what
+# these fixtures pin: reading a live task as inherited destroys work, so every
+# condition the detector cannot establish has to land on `present`.
 
 TESTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=tests/lib.sh
@@ -70,8 +71,9 @@ run_stage "$repo"
 assert_contains "$STAGE_OUT" "HOOK:conditions-unmet" "any other status unmeets them again"
 
 # --- the inherited contract ---------------------------------------------------
-# task.md is committed with every PR, so a branch cut from the base is born
-# holding the PREVIOUS task's finished contract. `inherited` is that state.
+# Under gantry 0.4.x and earlier task.md was committed with every PR, so a branch
+# cut from the base is born holding the PREVIOUS task's finished contract.
+# `inherited` is that state; it persists until such a repo untracks the file.
 #
 # Two traps these fixtures are built to avoid, both of which produce a suite
 # that passes while proving nothing:
