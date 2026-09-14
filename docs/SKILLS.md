@@ -24,6 +24,9 @@ One chain of phases, three ways to run it.
 Semi-auto has no driver skill — it *is* the phase skills, typed in order. The gate is a hard
 blocker in all three; unattended removes the human checkpoints, never the gate.
 
+`auto --lead <session>` is `auto` with a different answerer, not a fourth column: its questions go
+to a lead session by message, and everything in the `auto` column still holds.
+
 **There is no `--autonomous` flag.** It existed in v0.1 and was replaced by a separate skill: a flag
 that silently removes every checkpoint is too easy to append to a command you meant to supervise.
 
@@ -33,8 +36,8 @@ branch** (so `worktree` doesn't ask which parent to use) and keep the task singl
 
 ## Shared flags
 
-Both drivers take the same flags, parsed from one argument string — there is no flag parser, the
-skill reads them itself and what remains is the task.
+Both drivers take these flags, parsed from one argument string — there is no flag parser, the
+skill reads them itself and what remains is the task. `--lead` is the exception: `auto` only.
 
 | Flag | Effect |
 |---|---|
@@ -42,6 +45,7 @@ skill reads them itself and what remains is the task.
 | `--branch <name>` | Use this exact branch name instead of deriving one from the task. |
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. |
 | `--base <branch>` | Override the PR base branch. Passed through to `ship` and its detector. |
+| `--lead <session>` | **`auto` only.** Put every question to that lead session by message instead of a dialog, accepting only an option label, `proceed`, `stop`, or a file path. `auto-unattended` refuses it. |
 
 ---
 
@@ -50,7 +54,15 @@ skill reads them itself and what remains is the task.
 Each is invocable on its own and each works out where things stand by running
 `lib/detect_stage.sh` — reading `task.md`'s `status:`, which artifacts exist, and the tree's
 state. **None of them reads the conversation**, which is what lets you drop out of the chain, work
-by hand, and pick it back up.
+by hand, and pick it back up. What a phase is told comes in as arguments, like the task itself.
+Under `auto --lead`, that includes the lead for `worktree` and `plan`, which run before `task.md`
+exists to record it.
+
+**A phase that asks, asks the lead when there is one.** `worktree`, `plan`, `plan-grill`, `review`
+and `ship` each have a question they can put to you. When `task.md` names a `lead:` (or, for
+`worktree` and `plan`, when the driver passed `--lead`), that question goes to the lead by
+`SendMessage` and the reply goes through `lib/lead_reply.sh`, following `auto`'s
+`references/lead.md`. Typed by hand with no lead recorded, they ask you as always.
 
 **The chain has three hard refusals about its own state, all `implement`'s:** it refuses to start
 without a `plan.md`, it refuses to start while `task.md`'s *Open questions* still holds an
@@ -72,7 +84,7 @@ covers only the edits the review itself caused.
 
 ## `/gantry:plan` — the contract and the plan
 
-`/gantry:plan <task>`
+`/gantry:plan <task> [--lead <session>]`
 
 Writes `task.md` (context and goal, acceptance criteria, how to verify) and then `plan.md`, asking
 whatever a genuine fork requires before any code is written. *Out of scope* and *Affected areas*
@@ -190,6 +202,14 @@ no sub-agents of its own; each phase delegates its own sub-job.
   detached HEAD.
 - **Invokes:** `gantry:worktree`, the four phase skills, `gantry:ship`.
 - **Detail:** `references/orchestration.md`, shared with `auto-unattended`.
+- **`--lead <session>`:** a lane a lead session steers. Every question — the two checkpoints, the
+  fork rounds, and the ones `worktree`, `plan`, `plan-grill`, `review` and `ship` ask — goes to the
+  lead by `SendMessage`. A reply is not read but classified by `lib/lead_reply.sh`: an option label,
+  `stop`, `proceed` at a checkpoint, or a file inside the worktree (read as data, then asked again);
+  anything else is rejected and re-asked. A lead can direct the run as far as an open PR; merge and
+  anything privileged stay the owner's. The lead is passed as an argument until `task.md` exists and
+  is a `lead:` frontmatter line after, removed when the run ends. Protocol:
+  `references/lead.md`.
 
 ## `/gantry:auto-unattended` — the same chain, nobody watching
 
@@ -207,7 +227,7 @@ to make without being able to ask, which agents the phases actually dispatched, 
 ran, the gate's exit code on every run, and whether the hook's firing conditions were met.
 
 - **Refuses:** to push when no checks were found; to proceed on a plan that failed its critique;
-  to fall back to inline work when a dispatch fails.
+  to fall back to inline work when a dispatch fails; `--lead`, which has no questions to route here.
 - **Never delegates the gate** — the gate is a script, and its exit code is deliberately not a
   model's judgment.
 - **Detail:** `references/delegation.md` and `references/journal.md`; flags and modes live in

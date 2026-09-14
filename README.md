@@ -95,7 +95,8 @@ So most work is one command:
 That creates a worktree and branch, plans, has a fresh critic attack the plan, asks you to confirm,
 implements, runs your repo's checks as a hard blocker, gets an independent review of the diff, asks
 once before anything outward-facing, then commits, pushes, and opens the PR. Swap in
-`/gantry:auto-unattended` to run it headless to a draft PR; add `--no-pr` to stop after the push.
+`/gantry:auto-unattended` to run it headless to a draft PR; add `--no-pr` to stop after the push,
+or `--lead <session>` to put its questions to a lead session by message instead of a dialog.
 
 **The drivers contain no phase logic.** They invoke the same skills you would type. That is what
 keeps the three ways of running from drifting into three subtly different pipelines.

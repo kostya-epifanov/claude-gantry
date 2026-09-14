@@ -2,7 +2,7 @@
 name: review
 description: Get an independent review of the diff, verify every finding against the repo, then triage what survives against the task contract — handing what's out of scope to /gantry:handover rather than quietly widening the change. Read-only unless you pass --fix, which applies the findings triage keeps. Pass --tier medium|high|xhigh|max to set the depth (default high). Use when the user types "/gantry:review", or asks to review the diff, check the changes, or get a second opinion before shipping.
 argument-hint: [--tier <medium|high|xhigh|max>] [--fix]
-allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Skill, Agent, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Skill, Agent, AskUserQuestion, SendMessage
 ---
 
 # gantry:review
@@ -127,8 +127,10 @@ The dividing line is scope, not difficulty. A one-line fix outside the contract 
 deferred; a genuinely fiddly fix to code this change introduced still gets made.
 
 Where the call is honestly ambiguous, ask — **AskUserQuestion**, one round, with the findings
-described in terms of what each costs. With no human present, defer rather than expand: a deferred
-finding is written down and recoverable, an unrequested refactor is neither.
+described in terms of what each costs. If `task.md`'s frontmatter names a `lead:`, put this
+question to the lead instead, as a `fork`, following `$GANTRY/skills/auto/references/lead.md`. With
+no human present, defer rather than expand: a deferred finding is written down and recoverable, an
+unrequested refactor is neither.
 
 ### 5. Fix what you kept — only with `--fix`
 

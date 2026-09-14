@@ -52,6 +52,10 @@ hardcoding a path.
 (alias `--on-current`), `--base <branch>`; strip them; the remainder is the task. **If no task text
 remains, stop and report** — there is nobody to ask.
 
+**`--lead` is not accepted here — stop and report.** It belongs to `gantry:auto`, where there are
+questions to route to a lead; this skill asks none. Left unrecognised, `--lead <session>` would
+silently become part of the task text.
+
 Then look at what roster this repo will resolve to. The phases do the resolving, but a headless run
 should say up front which agents it expects to see:
 
