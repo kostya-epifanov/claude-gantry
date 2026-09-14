@@ -171,7 +171,7 @@ What it does not cover:
 ## Leaving lead mode
 
 The driver removes the `lead:` line from `task.md` whenever the run ends: `STOP`, a `blocked` status
-from grill or review, a red gate, and the stage 9 report. A phase the owner later types by hand then
+from `plan-grill` or `review`, a red gate, and the stage 9 report. A phase the owner later types by hand then
 asks the owner, not a lead that may be gone. The re-ask cap is not on that list, because it does not
 end the run.
 

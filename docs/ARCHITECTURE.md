@@ -43,8 +43,15 @@ no refusal.
 `journal_append.sh` and `ensure_excluded.sh` exist for a narrower reason: a worktree-isolated
 session refuses a command it cannot verify stays inside the worktree — no substitutions, no
 compound structure — so an orchestrator cannot build a JSON line or do a read-then-append in its
-own argv. Moving that into a script is the only way to keep the caller's command flat. Neither is
-a framework; all six are argv-in, contract-out.
+own argv. Moving that into a script is the only way to keep the caller's command flat.
+
+`lead_reply.sh` is the same move made for a different hazard. Under `gantry:auto --lead`, a lead's
+reply is relayed text, and the option labels are often quoted from a plan. So both reach the script
+as files the caller wrote with its Write tool, never as argv. Only flags go on the command line.
+The script's exit code, not the model's reading of the reply, decides whether the reply answered
+anything.
+
+None of them is a framework; all six take flags in and return a contract.
 
 A skill body enters the conversation when it fires and **stays there for the rest of the session**.
 That is why detail lives in `references/` (loaded only when the skill says to read it) and why

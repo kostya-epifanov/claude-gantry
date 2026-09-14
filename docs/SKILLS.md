@@ -58,6 +58,12 @@ by hand, and pick it back up. What a phase is told comes in as arguments, like t
 Under `auto --lead`, that includes the lead for `worktree` and `plan`, which run before `task.md`
 exists to record it.
 
+**A phase that asks, asks the lead when there is one.** `worktree`, `plan`, `plan-grill`, `review`
+and `ship` each have a question they can put to you. When `task.md` names a `lead:` (or, for
+`worktree` and `plan`, when the driver passed `--lead`), that question goes to the lead by
+`SendMessage` and the reply goes through `lib/lead_reply.sh`, following `auto`'s
+`references/lead.md`. Typed by hand with no lead recorded, they ask you as always.
+
 **The chain has three hard refusals about its own state, all `implement`'s:** it refuses to start
 without a `plan.md`, it refuses to start while `task.md`'s *Open questions* still holds an
 undecided fork **and a driver dispatched it**, and it refuses to move past a non-zero gate. The
@@ -78,7 +84,7 @@ covers only the edits the review itself caused.
 
 ## `/gantry:plan` — the contract and the plan
 
-`/gantry:plan <task>`
+`/gantry:plan <task> [--lead <session>]`
 
 Writes `task.md` (context and goal, acceptance criteria, how to verify) and then `plan.md`, asking
 whatever a genuine fork requires before any code is written. *Out of scope* and *Affected areas*
@@ -221,7 +227,7 @@ to make without being able to ask, which agents the phases actually dispatched, 
 ran, the gate's exit code on every run, and whether the hook's firing conditions were met.
 
 - **Refuses:** to push when no checks were found; to proceed on a plan that failed its critique;
-  to fall back to inline work when a dispatch fails.
+  to fall back to inline work when a dispatch fails; `--lead`, which has no questions to route here.
 - **Never delegates the gate** — the gate is a script, and its exit code is deliberately not a
   model's judgment.
 - **Detail:** `references/delegation.md` and `references/journal.md`; flags and modes live in
