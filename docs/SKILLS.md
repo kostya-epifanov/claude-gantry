@@ -1,11 +1,12 @@
 # Skills reference
 
-Twelve skills. Each section: what it does, its arguments, what it **refuses** to do, what it
+Thirteen skills. Each section: what it does, its arguments, what it **refuses** to do, what it
 invokes, and the scripts it owns. For the design argument see [METHOD.md](METHOD.md); for how they
 connect, [ARCHITECTURE.md](ARCHITECTURE.md).
 
 They fall into three groups: the **phase skills** that make up the chain, the two **drivers** that
-run that chain for you, and the **maintenance** skills around it.
+run that chain for you, and the **maintenance** skills around it — which is also where
+`integrate` lives, since it starts where the chain ends, at the pull requests the chain opened.
 
 ## The three modes
 
@@ -267,6 +268,70 @@ the push.
   `gh pr create` command for you.
 - **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`).
 
+## `/gantry:integrate` — N pull requests into one
+
+`/gantry:integrate [<pr#> ...] [--base <branch>]`
+
+Reads the open PRs, states why each unready one is out, plans a merge order **before touching
+anything**, then merges the rest one at a time with `--no-ff` into a fresh `integration/<date>`
+branch cut from a freshly fetched base. The gate runs after every merge, so a red result belongs to
+that PR or to its meeting with the ones already in — not to the pile. It ends at one pull request
+whose body carries the included table, every skip with its reason, every conflict resolution, and
+the source PRs' combined *Not proven by this run* and *Deliberately not done* sections.
+
+The problem it exists for: `auto-unattended` leaves a stack of drafts, each cut from the base and
+each checked alone. **A green check on a PR says nothing about the combined tree** — and the boring
+shared surfaces (a docs table, a count, a version, a shared script) are exactly where they collide.
+
+Three scripts carry the parts that must be reproducible, and all three take local branches or SHAs
+as well as PR numbers, which is how `tests/cases/` proves them against fixture repos with no `gh`:
+
+- `scripts/list_candidates.sh` — `gh` JSON (or `--json <file>`) to one labeled line per field, with
+  a verdict per PR. Skips: changes requested, a `blocked`/`wip`/`do-not-merge` label, failing CI on
+  the head commit, a stacked parent that is not itself selected (to a fixpoint, so grandchildren
+  go too), and a base that is neither the target nor another candidate's head. **A draft is a
+  candidate** — unattended runs open drafts, and those are the PRs this gathers. `CI:none` is a
+  candidate too, and is carried through as its own class everywhere it is shown: the PR's own checks
+  never ran, so the gate on the combined tree is the only one its code has had.
+- `scripts/order_queue.sh` — the pairwise conflict matrix from `git merge-tree --write-tree`, and
+  the queue: stacked parents first, then what overlaps nothing, then the smallest overlapping, then
+  the oldest. It creates no commit and moves no ref, which the suite asserts by comparing
+  `for-each-ref` and the reachable commit count across a run.
+- `scripts/integration_state.sh` — the re-run's memory, read from git: `integrated` by ancestry,
+  `stale` when the PR grew, `rewritten` when it was force-pushed, and `unverified` when a leftover
+  pre-merge ref shows a merge whose gate never went green. Plus `MERGE_IN_PROGRESS` and how far base
+  has moved. Its refs are named after the lane's branch, because `refs/` lives in the git directory
+  every worktree shares — two lanes on one `refs/integrate/pre/21` would each delete the other's only
+  undo ref, and two lanes at once is a state the skill offers you.
+
+- **Refuses:** to push to, close, rebase or edit a source PR's branch — the only write is one
+  comment, after you confirm it; to squash or rebase anywhere; to take `--ours` or `--theirs`
+  wholesale, or drop a hunk; to merge the integration PR itself; to reset a merge that has already
+  been published, or to revert one (which would leave the source PR marked merged with its change
+  gone).
+- **Checkpoints:** two. The queue, before anything is created, and the pull request, before anything
+  outward-facing.
+- **Invokes:** `gantry:worktree` for the lane, the reviewer role for the resolutions,
+  `gantry:handover` for findings that belong to a source PR's author.
+- **Gate:** `lib/run_gates.sh --strict`, once as a baseline on the fresh lane and again after every
+  merge. Two fix attempts per PR, in **separate** commits, then the merge is reset out and the PR is
+  skipped with that reason. A gate exit `2` stops the run and does not count as an attempt.
+- **Detail:** `references/merge-loop.md` and `references/pr-body.md`.
+
+**There is no `--unattended` flag, and this is the same argument as `--autonomous`.** A flag that
+removes both checkpoints is one word away from a command you meant to supervise — and here the two
+decisions it would remove are the ones with the least recoverable consequences: which PRs to merge
+at all, and whether to publish a merge of other people's work. Conflict resolution is judgment
+about somebody else's intent, read out of a PR body they wrote; getting it wrong produces a tree
+that compiles and means something different. A headless variant is written up in the handover of
+the change that added this skill, not shipped as a flag.
+
+**Merge the integration PR with a merge commit.** Then every source PR's head reaches the base and
+GitHub marks those PRs merged by itself, drafts included — observed twice here, on PRs #11 and #4.
+A squash or rebase rewrites the commits, so none of them are marked and each has to be closed by
+hand. A stacked child may stay open even after a merge commit, because its base branch is its
+parent's; the body says so per PR.
+
 ## `/gantry:worktree` — open a lane
 
 `/gantry:worktree <branch>`
@@ -349,18 +414,25 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 | review | ~170 |
 | handover | ~130 |
 | ship | ~230 |
+| integrate | ~100 |
 | sync | ~220 |
 | worktree | ~70 |
 | preserve | ~190 |
 | prune-worktrees | ~110 |
 | the three agents | ~240 combined |
-| **total always-on** | **~2,024** |
+| **total always-on** | **~2,124** |
 
-**These are measured, not derived** — `claude --plugin-dir . plugin details gantry`, against the
-v0.5.1 tree. v0.2 published a figure scaled from v0.1's reading, which is exactly the kind of claim
-this project argues does not belong in prose; the number is now read from the tool and, more to the
-point, **enforced**: `scripts/context_budget.sh` runs in `scripts/verify.sh` and fails the build
-when the descriptions outgrow a declared ceiling.
+**These are measured, not derived** — `claude --plugin-dir . plugin details gantry`, against this
+tree (v0.5.1 plus `integrate`, which measured ~2,024 before it). v0.2 published a figure scaled from
+v0.1's reading, which is exactly the kind of claim this project argues does not belong in prose; the
+number is now read from the tool and, more to the point, **enforced**:
+`scripts/context_budget.sh` runs in `scripts/verify.sh` and fails the build when the descriptions
+outgrow a declared ceiling. Adding `integrate` landed exactly on the old ceiling of 6,250
+**characters** — the unit that check counts — so it was raised to 6,600, that measurement plus about
+5%, in the same commit as the skill. A ceiling with no headroom does not hold the cost down; it just
+means the next edit trims whichever description is easiest rather than whichever is least useful.
+The token figures in the table are a separate reading, from the CLI, and the ceiling is not derived
+from them.
 
 **The measuring tool itself has moved.** v0.3 was published at ~1,464; today's CLI reads that same
 v0.3 tree at ~1,927. So figures from different CLI versions do not compare. On one ruler, v0.5.1 is

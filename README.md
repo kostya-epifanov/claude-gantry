@@ -2,9 +2,9 @@
 
 [![version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fkostya-epifanov%2Fclaude-gantry%2Fmaster%2F.claude-plugin%2Fplugin.json&query=%24.version&label=version&color=blue)](https://github.com/kostya-epifanov/claude-gantry/releases)
 
-**A worktree-to-PR workflow for Claude Code.** Twelve skills that take a task from a fresh branch
+**A worktree-to-PR workflow for Claude Code.** Thirteen skills that take a task from a fresh branch
 through planning, a critique of that plan, implementation, an unskippable gate, review, and a pull
-request.
+request — and then merge the pull requests that piled up into one whose combined tree still passes.
 
 The design principle, and the reason this is a plugin rather than a prompt:
 
@@ -100,6 +100,11 @@ once before anything outward-facing, then commits, pushes, and opens the PR. Swa
 **The drivers contain no phase logic.** They invoke the same skills you would type. That is what
 keeps the three ways of running from drifting into three subtly different pipelines.
 
+Run several lanes and you end up with several pull requests, each checked only on its own.
+`/gantry:integrate` is the other end of that: it merges the ready ones into one integration branch,
+one PR at a time, resolving conflicts from what each PR is *for* and running your checks after every
+merge — so what you review is one pull request whose combined tree is green.
+
 ## The skills
 
 | Command | What it does |
@@ -113,6 +118,7 @@ keeps the three ways of running from drifting into three subtly different pipeli
 | `/gantry:review` | Independent review of the diff. Read-only; `--fix` applies what's in scope. |
 | `/gantry:handover` | Write `handover.md` — what this change deliberately left, and the next action. |
 | `/gantry:ship` | Advance one step toward a merged PR — commit, push, open PR. Idempotent. Reviews only with `--review`. |
+| `/gantry:integrate` | Merge the ready open PRs one at a time into one integration PR, checking the combined tree after each. |
 | `/gantry:sync` | Return to the base branch and bring it up to date. Refuses on a dirty tree. |
 | `/gantry:prune-worktrees` | Review stale or merged worktrees and remove the ones you approve. |
 | `/gantry:preserve` | Write a session handoff doc: decisions and why, dead ends, the exact next action. |
@@ -233,7 +239,8 @@ you can check the number yourself:
 claude plugin details gantry@claude-gantry
 ```
 
-v0.5.1 measures **~2,024 always-on tokens** for twelve skills and three agents.
+With `integrate` added, this tree measures **~2,124 always-on tokens** for thirteen skills and three
+agents — `integrate` is ~100 of it. v0.5.1 measured ~2,024 for twelve, on the same CLI.
 
 Read that against earlier figures with care, because the ruler moved. v0.3 published ~1,464, but
 the same v0.3 tree reads **~1,927** under today's CLI — the estimator changed, not the text. On one
