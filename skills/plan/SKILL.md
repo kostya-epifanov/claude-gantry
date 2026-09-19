@@ -1,8 +1,8 @@
 ---
 name: plan
 description: Write the task contract and the implementation plan — task.md and plan.md at the worktree root — asking whatever needs asking before any code is written. Use when the user types "/gantry:plan", or asks to plan a task, write a plan, or work out an approach before implementing.
-argument-hint: [task]
-allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Agent, AskUserQuestion
+argument-hint: [task] [--lead <session>]
+allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Agent, AskUserQuestion, SendMessage
 ---
 
 # gantry:plan
@@ -35,6 +35,12 @@ current data, which surface the change belongs on.
 
 Do **not** ask about things the repo answers. Read first, then ask about what reading cannot
 settle. One round of questions covering several forks beats a slow drip of one at a time.
+
+**If you were invoked with `--lead <session>`** (`gantry:auto` passes it through; strip it from the
+task), every question this skill asks goes to that lead instead, as a `fork`, following
+`$GANTRY/skills/auto/references/lead.md`. That covers step 1's question as well as step 6's round.
+Offer step 1's answers as `Revise`, `Replace` and `Leave it`, never `stop`, because a lead's `stop`
+ends the run. It applies from step 1, before `task.md` records the lead.
 
 If you are running with no human present (a sub-agent dispatched by `gantry:auto-unattended`), you
 cannot ask — and you must not answer it yourself either. Record every such fork under **Open
@@ -118,7 +124,8 @@ Then start from the template, in this order:
 2. otherwise `$GANTRY/skills/plan/templates/task.md`;
 3. otherwise the sections below, inline.
 
-Fill the frontmatter (`id`, `title`, `project`, `branch`, `mode`, `status: planning`) and these
+Fill the frontmatter (`id`, `title`, `project`, `branch`, `mode`, `status: planning`, and
+`lead: <session>` when you were given one) and these
 sections **from the task and the conversation, before studying code** — this is the task's intent,
 and it must not be shaped by what the code turns out to make convenient:
 

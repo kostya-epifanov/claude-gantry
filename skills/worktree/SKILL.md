@@ -47,6 +47,10 @@ Compare `git rev-parse --abbrev-ref HEAD` against the base branch.
 - **Different** → use **AskUserQuestion**: "You're on `<current>`, not `<base>`. Branch from
   `<current>`, or from `<base>`?" List `<base>` first as the recommended option. The answer is `$PARENT`.
 
+  If the caller said the run is under `--lead <session>`, put this question to the lead instead, as
+  a `fork`, following `$GANTRY/skills/auto/references/lead.md`. `task.md` does not exist yet to
+  carry the lead, so the caller's word is the only signal.
+
 ### 5. Update the parent
 
 ```bash
