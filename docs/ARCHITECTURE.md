@@ -12,7 +12,7 @@ gantry/
 ├── .claude-plugin/
 │   ├── plugin.json          name: gantry  → the /gantry: namespace
 │   └── marketplace.json     name: claude-gantry, one plugin, source "./"
-├── skills/<name>/SKILL.md   → /gantry:<name>          (12)
+├── skills/<name>/SKILL.md   → /gantry:<name>          (13)
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             skill-local deterministic work, run not read
 │   └── templates/           the task.md fallback
@@ -80,6 +80,15 @@ flowchart TB
 The **drivers** own three things and nothing else: which mode is running, when to pause, and which
 phase skill runs next. Everything a phase actually *does* lives in the phase skill, which is why the
 three ways of running cannot drift into three pipelines.
+
+`integrate` starts where `ship` stops. Run several lanes and the result is several pull requests,
+each checked only against the base it was cut from, so nothing has yet checked them *together*. It
+merges the ready ones into one `integration/<date>` branch, one at a time with the gate after each
+merge, and opens a single pull request. It reuses `ship`'s `detect_state.sh` for the base and the
+PR's status, `worktree` for the lane, the reviewer role for the resolutions, and `handover` for
+findings that belong to a source PR's author — the same rule as the drivers: orchestrate the
+existing skills, own only what is new. What is new is three scripts and the merge order they
+compute.
 
 `sync` closes the loop the other way: it returns you to the base branch, then hands off to
 `prune-worktrees` to remove the lanes the merge just made redundant. `preserve` sits outside the
