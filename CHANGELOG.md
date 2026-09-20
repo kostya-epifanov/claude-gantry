@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 **A lead session can steer `/gantry:auto` lanes by message.** Every question in the supervised chain
 was an `AskUserQuestion` dialog: the two checkpoints, the fork rounds, and the questions the phases
