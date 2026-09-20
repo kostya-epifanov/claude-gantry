@@ -88,6 +88,27 @@ for f in agents/*.md; do
   [ "$got" = "$n" ] && ok "$n" || bad "$n (frontmatter says '$got')"
 done
 
+head2 "skills that follow the lead protocol may use its tools"
+# Under `/gantry:auto --lead`, a skill that would ask a question sends it with
+# SendMessage and writes the reply to a file with Write before classifying it
+# (skills/auto/references/lead.md). A skill's allowed-tools RESTRICTS what is
+# permitted while it runs, so a skill that points at the protocol but omits
+# either tool cannot follow it — and the failure appears only mid-run, inside
+# that one phase, with a lead waiting. plan-grill shipped without Write for
+# exactly this reason until a critique caught it. `claude plugin validate` is
+# skipped where the CLI is absent (CI), so this is the check that holds there.
+#
+# A skill with no allowed-tools line is unrestricted and passes.
+while IFS= read -r f; do
+  tools="$(sed -n 's/^allowed-tools:[[:space:]]*//p' "$f" | head -1)"
+  [ -n "$tools" ] || { ok "$f (unrestricted)"; continue; }
+  missing=''
+  for t in SendMessage Write; do
+    printf '%s' ", $tools," | grep -qE ",[[:space:]]*${t}[[:space:]]*," || missing="$missing $t"
+  done
+  [ -z "$missing" ] && ok "$f" || bad "$f references the lead protocol but allowed-tools lacks:$missing"
+done < <(repo_files -z 'skills/*/SKILL.md' | xargs -0 grep -l 'references/lead\.md' 2>/dev/null)
+
 head2 "no line-number citations (they rot on the first edit)"
 out="$(repo_files '*.md' -z | xargs -0 grep -InE '\.md:[0-9]+' 2>/dev/null)"
 [ -z "$out" ] && ok "none" || { bad "line-number citations found"; printf '%s\n' "$out"; }

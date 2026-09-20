@@ -43,6 +43,11 @@ Semi-auto has no driver skill — it *is* the phase skills, typed in order:
 **The gate is a hard blocker in all three.** Unattended removes the human checkpoints; it never
 removes the gate. That is the whole design: model for judgment, script for the guarantee.
 
+`gantry:auto --lead <session>` is not a fourth mode. It is supervised `gantry:auto` with a different
+answerer: every question goes to a lead session by message rather than to a dialog, and every row
+above still reads `gantry:auto` — the gate is still a hard blocker, a red gate still stops, the PR
+is still ready. See *Lead mode* below.
+
 ### Why unattended is a separate skill, not a flag
 
 It was `--autonomous` in v0.1. A flag that silently removes every checkpoint is too easy to add to
@@ -60,6 +65,7 @@ parser — read it yourself. Strip the recognised flags out; what remains, clean
 | `--branch <name>` | Use this exact branch name instead of deriving one from the task. |
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. Refuses on the repo default branch or a detached HEAD. |
 | `--base <branch>` | Override the PR base branch. Passed through to `gantry:ship` (and its detector). |
+| `--lead <session>` | **`gantry:auto` only.** Every question the run would ask in a dialog goes to that lead session by `SendMessage`, and only a narrow reply vocabulary is accepted. Protocol: `references/lead.md`. `gantry:auto-unattended` refuses the flag. |
 
 Everything not a flag is the task. If nothing remains after stripping them, stop and ask what the
 task is — except under `gantry:auto-unattended`, where there is nobody to ask: stop and report.
@@ -165,6 +171,19 @@ Two, both **AskUserQuestion** so the user can redirect in one step:
 No checkpoint between implement and gate — the gate is the check there, and it is automatic. There
 is deliberately no checkpoint after grill on its own: grill's whole job is to make the plan worth
 approving, so the approval belongs after it, not either side of it.
+
+### Lead mode
+
+Under `gantry:auto --lead <session>`, both checkpoints, both fork rounds, and the questions the
+phases ask themselves are put to the lead with `SendMessage` instead of `AskUserQuestion`.
+`references/lead.md` is the whole protocol, and every asking phase points at it: which questions it
+replaces and of which kind, what the message carries, how a reply is classified by
+`lib/lead_reply.sh` rather than read, what a lead may decide and what stays the owner's, and how the
+run leaves lead mode.
+
+The lead reaches the phases the way the task does. Before `task.md` exists the driver passes it as an
+argument (`gantry:worktree`, `gantry:plan`). After that it is a `lead:` line in `task.md`'s
+frontmatter, which the driver removes whenever the run ends.
 
 ## Gate resolution
 

@@ -12,15 +12,16 @@ gantry/
 ├── .claude-plugin/
 │   ├── plugin.json          name: gantry  → the /gantry: namespace
 │   └── marketplace.json     name: claude-gantry, one plugin, source "./"
-├── skills/<name>/SKILL.md   → /gantry:<name>          (12)
+├── skills/<name>/SKILL.md   → /gantry:<name>          (13)
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             skill-local deterministic work, run not read
 │   └── templates/           the task.md fallback
-├── lib/                     shared runtime scripts     (5)
+├── lib/                     shared runtime scripts     (6)
 │   ├── run_gates.sh         the one hard gate
 │   ├── gate_coverage.sh     what the gate actually read — reported, never enforced
 │   ├── detect_stage.sh      where a task sits on the chain
 │   ├── journal_append.sh    argv → one journal.jsonl line
+│   ├── lead_reply.sh        a lead's reply → one accepted token, or rejected
 │   └── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
 ├── agents/gantry-*.md       → the delegation roster    (3)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
@@ -42,8 +43,15 @@ no refusal.
 `journal_append.sh` and `ensure_excluded.sh` exist for a narrower reason: a worktree-isolated
 session refuses a command it cannot verify stays inside the worktree — no substitutions, no
 compound structure — so an orchestrator cannot build a JSON line or do a read-then-append in its
-own argv. Moving that into a script is the only way to keep the caller's command flat. Neither is
-a framework; all five are argv-in, contract-out.
+own argv. Moving that into a script is the only way to keep the caller's command flat.
+
+`lead_reply.sh` is the same move made for a different hazard. Under `gantry:auto --lead`, a lead's
+reply is relayed text, and the option labels are often quoted from a plan. So both reach the script
+as files the caller wrote with its Write tool, never as argv. Only flags go on the command line.
+The script's exit code, not the model's reading of the reply, decides whether the reply answered
+anything.
+
+None of them is a framework; all six take flags in and return a contract.
 
 A skill body enters the conversation when it fires and **stays there for the rest of the session**.
 That is why detail lives in `references/` (loaded only when the skill says to read it) and why
@@ -80,6 +88,15 @@ flowchart TB
 The **drivers** own three things and nothing else: which mode is running, when to pause, and which
 phase skill runs next. Everything a phase actually *does* lives in the phase skill, which is why the
 three ways of running cannot drift into three pipelines.
+
+`integrate` starts where `ship` stops. Run several lanes and the result is several pull requests,
+each checked only against the base it was cut from, so nothing has yet checked them *together*. It
+merges the ready ones into one `integration/<date>` branch, one at a time with the gate after each
+merge, and opens a single pull request. It reuses `ship`'s `detect_state.sh` for the base and the
+PR's status, `worktree` for the lane, the reviewer role for the resolutions, and `handover` for
+findings that belong to a source PR's author — the same rule as the drivers: orchestrate the
+existing skills, own only what is new. What is new is three scripts and the merge order they
+compute.
 
 `sync` closes the loop the other way: it returns you to the base branch, then hands off to
 `prune-worktrees` to remove the lanes the merge just made redundant. `preserve` sits outside the

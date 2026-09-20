@@ -2,7 +2,7 @@
 name: plan-grill
 description: Attack the plan before the code is written — a fresh critic sub-agent reads task.md and plan.md cold and hunts for the assumptions, unfalsifiable criteria, and missing steps that would surface halfway through implementing. Use when the user types "/gantry:plan-grill", or asks to review, critique, stress-test, or poke holes in a plan.
 argument-hint: ""
-allowed-tools: Bash, Read, Edit, Skill, Agent, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion, SendMessage
 ---
 
 # gantry:plan-grill
@@ -74,6 +74,8 @@ Findings are input, not verdicts. Read each one against the repo and decide:
   useful result, not a failure — say so rather than manufacturing changes to look busy.
 
 Where a finding turns on a decision only the user can make, ask — **AskUserQuestion**, one round.
+If `task.md`'s frontmatter names a `lead:`, put this question to the lead instead, as a `fork`,
+following `$GANTRY/skills/auto/references/lead.md`.
 
 With no human present, the answer depends on what kind of finding it is:
 

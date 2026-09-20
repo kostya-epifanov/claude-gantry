@@ -10,8 +10,8 @@ bash scripts/verify.sh
 
 That is shell syntax and shellcheck, manifest and frontmatter validation, link checking, the
 always-on context budget, drift checks between files that must agree (the hook's and detector's
-frontmatter parsers, the task template and its example), the fixture test suite, and the secret
-scan. CI runs the same script, so a green local run means a green CI run.
+frontmatter parsers, the task template and its example), the tools a skill needs to follow the lead
+protocol (`SendMessage` and `Write`), the fixture test suite, and the secret scan. CI runs the same script, so a green local run means a green CI run.
 
 CI runs one check `verify.sh` cannot: `scripts/check_pr_body.sh`, over the pull request body, which
 does not exist until you open one. **Do not hard-wrap that body.** GitHub renders it in comment

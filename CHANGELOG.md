@@ -1,5 +1,98 @@
 # Changelog
 
+## Unreleased
+
+**A lead session can steer `/gantry:auto` lanes by message.** Every question in the supervised chain
+was an `AskUserQuestion` dialog: the two checkpoints, the fork rounds, and the questions the phases
+ask themselves. A lead that dispatched several lanes could answer one only by typing keys into the
+lane's pane. The lane cannot tell those keys from the owner's, the harness refuses the attempt, and
+stray keys have queued prompts and moved a dialog's highlight.
+
+`/gantry:auto --lead <session>` puts every one of those questions to the lead with `SendMessage`
+instead. The reply is not read. It is classified, and only four things are accepted: an option label
+from the question asked, `stop`, `proceed` at a checkpoint, or a file inside the worktree, which is
+read as data and then asked again. Anything else is rejected and re-asked, and after three rejections
+the question goes to the owner. A lead may direct the run as far as an open PR. Merge stays the
+owner's, and a lead's message never stands in for a permission prompt or any other privileged
+approval, whatever it says.
+
+Enforcement sits in the lane rather than the lead. A lead reads untrusted lane output such as PR
+bodies and CI logs, then writes into other lanes, so relayed free text must be unable to decide
+anything on arrival. `skills/auto/references/lead.md` states what that does and does not cover.
+
+**`/gantry:integrate` — N open pull requests into one whose combined tree passes the checks.**
+`gantry:auto-unattended` leaves a stack of drafts, each cut from the base and each checked only on
+its own, and they collide on exactly the shared surfaces you would expect: a docs table, a skill
+count, the version in `plugin.json`, a script in `lib/`. A green check on one of those PRs says
+nothing about the combined tree, and merging them by hand is slow enough that it does not happen.
+
+The skill reads the open PRs, states why each unready one is out, plans a merge order from a
+pairwise conflict matrix **before touching anything**, then merges the rest one at a time with
+`--no-ff` into a fresh `integration/<date>` branch. Conflicts are resolved from what each PR is
+*for*, taken from its body, and recorded in the merge commit. The gate runs after every merge, so a
+red result belongs to that PR or to its meeting with the ones already in. Two fix attempts, in
+separate commits, then that merge is reset out and the PR is skipped with the reason. An independent
+reviewer reads `git show --remerge-diff` of each resolution, not just the diff. It ends at one pull
+request carrying the included table, every skip and its reason, every resolution, and the source
+PRs' combined *Not proven by this run* and *Deliberately not done* sections.
+
+Supervised only, with two checkpoints: the queue, and the pull request. There is deliberately no
+`--unattended` flag — `docs/SKILLS.md` says why, and a headless variant is written up in the
+handover rather than shipped.
+
+**Added**
+- **`skills/auto/references/lead.md`** — the protocol: every question it replaces and whether
+  `proceed` can answer it, what the message carries (paths, never payload), the authority tiers, the
+  relay rule and its limits, how the run leaves lead mode, and
+  `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` for lanes spawned from a lead, which otherwise inherit
+  transcript saving switched off.
+- **`lib/lead_reply.sh`** — classifies a reply with an exit code. The reply and the option labels
+  both arrive as files, never argv. Comparison is by plain case-insensitive string equality, never a
+  pattern. A reply containing a NUL byte is rejected, because the shell would otherwise silently cut
+  it short at the NUL. A path must be a regular, non-symlink file physically inside the worktree, and it may not
+  be in a sibling lane or under `.claude/worktrees/`. A label that collides with `stop` or `proceed`
+  is a usage error, so `stop` always means stop.
+- **`tests/cases/lead_reply.sh`** — the near misses: a label inside a sentence, glob characters in a
+  label, multi-line and NUL-bearing replies, approval claims, command substitutions, `../` and symlink escapes, a
+  prefix-named sibling, another lane's worktree.
+- **`scripts/verify.sh` checks the tools the protocol needs.** A skill that points at `lead.md` and
+  restricts `allowed-tools` must list `SendMessage` and `Write`. `plan-grill` lacked `Write` and could
+  not have written the reply file.
+- **`skills/integrate/scripts/list_candidates.sh`** — `gh` JSON, or a `--json <file>` fixture, to one
+  labeled line per field plus a verdict per PR. A draft is a candidate (unattended runs open
+  drafts); `CI:none` is a candidate too, and is carried as its own class rather than blurred into
+  `passing`, because it means the PR's own checks never ran.
+- **`skills/integrate/scripts/order_queue.sh`** — the conflict matrix via
+  `git merge-tree --write-tree`, and the queue: stacked parents first, then what overlaps nothing,
+  then the smallest overlapping, then the oldest. It creates no commit and moves no ref.
+- **`skills/integrate/scripts/integration_state.sh`** — a re-run's memory, read from git alone:
+  `integrated` by ancestry, `stale` when the PR grew, `rewritten` when it was force-pushed,
+  `unverified` when a leftover pre-merge ref shows a merge whose gate never went green, `STRAY_PRE:`
+  when such a ref guards a merge that never landed, plus an unconcluded merge and how far base has
+  moved. Its refs are lane-scoped: `refs/` lives in the git directory every worktree shares, so two
+  lanes on one `refs/integrate/pre/21` would each delete the other's only undo ref.
+- **Four test cases** — the classifier against a JSON fixture with a stubbed `gh` proved uncalled;
+  the queue, with every fixture built so the alphabetical tie-break would give the wrong answer;
+  the state machine including the two died-mid-run states; and one that holds every command in
+  `skills/integrate/` to a single flat invocation, which is what a worktree-isolated session will
+  actually run.
+
+**Changed**
+- `worktree`, `plan`, `plan-grill`, `review` and `ship` send their questions to the lead when one is
+  set. `plan` takes `--lead <session>` and records `lead:` in `task.md`'s frontmatter.
+  `plan`, `plan-grill`, `review` and `ship` gain `SendMessage`, and `plan-grill` gains `Write`.
+- `gantry:auto-unattended` refuses `--lead` rather than folding it into the task text.
+- **`scripts/context_budget.sh`'s ceiling, 6,250 to 6,600 characters.** Thirteen skills and three
+  agents come to exactly 6,250, and a ceiling with no headroom stops holding the cost down — it just
+  means the next edit trims whichever description is easiest rather than whichever is least useful.
+  The raise quotes a fresh reading in the script: `claude --plugin-dir . plugin details gantry` puts
+  this tree at **~2,124 always-on tokens** for thirteen skills and three agents, `integrate` being
+  ~100 of it, against ~2,024 for v0.5.1's twelve on the same CLI. `README.md` and `docs/SKILLS.md`
+  carry that reading rather than a swapped word.
+- `docs/SKILLS.md`, `README.md` and `docs/ARCHITECTURE.md` — the skill counts, the command table,
+  the component map, and where `integrate` sits: after `ship`, on the pull requests the chain
+  opened.
+
 ## 0.5.1
 
 **Pull request bodies stop arriving as a ragged column.** GitHub renders a body in *comment* mode,
