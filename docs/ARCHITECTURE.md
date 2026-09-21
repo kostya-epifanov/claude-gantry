@@ -129,6 +129,34 @@ One consequence worth stating, because it is easy to get backwards: a skill's `a
 carries `Agent` not because it dispatches phases, but because the phases it invokes dispatch their
 own agents, and a tool the driver has not allowed is one the phase cannot reach.
 
+Drawn out, with the two checkpoints `auto` adds and where each phase's sub-job goes:
+
+```mermaid
+flowchart TD
+  E["/gantry:auto<br/>/gantry:auto-unattended"] --> W["gantry:worktree"]
+  subgraph D ["the driver invokes each phase skill in turn"]
+    P["/gantry:plan"] --> G["/gantry:plan-grill"]
+    G --> I["/gantry:implement"]
+    I --> GATE{"gate<br/>--strict when unattended"}
+    GATE -- "red" --> I
+    GATE -- "green" --> R["/gantry:review"]
+  end
+  subgraph AG ["each phase delegates its sub-job to a read-only agent"]
+    EX(["gantry-explorer"])
+    C(["gantry-critic"])
+    RV(["gantry-reviewer"])
+  end
+  P -. "when the surface is wide" .-> EX
+  G -. "always" .-> C
+  R -. "if /code-review is absent" .-> RV
+  W --> P
+  G -.- K1{{"auto pauses here:<br/>confirm the plan"}}
+  R -.- K2{{"auto pauses here:<br/>confirm the PR"}}
+  R --> S["gantry:ship"]
+  S --> A(["auto → ready PR"])
+  S --> U(["auto-unattended → draft PR"])
+```
+
 ## ship is a stage machine
 
 `ship` is idempotent because it does not track where it is; it **detects** where it is, every
@@ -250,7 +278,8 @@ reuses the hook's own frontmatter parser byte for byte so the two cannot disagre
 
 ## The readiness hook
 
-Three things about it are easy to get wrong:
+What it writes, how to tell whether it is registered and whether it ran, its honest limit and its
+history are in [HOOK.md](HOOK.md). Three things about its implementation are easy to get wrong:
 
 1. **Loop termination is `stop_hook_active`, and nothing else.** The harness sets it true on a stop
    that was itself caused by a previous block. The hook defers unconditionally when it is true — or
