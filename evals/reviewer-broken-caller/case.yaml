@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: reviewer-broken-caller
+description: A change updates one of two callers. The stale one is not in the diff, only in the tree. Seeded.
+tags: [reviewer, seeded]
+context:
+  add_dirs: [fixture-reviewer-broken-caller]
+execution:
+  max_turns: 20
+  timeout_seconds: 900
+  allowed_tools: [Read, Grep, Glob, Agent]

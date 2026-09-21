@@ -119,6 +119,7 @@ keeps the three ways of running from drifting into three subtly different pipeli
 
 Full reference: [docs/SKILLS.md](docs/SKILLS.md). The argument behind the design:
 [docs/METHOD.md](docs/METHOD.md). How the pieces fit: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+How the agents are scored rather than argued about: [docs/EVALS.md](docs/EVALS.md).
 
 ## The artifacts
 

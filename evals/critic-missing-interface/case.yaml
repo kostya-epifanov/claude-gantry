@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: critic-missing-interface
+description: A plan step calls a helper the fixture's source does not have. Seeded.
+tags: [critic, seeded]
+context:
+  add_dirs: [fixture-critic-missing-interface]
+execution:
+  max_turns: 12
+  timeout_seconds: 600
+  allowed_tools: [Read, Grep, Glob, Agent]
