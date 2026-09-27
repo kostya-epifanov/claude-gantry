@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: reviewer-clean-change
+description: A small correct refactor with every caller updated. The control half — a reviewer that always finds something fails here.
+tags: [reviewer, control]
+context:
+  add_dirs: [fixture-reviewer-clean-change]
+execution:
+  max_turns: 20
+  timeout_seconds: 900
+  allowed_tools: [Read, Grep, Glob, Agent]
