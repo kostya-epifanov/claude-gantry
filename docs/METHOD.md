@@ -127,6 +127,9 @@ reason.** A bypass is not prevented; it is made visible after the fact. For a to
 is that you can trust what it reports, an audit trail you can grep is worth more than a stronger
 claim you cannot back.
 
+The operational side of all this, what the hook writes and how to read the log, is collected in
+[HOOK.md](HOOK.md). Two of its answers belong here too, because both were got wrong in print.
+
 There is a related question the log is often reached for and cannot answer: "is the hook even
 registered here?" The obvious check is wrong — **gantry registers the hook at *plugin* level,
 through the plugin's own `hooks/hooks.json`, so grepping `settings.json` for it finds nothing

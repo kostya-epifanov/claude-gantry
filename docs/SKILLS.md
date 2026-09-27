@@ -457,8 +457,10 @@ from them.
 **The measuring tool itself has moved.** v0.3 was published at ~1,464; today's CLI reads that same
 v0.3 tree at ~1,927. So figures from different CLI versions do not compare. On one ruler, v0.5.1 is
 about 100 tokens (~5%) above v0.3, more than half of it `review`, whose description gained `--fix`
-and `--tier` in 0.4.1. The budget check counts characters, so it catches the text growing but not
-the estimator changing — the latter is what made the previous table stale.
+and `--tier` in 0.4.1 — which matches the ~5% the description text itself grew. The budget check
+counts characters, so it catches the text growing but not the estimator changing — the latter is
+what made the previous table stale. Re-measure rather than trusting any figure here, this one
+included.
 
 The phase skills carry deliberately terse descriptions, because the drivers and the standalone
 skills are what you actually invoke by name; a phase is usually reached by typing the chain or by a

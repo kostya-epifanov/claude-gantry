@@ -2,18 +2,25 @@
 
 [![version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fkostya-epifanov%2Fclaude-gantry%2Fmaster%2F.claude-plugin%2Fplugin.json&query=%24.version&label=version&color=blue)](https://github.com/kostya-epifanov/claude-gantry/releases)
 
-**A worktree-to-PR workflow for Claude Code.** Thirteen skills that take a task from a fresh branch
-through planning, a critique of that plan, implementation, an unskippable gate, review, and a pull
-request — and then merge the pull requests that piled up into one whose combined tree still passes.
+**Your agent says the tests pass. gantry runs them anyway, and won't let it finish until they do.**
+
+A worktree-to-PR workflow for Claude Code: thirteen skills that take a task from a fresh branch
+through a plan, a critique of that plan, implementation, a gate, an independent review, and a pull
+request. Then it merges the pull requests that piled up into one whose combined tree still passes.
 
 The design principle, and the reason this is a plugin rather than a prompt:
 
 > **Model for judgment, script for the guarantee.**
 
-Planning, implementing, and fixing are judgment — the model is good at them. But *"never push if
-the checks are red"* is not a promise prose can keep; a model can always talk itself past a
-sentence. So that one guarantee lives in a shell script's exit code, and an optional `Stop` hook
-enforces it from outside the conversation, where the model cannot decline it.
+Planning, implementing and fixing are judgment, and the model is good at them. *"Never push if the
+checks are red"* is not a promise prose can keep; a model can always talk itself past a sentence.
+So that one rule lives in a shell script's exit code, and a `Stop` hook re-runs the script from
+outside the conversation, where the model cannot decline it.
+
+<!-- DEMO: 30–60s recording: /gantry:auto on a real repo → gate goes red → agent fixes → gate green → PR opens
+     Once docs/assets/demo.gif exists, replace this comment with:
+     ![/gantry:auto: the gate goes red, the agent fixes it, the gate goes green, the PR opens](docs/assets/demo.gif)
+-->
 
 ## Install
 
@@ -22,20 +29,38 @@ enforces it from outside the conversation, where the model cannot decline it.
 /plugin install gantry@claude-gantry
 ```
 
-Nothing else to configure. Skills, the sub-agent roster, and the readiness hook all ship together.
 Requirements: `bash` and `git`. `gh` is optional (without it, `ship` prints the `gh pr create`
-command for you to run); `jq` is recommended.
+command for you); `jq` is recommended. Skills, agents and the hook ship together.
+
+## Quickstart
+
+1. Install, as above.
+2. Copy [examples/gates.sh](examples/gates.sh) to `.claude/gates.sh` in your repo and put your
+   real checks in it. That file *is* the gate, its exit code is used verbatim, and creating it is
+   the opt-in that arms the hook.
+3. Give it a small task:
+
+   ```
+   /gantry:auto add a dark-mode toggle to settings
+   ```
+
+4. It pauses twice. **After the plan has been grilled** it shows the plan, what the critique
+   changed, and the branch and worktree it created, and asks whether to proceed. **After the
+   review**, with the gate green, it asks once more before it commits, pushes, and opens the PR.
+   A genuine design fork in the plan is put to you as well, before any code is written.
+5. The PR opens ready for review, its body quoting the contract the change was built against and
+   anything the review deliberately left out.
+
+Without `.claude/gates.sh`, gantry auto-detects checks (JS, Dart/Flutter, Python, Cargo, Go, a
+Makefile `test` target). If it finds none, a supervised run continues and says so; an unattended
+run refuses to push.
 
 ## The chain
 
-One chain of phases, run three ways. Each phase is its own skill, so you can type them yourself,
-have one command drive them, or hand the whole thing over.
-
-### Driving it yourself
-
-Type the phases in order. Stop wherever you like, iterate with Claude without any skill at all,
-then pick the chain back up — every phase works out where things stand by reading the repo, not by
-remembering the conversation.
+One chain of phases, three ways to run it: type each phase yourself, let `/gantry:auto` drive them
+with two pauses, or hand the whole thing to `/gantry:auto-unattended` and get a draft PR. Every
+phase works out where things stand by reading the repo, not the conversation, so you can stop,
+iterate by hand, and pick the chain back up.
 
 ```mermaid
 flowchart TD
@@ -54,57 +79,15 @@ flowchart TD
   PW --> W
 ```
 
-### Handing it over
+**The drivers contain no phase logic.** They invoke the same skills you would type, so the three
+ways of running cannot drift into three pipelines. Delegation happens inside the phases, to agents
+that are read-only by tool list: `plan` may dispatch an explorer, `plan-grill` always dispatches a
+fresh critic, `review` dispatches an independent reviewer. Who dispatches whom, as a diagram:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#skills-carry-the-procedure-agents-carry-the-boundary).
 
-`/gantry:auto` runs the same phases — invoking each phase skill in turn — and pauses twice for you.
-`/gantry:auto-unattended` runs them with nobody watching and stops at a draft PR. Delegation happens
-inside the phases, where each sub-job gets a read-only agent scoped to it.
-
-```mermaid
-flowchart TD
-  E["/gantry:auto<br/>/gantry:auto-unattended"] --> W["gantry:worktree"]
-  subgraph D ["the driver invokes each phase skill in turn"]
-    P["/gantry:plan"] --> G["/gantry:plan-grill"]
-    G --> I["/gantry:implement"]
-    I --> GATE{"gate<br/>--strict when unattended"}
-    GATE -- "red" --> I
-    GATE -- "green" --> R["/gantry:review"]
-  end
-  subgraph AG ["each phase delegates its sub-job to a read-only agent"]
-    EX(["gantry-explorer"])
-    C(["gantry-critic"])
-    RV(["gantry-reviewer"])
-  end
-  P -. "when the surface is wide" .-> EX
-  G -. "always" .-> C
-  R -. "if /code-review is absent" .-> RV
-  W --> P
-  G -.- K1{{"auto pauses here:<br/>confirm the plan"}}
-  R -.- K2{{"auto pauses here:<br/>confirm the PR"}}
-  R --> S["gantry:ship"]
-  S --> A(["auto → ready PR"])
-  S --> U(["auto-unattended → draft PR"])
-```
-
-So most work is one command:
-
-```
-/gantry:auto add a dark-mode toggle to settings
-```
-
-That creates a worktree and branch, plans, has a fresh critic attack the plan, asks you to confirm,
-implements, runs your repo's checks as a hard blocker, gets an independent review of the diff, asks
-once before anything outward-facing, then commits, pushes, and opens the PR. Swap in
-`/gantry:auto-unattended` to run it headless to a draft PR; add `--no-pr` to stop after the push,
-or `--lead <session>` to put its questions to a lead session by message instead of a dialog.
-
-**The drivers contain no phase logic.** They invoke the same skills you would type. That is what
-keeps the three ways of running from drifting into three subtly different pipelines.
-
-Run several lanes and you end up with several pull requests, each checked only on its own.
-`/gantry:integrate` is the other end of that: it merges the ready ones into one integration branch,
-one PR at a time, resolving conflicts from what each PR is *for* and running your checks after every
-merge — so what you review is one pull request whose combined tree is green.
+Run several lanes and you get several pull requests, each checked only on its own.
+`/gantry:integrate` merges the ready ones into one integration branch, one PR at a time, resolving
+conflicts from what each PR is *for* and running your checks after every merge.
 
 ## The skills
 
@@ -127,32 +110,9 @@ merge — so what you review is one pull request whose combined tree is green.
 Full reference: [docs/SKILLS.md](docs/SKILLS.md). The argument behind the design:
 [docs/METHOD.md](docs/METHOD.md). How the pieces fit: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## The artifacts
-
-Three files land at the worktree root. They are **not committed** — they are the run's working
-state, not the change — so they stay out of your diff and out of your base branch. What a reviewer
-needs from them arrives another way: `/gantry:ship` quotes the contract and the handover into the
-pull request body.
-
-| File | Written by | Answers |
-|---|---|---|
-| `task.md` | `/gantry:plan` | what this is, when it's done, what it deliberately isn't |
-| `plan.md` | `/gantry:plan`, revised by `/gantry:plan-grill` | what the change was supposed to be |
-| `handover.md` | `/gantry:handover` | what this change left alone, and why |
-
-They are also how the chain survives you leaving it. `task.md`'s `status:` is the phase marker, and
-every skill reads it from disk — so a fresh session, a sub-agent, and a resumed conversation all
-reach the same answer about where the work stands.
-
-The exclusion is asserted in `.git/info/exclude`, which is untracked, so gantry never edits a
-tracked file of yours to do it. The patterns are anchored (`/task.md`), so a `docs/task.md` of your
-own is left alone. **Upgrading from 0.4.x?** Your base branch may still carry a `task.md` and
-`plan.md` that an older gantry committed; remove them from the index once and the chain stops
-inheriting them.
-
 ## The gate
 
-Everything hinges on one script, `run_gates.sh`, whose **exit code is the contract**:
+Everything hinges on one script, `lib/run_gates.sh`, whose **exit code is the contract**:
 
 | Exit | Meaning | Consequence |
 |---|---|---|
@@ -161,113 +121,87 @@ Everything hinges on one script, `run_gates.sh`, whose **exit code is the contra
 | `2` | the gate could not run | stop and report — not a failed check, a broken environment |
 | `3` | no checks found, under `--strict` | **stop; refuse to push** |
 
-It resolves what to run in three tiers:
-
-1. **`.claude/gates.sh` in your repo, if present — that file *is* the gate**, and its exit code is
-   used verbatim. This is how you reproduce your real CI and override every heuristic.
-2. Otherwise it auto-detects checks (JS lint/typecheck/build/test, Dart/Flutter, Python, Cargo,
-   Go, a Makefile `test` target) at the repo root **and** in each subproject a bounded scan finds,
-   so a monorepo with manifests in subdirectories is covered rather than missed.
-3. Otherwise it prints `NO-GATES`.
-
-`NO-GATES` is treated differently by mode on purpose: **supervised** continues but says plainly
-that the run had no enforced checks; **unattended** refuses to push. With nobody watching, code
-that ran zero checks must not reach a PR.
-
-Arming it properly takes one file — see [examples/gates.sh](examples/gates.sh).
+Three tiers decide what runs. **`.claude/gates.sh` in your repo, if present, is the gate**; this is
+how you reproduce your real CI. Otherwise auto-detected checks, at the repo root and in each
+subproject a bounded scan finds. Otherwise `NO-GATES`: a supervised run passes and says nothing was
+enforced; an unattended run (`--strict`) refuses.
 
 ## The readiness hook
 
-`run_gates.sh` is a rule the orchestrator follows. The hook is what makes it a rule the model
-**cannot** skip: registered on `Stop` and `SubagentStop`, it re-runs the gate out of band and
-blocks the stop with exit 2 when the tree is red.
+The gate script is a rule the chain follows. The hook makes it a rule the model **cannot** skip.
+Registered on `Stop` and `SubagentStop`, it re-runs the gate out of band when the model tries to
+end its turn, and blocks the stop while the tree is red.
 
-**It installs registered but inert** — and *registered* is worth being precise about, because it is
-the thing people most often check for and get wrong. **Grepping `settings.json` will not find it.**
-gantry registers the hook at *plugin* level, in the plugin's own `hooks/hooks.json`, so a search of
-your project or user settings finds nothing and proves nothing: it is neither evidence that the
-hook is absent nor that it is present. What does settle it is `/plugin`, which shows whether gantry
-is installed and enabled.
-
-`.claude/artifacts/gate-hook.log` answers the narrower question of whether the hook *ran* — but
-only in a repo that has already opted in. In a repo with both `task.md` and `.claude/gates.sh`,
-every invocation appends a line, fire or skip, so an empty log after a stop means the hook did not
-run. **Before the opt-in it proves nothing:** the hook tests for those two files first and exits
-without creating `.claude/artifacts/` at all, so a missing log there is the designed behaviour of a
-registered hook, not evidence of an absent one. That is exactly the repo a reader checking this
-usually has.
-
-The same limit applies to `lib/detect_stage.sh`. Its `HOOK:` line reports
-`conditions-met`/`conditions-unmet`, which is the *firing conditions* below and nothing more; the
-script cannot see registration, which is why the value does not claim to.
-
-It fires only when all three hold:
+It installs registered but inert, and fires only when all three hold:
 
 1. `task.md` exists at the repo root, **and**
 2. `.claude/gates.sh` exists at the repo root, **and**
 3. `task.md`'s frontmatter says exactly `status: implementing`.
 
-None of those appear by accident — **creating `.claude/gates.sh` is the opt-in.** Outside that
-window it parses stdin, makes two file tests, and exits 0 with no perceptible delay.
+None of those appear by accident. **Creating `.claude/gates.sh` is the opt-in.** Outside that
+window the hook makes two file tests and exits 0, touching nothing.
 
-Since v0.2 every mode writes `task.md`, so the hook arms in all three. In v0.1 only the delegated
-pipeline wrote one, which meant the headline skill's gate was never actually enforced — the guard
-was real, but nothing had switched it on.
+**Its honest limit.** The trigger is `task.md`'s `status:`, a file the model can write, so *"the
+model cannot bypass the gate"* is approximately, not exactly, true. The mitigation is that every
+invocation in an armed repo is logged to `.claude/artifacts/gate-hook.log`, so a bypass is visible
+after the fact rather than silent.
 
-Two things you should know before you install it, both of which the hook documents about itself:
+Turn it off with `export GANTRY_READINESS_GATE=off`. What it writes, how to tell whether it is
+registered and whether it ran, and how it got here: [docs/HOOK.md](docs/HOOK.md).
 
-- **It writes to your repo — but only once that repo has opted in.** A repo with no `task.md` or no
-  `.claude/gates.sh` is left completely alone: no directory, no log line, nothing. Once both exist,
-  every invocation appends one line to `.claude/artifacts/gate-hook.log`, and a fire writes two —
-  one when the gate starts and one when it ends — plus the gate's full output to
-  `.claude/artifacts/gate-<timestamp>-<pid>.log`. `/gantry:implement` asserts `.claude/artifacts/`
-  into `.git/info/exclude` each time it runs the gate, so none of that reaches your diff; add it to
-  your `.gitignore` only if you arm the hook without going through `implement`.
-- **Its own honest limit.** The trigger is `task.md`'s `status:` — a file the model can write. So
-  *"the model cannot bypass the gate"* is approximately, not exactly, true. The mitigation is that
-  every invocation in an armed repo is logged, so a bypass is visible after the fact rather than
-  silent. A start line with no matching outcome is the signature of the one remaining hole: a gate
-  that hung until the harness killed the hook, letting the stop through un-gated.
+## When to use gantry, and when not
 
-Turning it off: `export GANTRY_READINESS_GATE=off`.
+Use it when you want an agent to take a task all the way to a pull request, with "did the checks
+pass" answered by an exit code rather than by the agent. Against prompt-only skill packs and
+session managers, three things set it apart:
+
+- **The gate is enforced by a script and a hook outside the conversation**, not by instructions.
+  A rule in a prompt is weighed against everything else in context; a hook's exit code is not.
+- **`integrate` checks the combined tree.** Several green PRs from parallel lanes say nothing
+  about how they merge. One integration PR, gated after every merge, does.
+- **It is thin glue over native primitives.** git worktrees, shell exit codes, and Claude Code's
+  own hook and agent mechanisms. No daemon, no database, no bookkeeping to keep true against git.
+
+It is the wrong tool if you want any of these, all left out by design:
+
+- **A task index, a scheduler, or parallel-task admission control.** gantry runs one supervised
+  task at a time; `git worktree list` already answers "what's in flight".
+- **An agent that merges.** Every skill stops at an open PR.
+- **Unattended runs that settle design decisions.** An open fork stops an unattended run.
+- **A guarantee for a repo with no checks.** The gate enforces what your checks establish.
+
+## The artifacts
+
+Three files land at the worktree root and are **not committed**: they are the run's working state,
+not the change. `/gantry:ship` quotes what a reviewer needs from them into the PR body.
+
+| File | Written by | Answers |
+|---|---|---|
+| `task.md` | `/gantry:plan` | what this is, when it's done, what it deliberately isn't |
+| `plan.md` | `/gantry:plan`, revised by `/gantry:plan-grill` | what the change was supposed to be |
+| `handover.md` | `/gantry:handover` | what this change left alone, and why |
+
+`task.md`'s `status:` is the phase marker every skill reads from disk, so a fresh session, a
+sub-agent and a resumed conversation agree on where the work stands. The exclusion goes in
+`.git/info/exclude`, never in a tracked file of yours. Upgrading from 0.4.x, which committed these
+files? See the [0.5.0 changelog entry](CHANGELOG.md#050).
 
 ## Context cost
 
-Skills are not free — a plugin's descriptions sit in every session's context. gantry's do too, and
-you can check the number yourself:
+Skill descriptions sit in every session's context. gantry's come to about **2,124 always-on
+tokens** for thirteen skills and three agents. Check it yourself, and trust that over this figure:
 
 ```
 claude plugin details gantry@claude-gantry
 ```
 
-With `integrate` added, this tree measures **~2,124 always-on tokens** for thirteen skills and three
-agents — `integrate` is ~100 of it. v0.5.1 measured ~2,024 for twelve, on the same CLI.
-
-Read that against earlier figures with care, because the ruler moved. v0.3 published ~1,464, but
-the same v0.3 tree reads **~1,927** under today's CLI — the estimator changed, not the text. On one
-ruler, v0.3 → v0.5.1 grew by about 100 tokens (~5%), which matches the ~5% the description text
-itself grew.
-
-That figure is measured rather than derived — a project whose whole argument is that a number beats
-a paragraph should not publish its most-quoted number as a paragraph. The growth is enforced rather
-than merely recorded: `scripts/context_budget.sh` fails the build if the descriptions grow past a
-declared ceiling. What it cannot catch is the CLI changing how it counts, which is exactly how the
-previous figure went stale — so re-measure rather than trusting this one.
-
-The phase skills carry deliberately short descriptions, because the drivers and the standalone
-skills are what you actually invoke by name. Bodies are paid only when a skill fires.
+`scripts/context_budget.sh` fails the build if the descriptions outgrow a declared ceiling. How it
+was measured, and why older figures do not compare: [docs/SKILLS.md](docs/SKILLS.md#context-cost).
 
 ## Extending it
 
 Skills are plain directories under `skills/`, so adding one is writing a `SKILL.md` and validating
 it. See [docs/SKILLS.md](docs/SKILLS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Not included, by design
-
-No task index, no scheduler, no parallel-task admission control. gantry runs **one supervised task
-at a time**; `git worktree list` already answers "what's in flight," and a second bookkeeping layer
-would need to be kept true. It is thin glue over native primitives — git worktrees, shell exit
-codes, and Claude Code's own hook and agent mechanisms — and it is meant to stay that way.
 
 ## License
 
