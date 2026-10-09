@@ -303,6 +303,19 @@ The problem it exists for: `auto-unattended` leaves a stack of drafts, each cut 
 each checked alone. **A green check on a PR says nothing about the combined tree** — and the boring
 shared surfaces (a docs table, a count, a version, a shared script) are exactly where they collide.
 
+The docs are one of those surfaces, and a merge that goes through cleanly can still leave them
+wrong — each PR documented its own change alone, and two true-in-isolation edits add up to one
+wrong count or two changelog entries for one change. So after the last merge and before the
+reviewer, a **docs stage** checks the combined tree against the docs the repo keeps: the
+skill-count line, the skills table and the shared-flags list in `docs/SKILLS.md`, the README
+sections that name a skill or a flag, and a `CHANGELOG.md` entry per included PR, with no duplicate
+or contradictory entries once they have met. A surface the repo does not keep is nothing to check,
+never something to create. Any fix goes in one `integrate: docs` commit of its own, separate from
+every merge and fix commit, and the gate runs after it like after any other — so the reviewer
+reads the docs change alongside the resolutions, and the PR body says under `## Docs` what was
+reconciled, or `no docs change needed`. On a re-run the stage gates first, because a lane that
+stopped on a red docs gate has nothing in git marking it.
+
 Three scripts carry the parts that must be reproducible, and all three take local branches or SHAs
 as well as PR numbers, which is how `tests/cases/` proves them against fixture repos with no `gh`:
 
@@ -333,9 +346,11 @@ as well as PR numbers, which is how `tests/cases/` proves them against fixture r
   outward-facing.
 - **Invokes:** `gantry:worktree` for the lane, the reviewer role for the resolutions,
   `gantry:handover` for findings that belong to a source PR's author.
-- **Gate:** `lib/run_gates.sh --strict`, once as a baseline on the fresh lane and again after every
-  merge. Two fix attempts per PR, in **separate** commits, then the merge is reset out and the PR is
-  skipped with that reason. A gate exit `2` stops the run and does not count as an attempt.
+- **Gate:** `lib/run_gates.sh --strict`, once as a baseline on the fresh lane, again after every
+  merge, and again after the `integrate: docs` commit. Two fix attempts per PR, in **separate**
+  commits, then the merge is reset out and the PR is skipped with that reason; two for the docs
+  commit, then the run stops `blocked`. A gate exit `2` stops the run and does not count as an
+  attempt.
 - **Detail:** `references/merge-loop.md` and `references/pr-body.md`.
 
 **There is no `--unattended` flag, and this is the same argument as `--autonomous`.** A flag that
