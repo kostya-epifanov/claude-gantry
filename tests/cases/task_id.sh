@@ -130,7 +130,7 @@ parse 'fix https://github.com/acme/site/issues/71#issuecomment-1 please'
 assert_eq 'GH-71' "$(line ID)" "a GitHub issue URL gives GH-<n>"
 assert_eq 'url' "$(line SOURCE)" "from the url"
 
-parse 'fix https://linear.app/0xke/issue/BASE-78/some-title-slug'
+parse 'fix https://linear.app/acme/issue/BASE-78/some-title-slug'
 assert_eq 'BASE-78' "$(line ID)" "a Linear URL with a title slug gives the key"
 assert_eq 'url' "$(line SOURCE)" "from the url"
 
@@ -147,8 +147,8 @@ assert_eq '-' "$(line ID)" "a host that merely ends in github.com is not GitHub"
 parse 'fix https://linear.app/w/issue/ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGH-1'
 assert_eq '-' "$(line ID)" "a URL id over 32 characters is capped like every other source"
 
-parse 'fix https://linear.app/0xke/issue/BASE-78/slug'
-assert_eq 'fix https://linear.app/0xke/issue/BASE-78/slug' "$(line TEXT)" "a URL stays in the text"
+parse 'fix https://linear.app/acme/issue/BASE-78/slug'
+assert_eq 'fix https://linear.app/acme/issue/BASE-78/slug' "$(line TEXT)" "a URL stays in the text"
 
 # --- what must not be an id ---------------------------------------------------------------
 
