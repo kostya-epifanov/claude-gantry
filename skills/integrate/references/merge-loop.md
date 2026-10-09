@@ -27,7 +27,7 @@ each earlier state makes the later ones unreadable:
 | `verify` | A pre-merge ref survives on a merge that **is** in the tree: its gate never went green | Run the gate **before merging anything else**. Green: delete the ref. Red: it enters the fix loop with a fresh budget of 2, and the report says so. |
 | `merge-base` | The base branch has moved | Merge base into the lane, then gate, before any PR. |
 | `merge-items` | Nothing outstanding | Work the queue. |
-| `nothing` | Everything queued is integrated | Go to the review stage, or to the report if the PR already exists. |
+| `nothing` | Everything queued is integrated | Go to the docs stage, which re-arms the hook and gates first on a re-run, then on through review, the checkpoint and Publish — where a lane that already has a PR takes only the push. A docs commit made on a re-run must reach the PR, not stay local. |
 
 A **`STRAY_PRE:`** line is not one of those states. It is a pre-merge ref for something that is *not*
 in the tree — the run died between writing the ref and finishing the merge, or a skip left it

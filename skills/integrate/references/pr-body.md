@@ -1,6 +1,6 @@
 # The integration pull request
 
-Detail behind stages 8 and 9 of `gantry:integrate`: what the body says, where each part comes
+Detail behind stages 9 and 10 of `gantry:integrate`: what the body says, where each part comes
 from, and the two things about merging it that are not obvious.
 
 ## What a reviewer is actually being asked
@@ -44,6 +44,10 @@ diff, and it is copied from the merge commit messages rather than rewritten.
 
 **`## Fixes made during integration`** — each `integrate: fix` commit, and why the combination
 needed it. Skip the heading when there were none.
+
+**`## Docs`** — the `integrate: docs` commit, sha and subject, and one line per surface it
+reconciled and the PR it was for; or the literal `no docs change needed`. Never skipped, unlike
+*Fixes*: an absent heading would be indistinguishable from a run that never looked.
 
 **`## Not proven by this run`** — the exact heading, because its absence is meant to be
 information. It carries every source PR's own `## Not proven by this run` items, attributed to the

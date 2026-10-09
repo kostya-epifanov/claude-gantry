@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+**`/gantry:integrate` reconciles the docs for the combined tree before the review** (BASE-71).
+Each source PR documents its own change alone, against the base it was cut from, so a merge that
+goes through cleanly can still leave the docs wrong: two PRs that each added a skill leave the
+count one short, two changelog entries describe one change, a flags list names a flag the other PR
+renamed. Nobody saw that drift until a human read the integration PR.
+
+A new stage 7 sits between the merge loop and the reviewer. It collects the doc surfaces each
+included PR touched or should have — `git diff --stat origin/<BASE>..HEAD` over the markdown, plus
+each PR's *What this change is for*, re-read rather than remembered because a resumed run is
+usually a different session — and checks the combined tree against the docs the repo keeps: the
+skill-count line, the skills table and the shared-flags list in `docs/SKILLS.md`, the README
+sections that name a skill or a flag, a `CHANGELOG.md` entry per included PR. A surface the repo
+does not keep is nothing to check, never something to create. Any fix is one `integrate: docs`
+commit of its own, staged by path (never `git add -A`, which would sweep the readiness hook's log
+in), with the gate run after it like after any other commit: two fix attempts in separate commits,
+then `status: blocked`. The reviewer is given the docs commit with the resolutions, and the PR body
+carries a `## Docs` section that is never skipped — `no docs change needed` is information.
+
+**Changed**
+- **`skills/integrate/SKILL.md`** — the docs stage; Review, Checkpoint, Publish and Report are now
+  stages 8–11. The reviewer's brief names the `integrate: docs` commit; the report lists it.
+- **`skills/integrate/references/pr-body.md`** — the `## Docs` section, after *Fixes made during
+  integration*.
+- **`skills/integrate/references/merge-loop.md`** — `NEXT:nothing` routes a re-run through the
+  docs stage, which gates first, rather than straight to the review: a lane that stopped on a red
+  docs gate has nothing in git marking it.
+- **`tests/cases/integrate_flat_commands.sh`** — cuts the docs stage out by heading, proves every
+  column-zero command there sits inside a fence (the scanner skips an unfenced line, so a `;`
+  appended to each command must be reported exactly as many times as there are commands), and runs
+  the same scanner over the region, so a non-flat command there is named as such.
+- **`tests/cases/integrate_docs_stage.sh`** — the stage order, the stage numbers running 0–11
+  without a gap, the specific column-zero commands in the docs region (and no `git add -A`), the
+  report line, the `## Docs` heading, the re-run row, and the `docs/SKILLS.md` description.
+
 ## 0.6.0
 
 **A lead session can steer `/gantry:auto` lanes by message.** Every question in the supervised chain
