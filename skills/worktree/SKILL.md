@@ -22,6 +22,11 @@ holds even when the skill is invoked from within a worktree.
 `.claude/worktrees/`. Validate: each `/`-separated segment must match `[A-Za-z0-9._-]+`, 64 chars
 max overall (an `EnterWorktree` constraint). If no argument was given, ask for one.
 
+A name a driver derived with a tracker id in it — `feat/BASE-71-integrate-docs` — already
+satisfies the charset; the length cap is the deriving driver's job
+(`$GANTRY/skills/auto/references/orchestration.md` § *Deriving the branch name*), and this skill
+only validates what it is handed.
+
 Below, `$ARG` is that value.
 
 ### 2. Resolve the main repo root
