@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.0 — unreleased
+
+**A task that carries a tracker id carries it everywhere.** When the task text starts with an id
+(`BASE-71 integrate should update docs`), names a tracker URL, or is given `--task <id>`, the
+drivers name the branch and worktree `<type>/<ID>-<slug>`, `task.md`'s `id:` is the tracker id, the
+journal's `task` field is that same id, and `gantry:ship` puts `<ID>: ` at the front of the PR
+title and a `Tracker:` line in the body so Linear's GitHub integration links the PR to the issue.
+A task with no id is named exactly as before, and `--branch <name>` still wins verbatim.
+
+The id and the explicit branch come from a script rather than prose: `lib/task_id.sh` reads the
+driver's argument string from a file, the way `lib/lead_reply.sh` reads a reply, and reports
+`ID:`, `SOURCE:`, `BRANCH:` and the remaining `TEXT:`. A tracker id is `[A-Z][A-Z0-9_]*-[0-9]+`,
+uppercase on purpose, so `utf-8` and `covid-19` in a task description stay words — and `--task`
+and `--branch` are flags only ahead of the task text, so a task that mentions them in prose keeps
+its words.
+`tests/cases/task_id.sh` covers the sources, the precedence, the copied URL shapes and the
+refusals.
+
 ## 0.6.0
 
 **A lead session can steer `/gantry:auto` lanes by message.** Every question in the supervised chain

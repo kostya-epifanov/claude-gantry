@@ -37,16 +37,29 @@ branch** (so `worktree` doesn't ask which parent to use) and keep the task singl
 
 ## Shared flags
 
-Both drivers take these flags, parsed from one argument string — there is no flag parser, the
-skill reads them itself and what remains is the task. `--lead` is the exception: `auto` only.
+Both drivers take these flags, parsed from one argument string — the skill reads them itself and
+what remains is the task. The two values that have to be exact, the tracker id and an explicit
+`--branch`, come from `lib/task_id.sh`, which reads the string from a file and takes those two as
+flags only ahead of the task's first word, so a task that mentions them in prose keeps its words.
+`--lead` is the exception: `auto` only.
 
 | Flag | Effect |
 |---|---|
 | `--no-pr` | End after the push; don't open a PR. Passed through to `ship`. |
 | `--branch <name>` | Use this exact branch name instead of deriving one from the task. |
+| `--task <id>` | The tracker id for this run. Wins over an id at the start of the task text or a tracker URL in it. |
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. |
 | `--base <branch>` | Override the PR base branch. Passed through to `ship` and its detector. |
 | `--lead <session>` | **`auto` only.** Put every question to that lead session by message instead of a dialog, accepting only an option label, `proceed`, `stop`, or a file path. `auto-unattended` refuses it. |
+
+**Naming.** When the task carries a tracker id — from `--task <id>`, an id at the start of the task
+text (`BASE-71 integrate should update docs`), a tracker URL in it (a GitHub issue becomes `GH-<n>`;
+Linear and Jira links give their key), or `task.md`'s `id:` on a re-run, in that order — the derived
+branch and worktree are `<type>/<ID>-<slug>` (`feat/BASE-71-integrate-docs`), `task.md`'s `id:` is
+the tracker id, and `ship` puts `<ID>: ` at the front of the PR title with a `Tracker:` line in the
+body so the tracker links the PR to the issue. With no id, naming is exactly what it was. `--branch`
+wins verbatim either way; `task.md` still gets the id. The rule is written once, in
+`skills/auto/references/orchestration.md` § *Deriving the branch name*.
 
 ---
 
@@ -357,7 +370,9 @@ parent's; the body says so per PR.
 `/gantry:worktree <branch>`
 
 Creates `.claude/worktrees/<branch>` on that branch in the **main** repo (resolved via
-`--git-common-dir`, so worktrees never nest) and enters it. Base detection prefers `develop` when
+`--git-common-dir`, so worktrees never nest) and enters it. The name is the caller's: a driver
+derives `<type>/<ID>-<slug>` when the task has a tracker id (see *Shared flags* above), and this
+skill only validates it. Base detection prefers `develop` when
 it exists, then `origin/HEAD`, then `master`/`main`, and asks which parent to use when the current
 branch differs.
 
