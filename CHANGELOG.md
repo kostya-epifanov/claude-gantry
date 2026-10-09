@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**`/gantry:ship` sends the pull-request body from a file inside the worktree.** Ship documented an
+inline `--body "<body>"`, which a real body cannot survive, so the model wrote the body to `/tmp` or
+its scratchpad and passed `--body-file` from there. A body file from outside the repository is an
+upload by path, and a privileged-command gate asks a human about it — once per pull request. Ship
+now writes the body to the git-excluded `.claude/artifacts/pr-body.md`, checks that file, passes it
+by a relative path from the worktree root, and removes it once the PR is open. `/gantry:integrate`,
+which already used `.claude/artifacts/`, now removes its body file too. The body itself is
+unchanged. `tests/cases/pr_body_file_in_tree.sh` holds every documented `gh pr create` /
+`gh pr edit` to that shape.
+
 ## 0.6.0
 
 **A lead session can steer `/gantry:auto` lanes by message.** Every question in the supervised chain
