@@ -376,6 +376,17 @@ git push -u origin HEAD
 gh pr create --base <BASE> --head integration/<date> --title "<title>" --body-file .claude/artifacts/integration-pr-body.md
 ```
 
+The body file stays inside the checkout and is passed by a relative path, run from the worktree
+root with no `cd` in the same command: a body file from outside the repository is an upload by
+path, which a privileged-command gate asks a human about. Once the PR is open — or, on a lane that
+already has one, once the push is done — remove it, so a later run never reads a stale body as its
+own. If `gh pr create` failed, leave it: it is excluded from git, and the next run composes it
+afresh.
+
+```bash
+rm -f .claude/artifacts/integration-pr-body.md
+```
+
 ```bash
 gh pr comment 21 --body "Included in the integration PR <url>, merged as <sha>. Nothing on this branch was changed."
 ```

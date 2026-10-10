@@ -176,8 +176,9 @@ verdict counts. Report what it found.
 while the skill is active, so an invoked sub-skill cannot use a tool this one has not allowed.
 `Write` and `Edit` are what let `--review-fix` apply a single byte; `Agent` is what lets review fall
 back to a sub-agent when `/code-review` is unavailable, instead of silently degrading to
-self-review; `AskUserQuestion` is what lets its triage round ask about an ambiguous finding. Ship
-writes no artifact of its own, so this list looks over-broad until you know that — do not trim it.
+self-review; `AskUserQuestion` is what lets its triage round ask about an ambiguous finding. Ship's
+own use of `Write` is narrow — the pull-request body file in stage 4 — so this list looks over-broad
+until you know the rest; do not trim it.
 A review that cannot write reports as a clean no-op, which is indistinguishable from a diff with
 nothing wrong in it.
 
@@ -205,7 +206,9 @@ an uncommitted file, with nothing anywhere saying so.
 
 Otherwise, only when `BASE` differs from `BRANCH` and there are commits over `BASE` (the detector's
 `no-diff` guard already caught the empty case). If `GH` was `missing` or `unauth`, the commit and push still
-happened — report that, print the manual `gh pr create` command, and stop.
+happened — report that, print the manual `gh pr create` command, and stop. That path composes no
+body file, so the printed command uses `--fill`, never `--body-file`: a path to a file this run
+never wrote either fails or, worse, sends a body some earlier run left behind.
 
 Compose from the branch's commits rather than a bare `--fill`. Title = the change in one line;
 body = a short what/why, bulleting the commits when there are several.
@@ -220,12 +223,8 @@ This is the opposite of the rule for the **commit message** in stage 2, and deli
 commit message is read in a terminal that does not wrap it for you, so it stays wrapped. Two
 renderers, two rules, and the body is the one the reviewer reads.
 
-`scripts/check_pr_body.sh` decides this rather than judgement — pipe the composed body through it
-before `gh pr create`, and fix what it names:
-
-```bash
-printf '%s' "<body>" | bash "$GANTRY/scripts/check_pr_body.sh" -
-```
+`scripts/check_pr_body.sh` decides this rather than judgement — it runs over the finished body file
+under *Open it* below, the last thing before `gh pr create`, and you fix what it names.
 
 For an unattended run the body is the **entire** interface to the reviewer — nobody watched the
 run and nobody will re-derive it — so the checks below run before the body is composed, and the
@@ -377,12 +376,49 @@ moving it into review.
 
 #### Open it
 
+The body goes to `gh` as a **file inside the worktree**, never inline and never from outside the
+checkout. Inline, a real body — backticks, quotes, headings, many lines — does not survive shell
+quoting. From `/tmp`, a scratchpad or `$HOME`, `--body-file` is an upload of a file by path from
+outside the repository, which a privileged-command gate is right to put in front of a human — and
+it then asks once per pull request. A relative path into the git-excluded `.claude/artifacts/` of
+the checkout the command runs in is the shape such a gate can tell is the repo's own prose.
+
+`ROOT` is the worktree root `lib/detect_stage.sh` printed in the contract step above. Every
+command below uses a **relative** path, so run them from `ROOT`. If the shell is somewhere else, run
+`cd "<ROOT>"` as a Bash call **of its own** first. Never chain it — `cd "<ROOT>" && gh pr create …`
+names a body file relative to a directory the command itself moved to, which a gate that judges
+paths cannot verify, and it asks.
+
+Keep the file out of git, so `git add -A` on a later run can never sweep it into a commit:
+
 ```bash
-gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body "<body>"
-gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body "<body>" --draft   # --draft
+bash "$GANTRY/lib/ensure_excluded.sh" .claude/artifacts/
 ```
 
-Report the PR URL it prints.
+Write the final, re-read body with the Write tool to `<ROOT>/.claude/artifacts/pr-body.md`.
+Overwrite whatever is there: a file left by an earlier attempt is not this run's body.
+
+```bash
+bash "$GANTRY/scripts/check_pr_body.sh" .claude/artifacts/pr-body.md
+```
+
+Fix what it names in the file and run it again until it passes. Then open the PR:
+
+```bash
+gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body-file .claude/artifacts/pr-body.md
+gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body-file .claude/artifacts/pr-body.md --draft   # --draft
+```
+
+Report the PR URL it prints. Once the PR exists, remove the file — the body now lives on the pull
+request, and a stale copy is one a later run could mistake for its own:
+
+```bash
+rm -f .claude/artifacts/pr-body.md
+```
+
+If `gh pr create` failed, leave the file where it is: it is excluded from git, so it cannot reach a
+commit, and the next run composes the body afresh and overwrites it — it is never reused as it
+stands, because the branch it described may have moved.
 
 ### 5. Done — report and wait
 
