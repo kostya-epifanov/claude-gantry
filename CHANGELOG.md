@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1
 
 **`/gantry:ship` sends the pull-request body from a file inside the worktree.** Ship documented an
 inline `--body "<body>"`, which a real body cannot survive, so the model wrote the body to `/tmp` or
