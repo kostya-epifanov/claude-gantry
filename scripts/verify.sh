@@ -244,6 +244,19 @@ else
   bad "see: bash scripts/context_budget.sh"
 fi
 
+head2 "eval cases are well formed"
+# `claude plugin eval` has no dry-run, so a malformed case is otherwise first
+# reported by a paid run that spends credit and returns a parse error instead
+# of a score. This is the half of that feedback which is free: no CLI, no
+# credential, no network — see scripts/check_evals.sh for what it can and
+# cannot read. A checkout with no evals/ passes, which is why the exit code can
+# be read directly here.
+if bash scripts/check_evals.sh >/dev/null 2>&1; then
+  ok "cases parse and stay inside the ungated tools"
+else
+  bad "see: bash scripts/check_evals.sh"
+fi
+
 head2 "gate and hook behaviour"
 # The two scripts that carry this project's one guarantee — lib/run_gates.sh
 # and hooks/readiness-gate.sh — executed against throwaway fixture repos. Every

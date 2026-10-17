@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: critic-unaddressed-criterion
+description: An acceptance criterion no plan step touches, and a step that does what Out of scope forbids. Seeded twice.
+tags: [critic, seeded]
+context:
+  add_dirs: [fixture-critic-unaddressed-criterion]
+execution:
+  max_turns: 12
+  timeout_seconds: 600
+  allowed_tools: [Read, Grep, Glob, Agent]
