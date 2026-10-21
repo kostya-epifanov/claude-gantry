@@ -20,6 +20,10 @@
 #                              why every uncertain case degrades to `present`.
 #   PLAN:present|absent        plan.md at ROOT
 #   HANDOVER:present|absent    handover.md at ROOT
+#   REVIEW:absent|pending|applied|clean
+#                              review.md at ROOT — the findings gantry:review recorded as in
+#                              scope to fix, and whether the fix step still has work to do.
+#                              See review_state() for the rules.
 #   STATUS:<value>|none        task.md frontmatter status:
 #   FORKS:open|none|unknown|absent
 #                              whether task.md's "Open questions" section still holds a fork
@@ -449,6 +453,66 @@ task_is_inherited() {
   return 0
 }
 
+# --- review.md (the findings file) ------------------------------------------
+# Reports whether review.md — written by gantry:review without --fix, read by
+# `gantry:review --fix` in apply mode — still has findings waiting to be applied.
+#
+#   absent    no review.md at ROOT.
+#   applied   a line starting `applied:` exists: the fix step ran and appended
+#             its gate result. Checked FIRST, so a file that was applied reads as
+#             applied however its findings section looks.
+#   clean     under the `## Address now` heading (any level, case-insensitive,
+#             tolerant of a trailing colon, an ATX closer and bold wrappers) the
+#             first non-blank line starts with `None`.
+#   pending   anything else — INCLUDING a file with no such heading, or one that
+#             will not parse at all.
+#
+# The permissive direction is `pending`, on purpose. A pending file makes the
+# fix step look at it, and the fix step then refuses with a reason it can name
+# (a mismatched fingerprint, a status that is not `reviewed`). An unparseable
+# file read as `clean` would skip the fix step silently, which is the failure
+# this value exists to prevent. Same asymmetry as open_questions_forks() above.
+#
+# NOT part of the frontmatter parser: shares no code with frontmatter_status(),
+# so the byte-for-byte diff scripts/verify.sh runs against the hook's copy is
+# unaffected.
+review_state() {
+  local f="$1"
+  [ -f "$f" ] || { printf 'absent'; return 0; }
+  if grep -qE '^applied:' "$f" 2>/dev/null; then printf 'applied'; return 0; fi
+  awk '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s
+    }
+    BEGIN { insec = 0; found = 0; verdict = "pending"; decided = 0 }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      b = trim(line)
+      if (b ~ /^#+([[:space:]]|$)/) {
+        h = b
+        sub(/^#+[[:space:]]*/, "", h)
+        sub(/[[:space:]]*#+[[:space:]]*$/, "", h)
+        h = trim(h)
+        sub(/:+$/, "", h)
+        gsub(/^[*_]+/, "", h); gsub(/[*_]+$/, "", h)
+        if (tolower(trim(h)) == "address now") { insec = 1; found = 1 }
+        else { insec = 0 }
+        next
+      }
+      if (!insec || decided) next
+      if (b == "") next
+      # The first non-blank line under the heading decides. A bullet marker in
+      # front of "None" is still "None".
+      t = b
+      sub(/^([-*+]|[0-9]+[.)])[[:space:]]*/, "", t)
+      if (t ~ /^[Nn]one/) { verdict = "clean" } else { verdict = "pending" }
+      decided = 1
+    }
+    END { if (!found) print "pending"; else print verdict }
+  ' "$f" 2>/dev/null
+}
+
 # --- artifacts --------------------------------------------------------------
 present_or_absent() { [ -f "$1" ] && echo present || echo absent; }
 
@@ -466,9 +530,12 @@ if [ "$TASK" = present ] && task_is_inherited "$ROOT" "$STATUS"; then
   TASK=inherited
 fi
 
+REVIEW="$(review_state "$ROOT/review.md")"
+
 echo "TASK:$TASK"
 echo "PLAN:$PLAN"
 echo "HANDOVER:$HANDOVER"
+echo "REVIEW:${REVIEW:-pending}"
 echo "STATUS:${STATUS:-none}"
 
 FORKS="$(open_questions_forks "$ROOT/task.md")"
@@ -525,7 +592,10 @@ case "$STATUS" in
   grilled)      PHASE=implement ;;
   implementing) PHASE=implement ;;   # resume: the gate has not gone green yet
   implemented)  PHASE=review ;;
-  reviewed)     PHASE=ship ;;
+  # A reviewed task whose review.md still lists findings has a fix step to run
+  # before it can ship. PHASE and NEXT are derived from the same value below,
+  # so they cannot disagree about it.
+  reviewed)     if [ "$REVIEW" = pending ]; then PHASE=review; else PHASE=ship; fi ;;
   shipped)      PHASE="done" ;;
   blocked)      PHASE=blocked ;;
   *)
