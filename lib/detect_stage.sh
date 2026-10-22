@@ -458,12 +458,17 @@ task_is_inherited() {
 # `gantry:review --fix` in apply mode — still has findings waiting to be applied.
 #
 #   absent    no review.md at ROOT.
-#   applied   a line starting `applied:` exists: the fix step ran and appended
-#             its gate result. Checked FIRST, so a file that was applied reads as
-#             applied however its findings section looks.
+#   applied   the LAST non-blank line starts `applied:`: the fix step ran and
+#             appended its gate result. Checked FIRST, so a file that was
+#             applied reads as applied however its findings section looks. Only
+#             the last line counts — step 5 of the review skill appends it last,
+#             and a finding body that happens to begin with `applied:` must not
+#             make the file read as applied before any fix ran.
 #   clean     under the `## Address now` heading (any level, case-insensitive,
 #             tolerant of a trailing colon, an ATX closer and bold wrappers) the
-#             first non-blank line starts with `None`.
+#             first non-blank line is exactly `None` — a trailing period, a
+#             bullet marker and bold wrappers tolerated. Not merely a line that
+#             starts with it: "None of these are safe to skip: …" is a finding.
 #   pending   anything else — INCLUDING a file with no such heading, or one that
 #             will not parse at all.
 #
@@ -479,7 +484,9 @@ task_is_inherited() {
 review_state() {
   local f="$1"
   [ -f "$f" ] || { printf 'absent'; return 0; }
-  if grep -qE '^applied:' "$f" 2>/dev/null; then printf 'applied'; return 0; fi
+  local last
+  last="$(awk 'NF { l = $0 } END { sub(/\r$/, "", l); sub(/^[[:space:]]+/, "", l); print l }' "$f" 2>/dev/null)"
+  case "$last" in applied:*) printf 'applied'; return 0 ;; esac
   awk '
     function trim(s) {
       sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s
@@ -506,7 +513,9 @@ review_state() {
       # front of "None" is still "None".
       t = b
       sub(/^([-*+]|[0-9]+[.)])[[:space:]]*/, "", t)
-      if (t ~ /^[Nn]one/) { verdict = "clean" } else { verdict = "pending" }
+      gsub(/^[*_]+/, "", t); gsub(/[*_]+$/, "", t)
+      sub(/\.$/, "", t); gsub(/[*_]+$/, "", t)
+      if (tolower(trim(t)) == "none") { verdict = "clean" } else { verdict = "pending" }
       decided = 1
     }
     END { if (!found) print "pending"; else print verdict }
@@ -613,7 +622,13 @@ case "$PHASE" in
   plan)      NEXT="/gantry:plan" ;;
   grill)     NEXT="/gantry:plan-grill" ;;
   implement) NEXT="/gantry:implement" ;;
-  review)    NEXT="/gantry:review --fix" ;;
+  review)
+    # A findings file under any status but `reviewed` is a review that died
+    # between writing review.md and writing the status. `--fix` refuses that
+    # combination and names /gantry:review, so name it here directly rather
+    # than suggesting a command the skill will turn away.
+    if [ "$REVIEW" = pending ] && [ "$STATUS" != reviewed ]; then NEXT="/gantry:review"
+    else NEXT="/gantry:review --fix"; fi ;;
   ship)      NEXT="/gantry:ship" ;;
   "done")    NEXT="none — already shipped" ;;
   blocked)   NEXT="none — task.md says blocked; read it before continuing" ;;

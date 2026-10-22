@@ -69,6 +69,35 @@ fp "$repo" master; after="$FP_TOKEN"
 [ "$before" = "$after" ] && _pass "excluded artifacts (task.md, review.md, the result files) do not move the token" \
   || _fail "writing excluded artifacts moved the token"
 
+# ...and the same holds when they are TRACKED, by pathspec rather than by the
+# exclude file. A repo that carried task.md in history (the case
+# lib/detect_stage.sh's task_is_inherited() exists for) must not have the
+# review's own status write invalidate the token review.md just recorded.
+tracked="$(mkrepo fp-tracked)"
+git -C "$tracked" branch -m master >/dev/null 2>&1
+printf -- '---\nstatus: implemented\n---\n' > "$tracked/task.md"
+printf '# Review\n' > "$tracked/review.md"
+printf '# Plan\n' > "$tracked/plan.md"
+mkdir -p "$tracked/.claude/artifacts"
+printf 'old\n' > "$tracked/.claude/artifacts/gate-1.log"
+printf '{}\n' > "$tracked/journal.jsonl"
+commit_all "$tracked" "track the artifacts"
+fp "$tracked" master; t_before="$FP_TOKEN"
+printf -- '---\nstatus: reviewed\n---\n' > "$tracked/task.md"
+printf '# Review\n\n## Address now\nNone.\n' > "$tracked/review.md"
+printf '# Plan, edited\n' > "$tracked/plan.md"
+printf 'handed over\n' > "$tracked/handover.md"
+printf 'new\n' > "$tracked/.claude/artifacts/gate-1.log"
+printf '{"k":1}\n' > "$tracked/journal.jsonl"
+fp "$tracked" master; t_after="$FP_TOKEN"
+assert_rc 0 "$FP_RC" "a tree with tracked artifacts still yields a token"
+[ "$t_before" = "$t_after" ] && _pass "TRACKED artifacts edited in the working tree do not move the token" \
+  || _fail "editing tracked artifacts moved the token (pathspec exclusion missing)"
+printf 'code\n' > "$tracked/src.txt"
+fp "$tracked" master; t_code="$FP_TOKEN"
+[ "$t_code" != "$t_after" ] && _pass "a code change beside them still moves it" \
+  || _fail "a code change beside tracked artifacts left the token unchanged"
+
 # Two different trees give different tokens.
 other="$(mkrepo fp-other)"
 git -C "$other" branch -m master >/dev/null 2>&1

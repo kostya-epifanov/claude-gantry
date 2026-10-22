@@ -35,7 +35,7 @@
 # set `is_error`; the child carries on half-blind and still reports `success`.
 # So every denial is printed as a DENIED: line for the driver to relay, and what
 # IS fatal is the artifact check: a `review` child must leave review.md and a
-# `reviewed` or `blocked` status; a `review-fix` child must leave an `applied:`
+# `reviewed` or `blocked` status; a `review-fix` child must end review.md with an `applied:`
 # line. A child that returned success without that is a failed phase.
 #
 # THE OUTPUT ORDER IS FIXED and the result block comes LAST, delimited, so a
@@ -242,9 +242,13 @@ case "$PHASE" in
     if [ ! -f "$ROOT/review.md" ]; then
       ARTIFACT_OK=0; ARTIFACT_REASON="no review.md at the worktree root to apply"
     else
-      applied="$(grep -E '^applied:' "$ROOT/review.md" | tail -1)"
+      # The rule lib/detect_stage.sh's review_state() applies: only the last
+      # non-blank line counts, so the launcher and the detector cannot disagree
+      # about whether the fix step ran.
+      applied="$(awk 'NF { l = $0 } END { sub(/\r$/, "", l); sub(/^[[:space:]]+/, "", l); print l }' "$ROOT/review.md" 2>/dev/null)"
+      case "$applied" in applied:*) ;; *) applied='' ;; esac
       if [ -z "$applied" ]; then
-        ARTIFACT_OK=0; ARTIFACT_REASON="review.md carries no applied: line"
+        ARTIFACT_OK=0; ARTIFACT_REASON="review.md does not end with an applied: line"
       else
         GATE_EXIT="$(printf '%s' "$applied" | sed -n 's/.*gate=\([0-9][0-9]*\).*/\1/p')"
         [ -n "$GATE_EXIT" ] || GATE_EXIT='-'

@@ -255,7 +255,10 @@ bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event escalation --stage
 ```
 
 The first line is the success shape, the other two the failure shape; write the one that
-happened. Repeat `--agent gantry-reviewer` on the phase line only when `review.md`'s `source:` line
+happened. **Omit `--session` when the launcher printed `SESSION:-`** — `claude` itself failed
+before producing a result (launcher exit `3`), there is no session to name, and `-` is neither an
+id `claude --resume` accepts nor the absent value `journal_append.sh` documents for a phase with
+no child. Repeat `--agent gantry-reviewer` on the phase line only when `review.md`'s `source:` line
 says that is what ran; with `code-review` or `self-review`, `agents` is `[]`. If it fell through to
 self-review, the report must say so: an unattended run that also reviewed itself has had no
 independent scrutiny at all.
@@ -272,7 +275,13 @@ independent scrutiny at all.
 bash "$GANTRY/lib/run_phase_headless.sh" --phase review-fix --root <worktree>
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase review-fix --result ok --session <fix child session id> --summary <what was applied> --artifact review.md
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result pass --exit <literal exit code> --attempt 1 --artifact review.md
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --artifact review.md
 ```
+
+The `gate` lines are the pass and the fail shape; write the one `GATE_EXIT:` says happened, with
+`--result` as stage 4 defines it (`pass` for `0`, `fail` for `1` or `2`, `no-gates` for `3`) and
+the literal code. A red fix-gate journaled as `pass` is a journal that lies about the one thing an
+unattended run exists to prove.
 
 ## Stage 6 — Ship
 

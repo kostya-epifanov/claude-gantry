@@ -206,7 +206,7 @@ in the report and in the journal's `phase` event.
 **Why the exit code is decided on disk.** A permission denial does not set `is_error`; the child
 carries on half-blind and still reports `success`. So denials are printed and never fatal on their
 own, and what *is* fatal is the artifact check: after `review`, `review.md` must exist and
-`task.md` must say `reviewed` or `blocked`; after `review-fix`, `review.md` must carry an
+`task.md` must say `reviewed` or `blocked`; after `review-fix`, `review.md` must end with an
 `applied:` line. `0` means the child completed *and* the phase left what it promises; `1` is a
 phase that failed by its JSON or by that check (`max_turns` included); `3` is `claude` itself
 failing or writing nothing parseable; `2` is usage or environment.

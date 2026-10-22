@@ -16,8 +16,12 @@
 # same view gantry:review reads — then the short status with every untracked
 # path, then the content hash of each untracked file. The last part is what
 # makes an edit to a new file change the token: its status line would not.
-# Excluded paths (task.md, review.md, the gate logs) never appear in any of
-# those, so the chain's own bookkeeping does not move the token.
+# The chain's own artifacts (task.md, plan.md, handover.md, review.md, the gate
+# logs, journal.jsonl) are excluded from all three BY PATHSPEC, not only by
+# trusting .git/info/exclude: in a repo where they are still tracked (the case
+# lib/detect_stage.sh's task_is_inherited() exists for) the status write a
+# review makes to task.md would otherwise move the token review.md just
+# recorded, and the fix step would refuse the findings it had just written.
 #
 # stdout: one token. Exit 0 = printed · 2 = usage, not a repo, or <base> does
 # not resolve.
@@ -35,8 +39,12 @@ git rev-parse --quiet --verify "$BASE^{commit}" >/dev/null 2>&1 || die "base doe
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "could not resolve the repository root"
 cd "$ROOT" || die "could not enter $ROOT"
 
+# `:!<path>` is git's exclude pathspec; with no positive pathspec beside it,
+# "everything except". A bare name matches only that path at the root.
+EXCLUDE=(':!task.md' ':!plan.md' ':!handover.md' ':!review.md' ':!.claude/artifacts' ':!journal.jsonl')
+
 untracked_hashes() {
-  git ls-files --others --exclude-standard -z 2>/dev/null \
+  git ls-files --others --exclude-standard -z -- "${EXCLUDE[@]}" 2>/dev/null \
     | while IFS= read -r -d '' f; do
         [ -f "$f" ] || continue
         printf '%s ' "$f"
@@ -46,9 +54,9 @@ untracked_hashes() {
 
 TOKEN="$(
   {
-    git diff "$BASE" -- 2>/dev/null
+    git diff "$BASE" -- "${EXCLUDE[@]}" 2>/dev/null
     printf '\n--status--\n'
-    git status --short --untracked-files=all 2>/dev/null
+    git status --short --untracked-files=all -- "${EXCLUDE[@]}" 2>/dev/null
     printf '\n--untracked--\n'
     untracked_hashes
   } | git hash-object --stdin 2>/dev/null

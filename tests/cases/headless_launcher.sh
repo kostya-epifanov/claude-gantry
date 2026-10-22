@@ -54,6 +54,8 @@ case "${FAKE_CLAUDE_WRITES:-none}" in
     printf 'applied: 2026-10-22T00:00:00Z gate=0\n' >> review.md ;;
   applied-red)
     printf 'applied: 2026-10-22T00:00:00Z gate=1\n' >> review.md ;;
+  applied-mid)
+    printf 'applied: 2026-10-22T00:00:00Z gate=0\n- `b.sh:1` — a finding written after it.\n' >> review.md ;;
   none) ;;
 esac
 [ -n "${FAKE_CLAUDE_STDERR:-}" ] && printf '%s\n' "$FAKE_CLAUDE_STDERR" >&2
@@ -269,6 +271,15 @@ run_launcher none "$SUCCESS_JSON" 0 --phase review-fix --root "$repo"
 assert_rc 1 "$L_RC" "a fix child that reported success but appended no applied: line is exit 1"
 assert_contains "$(line_of REASON:)" "applied:" "and REASON: says which line is missing"
 assert_contains "$(line_of GATE_EXIT:)" "GATE_EXIT:-" "GATE_EXIT: is - when nothing could be parsed"
+
+# Same rule as lib/detect_stage.sh: only the LAST non-blank line counts. A fix
+# child that wrote `applied:` and then kept writing has not ended the file the
+# way step 5 says, and the launcher must not read a gate result the detector
+# will not.
+printf '# Review\nbranch: feat/headless\n\n## Address now\n- `a.sh:3` — wrong.\n' > "$repo/review.md"
+run_launcher applied-mid "$SUCCESS_JSON" 0 --phase review-fix --root "$repo"
+assert_rc 1 "$L_RC" "an applied: line that is not the last line of review.md is not applied (exit 1)"
+assert_contains "$(line_of REASON:)" "applied:" "and REASON: names the missing trailing line"
 
 # --- review: success without the artifact is a failed phase ------------------------------
 
