@@ -18,8 +18,9 @@
 # `--permission-mode dontAsk --permission-prompts none`, where everything that
 # would prompt is denied, plus an explicit allowlist:
 #
-#   review      Edit(review.md) Edit(handover.md) Edit(task.md) + the Bash rules
-#   review-fix  acceptEdits (the fix step must edit code)    + the Bash rules
+#   review      Edit(<artifact>) and Edit(//<root>/<artifact>) for review.md, handover.md,
+#               task.md, plus Skill(gantry:handover), plus the Bash rules
+#   review-fix  acceptEdits (the fix step must edit code) + Skill(gantry:handover) + the Bash rules
 #
 # The Bash rules name four gantry scripts — the gate, the exclusion writer, the
 # stage detector and the diff fingerprint — and each is emitted TWICE, in the
@@ -170,13 +171,23 @@ case "$PHASE" in
     CMD[${#CMD[@]}]="--permission-mode"; CMD[${#CMD[@]}]="dontAsk"
     # --allowedTools is variadic, so it goes LAST: everything after it is a rule.
     CMD[${#CMD[@]}]="--allowedTools"
-    CMD[${#CMD[@]}]="Edit(review.md)"
-    CMD[${#CMD[@]}]="Edit(handover.md)"
-    CMD[${#CMD[@]}]="Edit(task.md)"
+    # Each artifact twice: the relative form resolves against the child's CURRENT working
+    # directory, and a `cd` inside one Bash call persists — a child that had wandered into a
+    # sub-package was denied `Write <root>/review.md` with the relative rule alone (observed in
+    # the review A/B, 2026-10-23). The `//<abs>` form matches wherever the shell ended up.
+    for artifact in review.md handover.md task.md; do
+      CMD[${#CMD[@]}]="Edit($artifact)"
+      CMD[${#CMD[@]}]="Edit(//$ROOT/$artifact)"
+    done
+    # The skill invokes gantry:handover for deferred findings; under dontAsk a plugin skill
+    # is denied without a rule (the built-in /code-review is not), and the child then writes
+    # handover.md by hand. Probed: this rule lets the Skill tool through.
+    CMD[${#CMD[@]}]="Skill(gantry:handover)"
     ;;
   review-fix)
     CMD[${#CMD[@]}]="--permission-mode"; CMD[${#CMD[@]}]="acceptEdits"
     CMD[${#CMD[@]}]="--allowedTools"
+    CMD[${#CMD[@]}]="Skill(gantry:handover)"
     ;;
 esac
 for r in "${RULES[@]}"; do CMD[${#CMD[@]}]="$r"; done

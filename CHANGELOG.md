@@ -16,8 +16,11 @@ The phase skill keeps carrying the procedure — only where it runs changes.
 **Added**
 - **`lib/run_phase_headless.sh`** — builds and launches the child (`--output-format json`,
   `--name gantry-<phase>-<branch>`, `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`, `--permission-prompts
-  none`, `dontAsk` with `Edit(review.md)`, `Edit(handover.md)`, `Edit(task.md)` for the review child,
-  `acceptEdits` for the fix child, and Bash rules in both quote forms for `run_gates.sh`,
+  none`, `dontAsk` with `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`,
+  `handover.md` and `task.md` plus `Skill(gantry:handover)` for the review child — the absolute form
+  because a `cd` inside one Bash call persists and the relative rule then misses the root; the Skill
+  rule because a plugin skill is denied under `dontAsk` without one, both observed in a real run —
+  `acceptEdits` plus the Skill rule for the fix child, and Bash rules in both quote forms for `run_gates.sh`,
   `ensure_excluded.sh`, `detect_stage.sh` and `diff_fingerprint.sh`), removes an earlier run's result
   files first, writes the child's JSON under `.claude/artifacts/headless/`, verifies the artifact
   the phase promises, and prints fixed labeled lines — session id, model, effort, turns, cost, every

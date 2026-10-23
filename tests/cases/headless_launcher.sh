@@ -153,9 +153,12 @@ argv_has "dontAsk" "and the review child gets dontAsk"
 argv_has "--max-turns" "--max-turns is passed"
 argv_has "80" "and defaults to 80"
 argv_has "--allowedTools" "--allowedTools is passed"
-argv_has "Edit(review.md)" "Edit(review.md) is one element"
-argv_has "Edit(handover.md)" "Edit(handover.md) is one element"
-argv_has "Edit(task.md)" "Edit(task.md) is one element"
+repo_top="$(cd "$repo" && git rev-parse --show-toplevel)"
+for a in review.md handover.md task.md; do
+  argv_has "Edit($a)" "Edit($a) is one element"
+  argv_has "Edit(//$repo_top/$a)" "Edit(//<root>/$a) is one element: the absolute form survives a cd inside the child"
+done
+argv_has "Skill(gantry:handover)" "Skill(gantry:handover) is one element: the nested plugin skill is allowed under dontAsk"
 for s in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh; do
   argv_has "Bash(bash $GANTRY_ROOT/lib/$s:*)" "the unquoted Bash rule for $s is verbatim"
   argv_has "Bash(bash \"$GANTRY_ROOT/lib/$s\":*)" "the double-quoted Bash rule for $s is verbatim"
@@ -253,6 +256,7 @@ argv_has "/gantry:review --fix --headless" "the fix prompt is one element"
 argv_has "acceptEdits" "the fix child gets acceptEdits"
 argv_lacks "dontAsk" "and not dontAsk"
 argv_lacks_prefix "Edit(" "the fix child has no Edit( rule"
+argv_has "Skill(gantry:handover)" "the fix child may invoke gantry:handover too"
 argv_has "gantry-review-fix-feat-headless" "its --name says review-fix"
 for s in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh; do
   argv_has "Bash(bash $GANTRY_ROOT/lib/$s:*)" "the fix child keeps the unquoted Bash rule for $s"

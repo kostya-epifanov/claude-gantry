@@ -24,6 +24,15 @@ step 4: a finding whose triage is honestly ambiguous is **deferred** rather than
 whatever `mode:` says and whether or not `task.md` names a `lead:`. A print-mode child exits when it
 ends its turn, so it cannot wait for an answer; a deferred finding is written down and recoverable.
 
+The same rule governs step 2. `/code-review` runs its finder agents in the background and their
+completion notices do reach a print-mode child — but **nothing else of it runs in the background**:
+there is no forked verification session, and no notice is coming after the last finder has
+reported. The dedup and verification `/code-review` describes are yours to do, in this turn, as
+soon as `ListAgents` shows no live finder. Twice in the review A/B a headless child wrote "I'll wait
+for the verification notification", ended its turn, and the session was over with nothing on disk.
+So: end a turn only while `ListAgents` lists an agent you are waiting on; never to wait for anything
+else, and never with `ScheduleWakeup`, which does not fire in print mode.
+
 **`--fix` is stage-aware.** When `review.md` already lists findings from a review that finished,
 `--fix` **applies them** and does not review again — see step 1. That split is what lets a driver
 run the review in one child session and the fix in another.

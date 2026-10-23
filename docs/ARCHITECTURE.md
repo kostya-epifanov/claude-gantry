@@ -187,10 +187,15 @@ and applies what `review.md` lists instead of reviewing again, then re-runs the 
 read-only by tool list, and a review child needs to write three artifacts, so the same trick does
 not apply. Instead the launcher runs the review child under `--permission-mode dontAsk
 --permission-prompts none`, where everything that would prompt is denied, plus `--allowedTools`
-naming exactly `Edit(review.md)`, `Edit(handover.md)`, `Edit(task.md)` and Bash rules for four
-read-only gantry scripts: `run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh` and
-`diff_fingerprint.sh`. The forms were probed on CLI 2.1.270: an `Edit(<file>)` rule governs the
-Write tool too, and a Bash rule matches the literal command, so each script's rule is emitted
+naming exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`, `handover.md`
+and `task.md`, `Skill(gantry:handover)`, and Bash rules for four read-only gantry scripts:
+`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh` and `diff_fingerprint.sh`. The forms were
+probed on CLI 2.1.270 and corrected after the first real runs: an `Edit(<file>)` rule governs the
+Write tool too, but its relative form resolves against the child's *current* directory, and a `cd`
+inside one Bash call persists — a child that had wandered into a sub-package was denied the write
+of its own `review.md`, so the absolute `//` form is emitted beside it. A plugin skill is denied
+under `dontAsk` without a `Skill(...)` rule (the built-in `/code-review` is not), hence the
+handover rule. A Bash rule matches the literal command, so each script's rule is emitted
 twice — `Bash(bash <abs>/lib/x.sh:*)` and `Bash(bash "<abs>/lib/x.sh":*)` — because a skill may
 write either and single quotes matched neither. The fix child runs under `acceptEdits` with the
 same Bash rules and no `Edit(` rule. Neither child gets `--disallowedTools`, `--lead`, or

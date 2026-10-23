@@ -136,10 +136,13 @@ and read the results from disk: the launcher's labeled lines, `review.md`, and `
 
 The phase skill still carries the procedure. What the launcher owns is the **boundary**, set by the
 harness rather than by prose: the review child runs under `--permission-mode dontAsk` with an
-allowlist of exactly `Edit(review.md)`, `Edit(handover.md)`, `Edit(task.md)` and Bash rules for
-four read-only gantry scripts (the gate, the exclusion writer, the stage detector, the diff
-fingerprint — each in both quote forms, because a rule matches the literal command). It can write
-the chain's artifacts and nothing else. The fix step is a **second child**, `gantry:review --fix`
+allowlist of exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`,
+`handover.md` and `task.md` (the relative form resolves against the child's current directory,
+which a `cd` moves; the absolute form holds wherever the shell ended up), `Skill(gantry:handover)`
+(a plugin skill is denied under `dontAsk` without it), and Bash rules for four read-only gantry
+scripts (the gate, the exclusion writer, the stage detector, the diff fingerprint — each in both
+quote forms, because a rule matches the literal command). It can write the chain's artifacts and
+nothing else. The fix step is a **second child**, `gantry:review --fix`
 under `acceptEdits` with the same Bash rules, which applies what `review.md` lists and re-runs the
 gate. The driver never sees the child's transcript; a human who wants it uses
 `claude --resume <session id>`, and the id is in the driver's report and the journal.
