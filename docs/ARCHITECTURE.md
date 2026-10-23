@@ -16,13 +16,15 @@ gantry/
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             skill-local deterministic work, run not read
 │   └── templates/           the task.md fallback
-├── lib/                     shared runtime scripts     (6)
+├── lib/                     shared runtime scripts     (8)
 │   ├── run_gates.sh         the one hard gate
 │   ├── gate_coverage.sh     what the gate actually read — reported, never enforced
 │   ├── detect_stage.sh      where a task sits on the chain
 │   ├── journal_append.sh    argv → one journal.jsonl line
 │   ├── lead_reply.sh        a lead's reply → one accepted token, or rejected
-│   └── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
+│   ├── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
+│   ├── run_phase_headless.sh  a phase in a fresh `claude -p` child → labeled lines + exit code
+│   └── diff_fingerprint.sh  one token for the diff, so review.md can be tied to it
 ├── agents/gantry-*.md       → the delegation roster    (3)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
 └── examples/gates.sh        a starter repo-owned gate
@@ -51,7 +53,13 @@ as files the caller wrote with its Write tool, never as argv. Only flags go on t
 The script's exit code, not the model's reading of the reply, decides whether the reply answered
 anything.
 
-None of them is a framework; all six take flags in and return a contract.
+`run_phase_headless.sh` is the newest and the only one that starts a model: it launches one
+phase in a fresh headless child session, sets the child's tool boundary from the command line, and
+turns the child's JSON result plus what it left on disk into labeled lines and an exit code. See
+*Headless phases* below. `diff_fingerprint.sh` exists for it: `review.md` has to say which diff it
+describes, and a pipe in a skill's argv is a command a worktree-isolated session refuses.
+
+None of them is a framework; all eight take flags in and return a contract.
 
 A skill body enters the conversation when it fires and **stays there for the rest of the session**.
 That is why detail lives in `references/` (loaded only when the skill says to read it) and why
@@ -120,9 +128,10 @@ critic, `review` dispatches an independent reviewer.
 
 **That split is what lets every shipped agent be read-only.** A phase has to write — `task.md`,
 `plan.md`, the code itself — so wrapping a phase in an agent means either a writable agent (the
-boundary is gone) or a phase that cannot do its job. Keeping the phases in the caller's context and
-the agents on the sub-jobs gets both: the writing is visible where it happens, and every roster
-agent is one a prompt cannot talk into changing the tree.
+boundary is gone) or a phase that cannot do its job. Keeping the phases in the caller's context —
+or in a child session the driver launches, see *Headless phases* — and the agents on the sub-jobs
+gets both: the writing is visible where it happens, and every roster agent is one a prompt cannot
+talk into changing the tree.
 
 One consequence worth stating, because it is easy to get backwards: a skill's `allowed-tools`
 **restricts** what is permitted while the skill is active — it does not grant. A driver therefore
@@ -156,6 +165,72 @@ flowchart TD
   S --> A(["auto → ready PR"])
   S --> U(["auto-unattended → draft PR"])
 ```
+
+## Headless phases
+
+**The problem.** A driver invokes every phase in its own session, so by the time review runs that
+session holds the plan, the critique and the whole implementation. In the one `auto` run on disk,
+`/code-review` started at 187k tokens of context and ran inline, with `Bash` and `Edit`,
+dispatching no sub-agent: the diff was reviewed by the model that wrote it, with everything it was
+thinking while writing it still in context. That is the weakest possible reviewer, and it was the
+default. Review is also the phase that gains most from inheriting none of that.
+
+**What moves.** Where the phase runs, not what it does. Since 0.7.0 the two drivers and
+`gantry:ship --review` launch review as a fresh `claude -p "/gantry:review --headless …"` child in
+the worktree, through `lib/run_phase_headless.sh`, and read its results from disk. The phase skill
+is unchanged in procedure; it gained `--headless` (defer an ambiguous finding instead of asking —
+a print-mode child exits when it ends its turn, so it cannot wait for a reply), a findings file,
+and a stage-aware `--fix`. Fixing is a **second child**: `gantry:review --fix` sees `REVIEW:pending`
+and applies what `review.md` lists instead of reviewing again, then re-runs the gate.
+
+**The boundary is an allowlist on the child, not an agent definition.** The roster's agents are
+read-only by tool list, and a review child needs to write three artifacts, so the same trick does
+not apply. Instead the launcher runs the review child under `--permission-mode dontAsk
+--permission-prompts none`, where everything that would prompt is denied, plus `--allowedTools`
+naming exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`, `handover.md`
+and `task.md`, `Skill(gantry:handover)`, and Bash rules for four read-only gantry scripts:
+`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh` and `diff_fingerprint.sh`. The forms were
+probed on CLI 2.1.270 and corrected after the first real runs: an `Edit(<file>)` rule governs the
+Write tool too, but its relative form resolves against the child's *current* directory, and a `cd`
+inside one Bash call persists — a child that had wandered into a sub-package was denied the write
+of its own `review.md`, so the absolute `//` form is emitted beside it. A plugin skill is denied
+under `dontAsk` without a `Skill(...)` rule (the built-in `/code-review` is not), hence the
+handover rule. A Bash rule matches the literal command, so each script's rule is emitted
+twice — `Bash(bash <abs>/lib/x.sh:*)` and `Bash(bash "<abs>/lib/x.sh":*)` — because a skill may
+write either and single quotes matched neither. The fix child runs under `acceptEdits` with the
+same Bash rules and no `Edit(` rule. Neither child gets `--disallowedTools`, `--lead`, or
+`--dangerously-skip-permissions`. Code stays untouchable by the harness, not by prose.
+
+**What the orchestrator's context holds afterwards.** The launcher's labeled lines — `SESSION:`,
+`MODEL:`, `EFFORT:`, `TURNS:`, `SUBTYPE:`, `COST_USD:`, `DENIALS:` and one `DENIED:` per denial,
+`GATE_EXIT:` after the fix child, `RESULT_FILE:`, `REASON:` on failure, and the child's result text
+inside `RESULT_BEGIN … RESULT_END`, last — plus `review.md` and `task.md`'s status, read from disk.
+Not the child's transcript: a human who wants it runs `claude --resume <session id>`, and the id is
+in the report and in the journal's `phase` event.
+
+**Why the exit code is decided on disk.** A permission denial does not set `is_error`; the child
+carries on half-blind and still reports `success`. So denials are printed and never fatal on their
+own, and what *is* fatal is the artifact check: after `review`, `review.md` must exist and
+`task.md` must say `reviewed` or `blocked`; after `review-fix`, `review.md` must end with an
+`applied:` line. `0` means the child completed *and* the phase left what it promises; `1` is a
+phase that failed by its JSON or by that check (`max_turns` included); `3` is `claude` itself
+failing or writing nothing parseable; `2` is usage or environment.
+
+**Why review is first.** It is the phase that gains the most from a clean context and risks the
+least: it writes only artifacts, and the fix step that does write code is gated by the same script
+`implement` uses. `implement` would be next — the gain is smaller (it has no author bias to shed)
+and the boundary is wider (it must write code) — and `plan-grill` already gets its independence
+from the critic's own tool list.
+
+**Limits, stated.** The child runs under print-mode permission defaults, so anything outside the
+allowlist that would prompt is denied — tests, Python, shell writes — and a review that needed one
+of those is reported with its `DENIED:` lines rather than silently weaker. There is no lead round
+trip from a child. `review.md` carries no `session:` line, because a child cannot read its own id;
+the launcher prints it. Whether gantry's own `Stop` hook fires inside a `-p` child is unverified —
+and it is inert in both children by status anyway, since the hook arms only on `implementing` and
+`gantry:review` refuses that status. And `review.md` is tied to a diff by `lib/diff_fingerprint.sh`:
+the fix step refuses when the branch or the token no longer matches, so stale findings are never
+applied to a tree that moved.
 
 ## ship is a stage machine
 
@@ -213,6 +288,7 @@ Every mode writes artifacts at the **worktree root** — not just the delegated 
 | `task.md` | `gantry:plan` (Affected areas pasted from the explorer) | no — `.git/info/exclude` | `gantry:ship` quotes the contract into the PR body |
 | `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | no — same exclusion | the human who approves it reads it in the worktree |
 | `handover.md` | `gantry:handover`, when review defers something | no — same exclusion | `gantry:ship` quotes it into the PR body |
+| `review.md` | `gantry:review` — the findings in scope to fix, with the diff's fingerprint | no — same exclusion | the fix step reads it; never quoted; `lib/detect_stage.sh` reports it as `REVIEW:` |
 | `journal.jsonl` | `gantry:auto-unattended`, append-only | no — same exclusion | a run artifact, not a deliverable |
 | gate logs | the gate script | no — same exclusion | evidence, kept out of the diff |
 
@@ -225,8 +301,11 @@ repository published three of its dogfooding artifacts to everyone who installed
 
 The exclusion goes in **`.git/info/exclude`**, never `.gitignore`: the latter is tracked, so
 writing to it would itself be a diff in the user's pull request. `lib/ensure_excluded.sh` asserts
-the patterns — `/task.md`, `/plan.md`, `/handover.md`, each anchored so a project's own nested
-`task.md` is untouched — and is idempotent, so every phase that writes one may assert them first.
+the patterns — `/task.md`, `/plan.md`, `/handover.md`, `/review.md`, each anchored so a project's
+own nested `task.md` is untouched — and is idempotent, so every phase that writes one may assert
+them first. `scripts/verify.sh` holds the set at four: a call under `skills/` that names `/task.md`
+without `/review.md`, or the reverse, is a red check, so the next artifact fails CI rather than
+drifting in one call site at a time.
 gantry's own repository additionally lists them in its `.gitignore`, because there it is the target
 repo and a fresh clone should be safe before any gantry command has run.
 
@@ -324,7 +403,7 @@ however it is prompted.
 |---|---|---|---|---|
 | `gantry-explorer` | Read, Grep, Glob | haiku | `gantry:plan`, when the surface is unfamiliar or wide | read-only scout; produces the text for `task.md`'s Affected areas. Physically cannot write it. |
 | `gantry-critic` | Read, Grep, Glob | opus | `gantry:plan-grill`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
-| `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
+| `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable — from inside the headless review child | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
 
 There is deliberately no planner or implementer agent. Writing is what those phases *are*, so an
 agent around one is either writable — and then the roster's guarantee is prose again — or unable to

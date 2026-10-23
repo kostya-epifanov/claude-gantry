@@ -98,23 +98,25 @@ mainline harms nothing.
 
 ### 2. Write `task.md`
 
-**First, keep it out of git.** `task.md`, `plan.md` and `handover.md` are the chain's working
-state, not the change, and they are never committed — see `docs/ARCHITECTURE.md` § *The artifact
+**First, keep it out of git.** `task.md`, `plan.md`, `handover.md` and `review.md` are the chain's
+working state, not the change, and they are never committed — see `docs/ARCHITECTURE.md` § *The artifact
 contract*. Assert that before writing the first one, so the file is excluded from the moment it
 exists rather than after `ship` has already had a chance to sweep it in with `git add -A`:
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md
 ```
 
 The leading `/` anchors each pattern to the worktree root, so a repo with its own `docs/task.md` or
-`specs/plan.md` is untouched. It writes to `.git/info/exclude`, which is untracked — **never**
+`specs/plan.md` is untouched. `review.md` is written by `gantry:review`, two phases from now; it is
+asserted here all the same, because `scripts/verify.sh` holds every call that names one of these to
+naming all four. It writes to `.git/info/exclude`, which is untracked — **never**
 `.gitignore`, which would put an edit to a tracked file in the user's pull request. The script is
 idempotent and race-safe, so running it on every plan costs nothing and two lanes doing it at once
 still leave one copy of each line.
 
 One thing it cannot do: a pattern does not untrack a file git already tracks. In a repository that
-ran 0.4.x these three may be **committed on the base branch**, in which case they will still show
+ran 0.4.x the first three may be **committed on the base branch**, in which case they will still show
 as modified rather than ignored. That is the `TASK:inherited` case above; say so, and leave the
 `git rm` to the user.
 

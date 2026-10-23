@@ -165,8 +165,9 @@ out="$(repo_files -z -- ':!task.md' ':!plan.md' ':!CHANGELOG.md' ':!scripts/veri
 
 head2 "the run's own artifacts are not tracked"
 # Since 0.5.0 task.md, plan.md and handover.md are the chain's working state and
-# are never committed — see docs/ARCHITECTURE.md § "The artifact contract". This
-# repo is a target repo of itself, so the rule has to hold here first.
+# are never committed — see docs/ARCHITECTURE.md § "The artifact contract" —
+# and review.md joined them in 0.7.0. This repo is a target repo of itself, so
+# the rule has to hold here first.
 #
 # Tracked is the thing to test, not ignored. A .gitignore entry does nothing to a
 # file git already tracks, which is exactly how these three sat in this repo's
@@ -176,13 +177,29 @@ head2 "the run's own artifacts are not tracked"
 # Anchored to the root: a repo's own docs/task.md or a fixture under tests/ is
 # somebody else's file and none of this check's business.
 tracked_artifacts=''
-for a in task.md plan.md handover.md; do
+for a in task.md plan.md handover.md review.md; do
   if git ls-files --error-unmatch "$a" >/dev/null 2>&1; then
     tracked_artifacts="$tracked_artifacts $a"
   fi
 done
 [ -z "$tracked_artifacts" ] && ok "none tracked" \
   || bad "committed at the repo root:$tracked_artifacts — remove them from the index"
+
+head2 "the artifact set is four names wherever it is asserted"
+# review.md joined the artifact contract in 0.7.0, and the contract is asserted
+# by `ensure_excluded.sh` calls spread across the skills. A call that names
+# /task.md and not /review.md is the next artifact drifting in one call site at
+# a time — and the cost is a run that commits review.md through `git add -A`.
+# Same shape as the frontmatter-parser diff above: a convention made a check.
+#
+# Only calls that name one of the two are judged. The journal/artifacts-only
+# shape (`ensure_excluded.sh journal.jsonl .claude/artifacts/`) names neither
+# root artifact and is not this check's business. `-H` so a single matching
+# file still prints its name.
+out="$(repo_files -z 'skills/*' | xargs -0 grep -HnE 'ensure_excluded\.sh' 2>/dev/null \
+  | awk '(/\/task\.md/ || /\/review\.md/) && !(/\/task\.md/ && /\/review\.md/)')"
+[ -z "$out" ] && ok "every call names both or neither" \
+  || { bad "an ensure_excluded.sh call names one root artifact and not the other"; printf '%s\n' "$out"; }
 
 head2 "relative links resolve"
 # NB: `grep` exiting 1 on "no matches" is normal here, and under `set -o pipefail`

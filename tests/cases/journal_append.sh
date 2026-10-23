@@ -429,6 +429,28 @@ run_journal --task T --event stage --to implement \
   --coverage-verdict overlap --coverage-changed 1 --coverage-covered 1 --file "$CASE_TMP/w.jsonl"
 assert_rc 2 "$J_RC" "coverage is refused on a stage event"
 
+# --- the phase event's session field -------------------------------------------------
+#
+# Since 0.7.0 the review phase runs in a headless child session, and the
+# driver's `phase` event carries that child's id so a reader can
+# `claude --resume` it. A phase that ran in the driver's own session has none,
+# and the key is then absent rather than null — the shape a line that predates
+# the field already has.
+
+SESS="$CASE_TMP/session.jsonl"
+run_journal --task T --event phase --phase review --result ok --session abc-123 --file "$SESS"
+assert_rc 0 "$J_RC" "a phase event carrying --session is accepted"
+assert_eq abc-123 "$(jqf "$SESS" .session)" "and the session id survives"
+
+rm -f "$SESS"
+run_journal --task T --event phase --phase plan --result ok --file "$SESS"
+assert_eq false "$(jqf "$SESS" 'has("session")')" "without --session the key is absent, not null"
+
+run_journal --task T --event gate --result pass --exit 0 --session abc-123 --file "$CASE_TMP/gs.jsonl"
+assert_rc 2 "$J_RC" "--session is refused on a gate event"
+run_journal --task T --event stage --to review --session abc-123 --file "$CASE_TMP/ss.jsonl"
+assert_rc 2 "$J_RC" "--session is refused on a stage event"
+
 # --- the documentation matches the script -------------------------------------------
 #
 # A wrong flag name in the docs ships green and fails only in a headless run —

@@ -11,6 +11,7 @@ Both drivers point here rather than duplicating it, so the two cannot drift apar
 - The three modes
 - Arguments and flags
 - Invoking a phase, and where delegation happens
+- Headless phases
 - Checkpoints (`gantry:auto` only)
 - Gate resolution
 - Reusing worktree and ship
@@ -25,6 +26,7 @@ is driving and how often it stops.
 |---|---|---|---|
 | Driver | you, typing each phase | this skill | this skill |
 | Phases run | in your session | invoked by the driver | invoked by the driver |
+| Review runs | in your session | **headless child** | **headless child** |
 | Stops | after every phase | two checkpoints | never |
 | Red gate | you decide | stop and report | fix, capped at 2 attempts |
 | Open fork | `implement` warns; you decide | **AskUserQuestion**, after plan and after grill | **stop**, journal `escalation`, `blocked` |
@@ -66,6 +68,8 @@ parser — read it yourself. Strip the recognised flags out; what remains, clean
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. Refuses on the repo default branch or a detached HEAD. |
 | `--base <branch>` | Override the PR base branch. Passed through to `gantry:ship` (and its detector). |
 | `--lead <session>` | **`gantry:auto` only.** Every question the run would ask in a dialog goes to that lead session by `SendMessage`, and only a narrow reply vocabulary is accepted. Protocol: `references/lead.md`. `gantry:auto-unattended` refuses the flag. |
+| `--review-model <alias>` | The model the review children run on, passed to the launcher as `--model`. Absent, the child inherits the user's default. `sonnet` is a cost-neutral choice for a review. `gantry:ship` takes it too. |
+| `--review-effort <level>` | The effort level for the review children, passed as `--effort`. Absent, neither flag is passed and the child inherits. |
 
 Everything not a flag is the task. If nothing remains after stripping them, stop and ask what the
 task is — except under `gantry:auto-unattended`, where there is nobody to ask: stop and report.
@@ -97,7 +101,7 @@ that a tool boundary means something:
 | plan | `gantry-explorer`, when the surface is unfamiliar or wide | locating files, entry points, patterns → *Affected areas* | `.claude/agents/explorer.md` |
 | grill | `gantry-critic`, **always, in every mode** | reading `task.md` and `plan.md` cold and returning findings | `.claude/agents/critic.md` |
 | implement | — | the phase writes the code; the gate is a script | — |
-| review | `gantry-reviewer`, when `/code-review` is unavailable | reading a diff it did not write | `.claude/agents/reviewer.md` |
+| review | `gantry-reviewer`, when `/code-review` is unavailable — inside a **headless child session**, not the driver's | reading a diff it did not write | `.claude/agents/reviewer.md` |
 
 **Every agent gantry ships is read-only.** `gantry-explorer` and `gantry-critic` have `Read, Grep,
 Glob`; `gantry-reviewer` adds `Bash` to read git and run checks.
@@ -119,6 +123,32 @@ optional is one you cannot trust to have delegated.
 
 **All handoff is via disk.** Never assume an agent can see your context or another agent's. Give it
 paths and let it read them; take back a summary, not the payload.
+
+## Headless phases
+
+Review is the first phase that does not run in the driver's session at all. By stage 6 the
+driver's context holds the plan, the critique and the whole implementation; in the one `auto` run
+on disk, `/code-review` started at 187k tokens of context and ran inline, so the diff was reviewed
+by the model that wrote it. So both drivers, and `gantry:ship --review`, launch it as a fresh
+`claude -p "/gantry:review --headless …"` child through `lib/run_phase_headless.sh`, wait for the
+completion notification (the launcher runs with `run_in_background`; there is no polling loop),
+and read the results from disk: the launcher's labeled lines, `review.md`, and `task.md`'s status.
+
+The phase skill still carries the procedure. What the launcher owns is the **boundary**, set by the
+harness rather than by prose: the review child runs under `--permission-mode dontAsk` with an
+allowlist of exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`,
+`handover.md` and `task.md` (the relative form resolves against the child's current directory,
+which a `cd` moves; the absolute form holds wherever the shell ended up), `Skill(gantry:handover)`
+(a plugin skill is denied under `dontAsk` without it), and Bash rules for four read-only gantry
+scripts (the gate, the exclusion writer, the stage detector, the diff fingerprint — each in both
+quote forms, because a rule matches the literal command). It can write the chain's artifacts and
+nothing else. The fix step is a **second child**, `gantry:review --fix`
+under `acceptEdits` with the same Bash rules, which applies what `review.md` lists and re-runs the
+gate. The driver never sees the child's transcript; a human who wants it uses
+`claude --resume <session id>`, and the id is in the driver's report and the journal.
+
+What the launcher's exit code means, and what a `DENIED:` line does not: `docs/ARCHITECTURE.md`
+§ *Headless phases*.
 
 ### Preconditions for unattended — no blocking prompts
 

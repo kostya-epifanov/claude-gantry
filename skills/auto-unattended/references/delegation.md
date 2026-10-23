@@ -26,6 +26,7 @@ All live at the **root of the task's worktree**.
 | `task.md` | `gantry:plan` (Affected areas from the explorer) | **no** — excluded via `.git/info/exclude`; ship quotes the contract into the PR body |
 | `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | **no** — same exclusion; named in the PR body, not quoted |
 | `handover.md` | `gantry:handover`, when review defers something | **no** — same exclusion; ship quotes it into the PR body |
+| `review.md` | `gantry:review` in its headless child — the findings in scope to fix, tied to the diff by a fingerprint | **no** — same exclusion; read by the fix child, never quoted |
 | `journal.jsonl` | the orchestrator, append-only | **no** — a run artifact; same exclusion |
 | gate logs | the gate script / the readiness hook | **no** — same exclusion |
 
@@ -52,7 +53,7 @@ pair of eyes inside it.
 | plan | `/gantry:plan` | **explorer** (Read/Grep/Glob, Haiku), when the surface warrants it | the artifact paths + a short rationale |
 | grill | `/gantry:plan-grill` | **critic** (Read/Grep/Glob, Opus), **always** | findings by severity + the plan path |
 | implement | `/gantry:implement` | — | a change summary + the gate's exit code |
-| review | `/gantry:review --fix` | **reviewer** (Read/Grep/Glob/Bash, Opus), when `/code-review` is unavailable | findings, what was fixed, what was deferred |
+| review | `/gantry:review --headless`, then `/gantry:review --fix --headless`, each in a **headless child** launched by `lib/run_phase_headless.sh` | **reviewer** (Read/Grep/Glob/Bash, Opus), when `/code-review` is unavailable — dispatched by the child | `review.md`, what was fixed, what was deferred, the child session ids |
 | gate | *(script)* | — | an exit code |
 
 A phase dispatches with the **Agent** tool and a self-contained prompt: the worktree path, which

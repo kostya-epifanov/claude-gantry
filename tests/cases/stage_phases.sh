@@ -212,6 +212,100 @@ run_stage "$det"
 assert_contains "$STAGE_OUT" "TASK:present" \
   "a detached HEAD degrades to present, never to inherited"
 
+# --- review.md: the findings file -------------------------------------------------
+# REVIEW: is what `gantry:review --fix` reads to decide between apply mode and a
+# fresh review, and what turns a `reviewed` status into PHASE:review (a fix step
+# still to run) or PHASE:ship. PHASE and NEXT are asserted together on every
+# value, because a detector whose two lines disagree sends a driver one way and
+# a human the other.
+
+write_review() {  # write_review <repo> <pending|clean|applied|noheading|garbage>
+  case "$2" in
+    pending)   printf '# Review\nbranch: b\n\n## Address now\n- `a.sh:3` — wrong. Failure: x.\n' ;;
+    clean)     printf '# Review\nbranch: b\n\n## Address now\n\nNone.\n' ;;
+    applied)   printf '# Review\n\n## Address now\n- `a.sh:3` — wrong.\n\napplied: 2026-10-22T10:00:00Z gate=0\n' ;;
+    applied-mid) printf '# Review\n\n## Address now\n- `a.sh:3` — the line reads\napplied: at column 1 and is wrong. Failure: x.\n- `b.sh:1` — also wrong.\n' ;;
+    none-prefix) printf '# Review\nbranch: b\n\n## Address now\nNone of these are safe to skip:\n- `a.sh:3` — wrong. Failure: x.\n' ;;
+    none-bold)   printf '# Review\n\n## Address now\n\n**None.**\n' ;;
+    noheading) printf '# Review\nbranch: b\n\nprose only, no section\n' ;;
+    garbage)   printf '\000\001 not markdown at all' ;;
+  esac >"$1/review.md"
+}
+
+rv="$(mkrepo review-states)"
+write_task "$rv" reviewed
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:absent" "no review.md reports absent"
+assert_contains "$STAGE_OUT" "PHASE:ship" "reviewed with no review.md is ship"
+assert_contains "$STAGE_OUT" "NEXT:/gantry:ship" "and NEXT agrees"
+
+write_review "$rv" pending
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:pending" "findings under Address now report pending"
+assert_contains "$STAGE_OUT" "PHASE:review" "reviewed plus pending findings is still the review phase"
+assert_contains "$STAGE_OUT" "NEXT:/gantry:review --fix" "and NEXT names the fix step"
+
+write_review "$rv" clean
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:clean" "None. under Address now reports clean"
+assert_contains "$STAGE_OUT" "PHASE:ship" "reviewed plus a clean file is ship"
+assert_contains "$STAGE_OUT" "NEXT:/gantry:ship" "and NEXT agrees"
+
+write_review "$rv" applied
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:applied" "an applied: line reports applied, whatever the findings say"
+assert_contains "$STAGE_OUT" "PHASE:ship" "reviewed plus an applied file is ship"
+
+# Only the LAST non-blank line decides `applied`: the fix step appends it last,
+# and a finding body that quotes the format must not read as applied before
+# any fix ran — that would skip the fix step and ship the findings unapplied.
+write_review "$rv" applied-mid
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:pending" "an applied: line inside a finding body does not make the file applied"
+assert_contains "$STAGE_OUT" "NEXT:/gantry:review --fix" "and the fix step is still named"
+
+# `None` means exactly that: a findings section whose first sentence merely
+# starts with the word is a findings section.
+write_review "$rv" none-prefix
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:pending" "a first line that only starts with None is pending"
+assert_contains "$STAGE_OUT" "PHASE:review" "and still routes to the fix step"
+write_review "$rv" none-bold
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:clean" "a bold-wrapped None. is still clean"
+
+# The permissive direction is pending: a file the parser cannot read makes the
+# fix step look and refuse with a reason, rather than skipping it silently.
+write_review "$rv" noheading
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:pending" "a review.md with no Address now heading is pending"
+write_review "$rv" garbage
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:pending" "an unparseable review.md is pending"
+assert_rc 0 "$STAGE_RC" "and the detector still exits 0"
+
+# Only a reviewed status routes on the value; every other status is unchanged.
+write_review "$rv" pending
+write_task "$rv" implemented
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:pending" "the value is reported under any status"
+assert_contains "$STAGE_OUT" "PHASE:review" "implemented is review regardless"
+# A findings file under a status that is not `reviewed` is a review that died
+# before writing its status. `--fix` refuses that combination and names
+# /gantry:review, so the detector must suggest that and not a dead end.
+assert_contains "$STAGE_OUT" "NEXT:/gantry:review" "implemented plus pending findings names a fresh review"
+assert_not_contains "$STAGE_OUT" "NEXT:/gantry:review --fix" "and not the fix step the skill would refuse"
+rm -f "$rv/review.md"
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "NEXT:/gantry:review --fix" "implemented with no review.md still names review --fix"
+write_review "$rv" pending
+write_task "$rv" implementing
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "PHASE:implement" "implementing is implement regardless of review.md"
+write_task "$rv" shipped
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "PHASE:done" "shipped is done regardless of review.md"
+
 # --- it takes no arguments ----------------------------------------------------
 STAGE_OUT="$(cd "$repo" && bash "$DETECT_STAGE" --nope 2>&1)"
 STAGE_RC=$?
