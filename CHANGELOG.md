@@ -27,6 +27,26 @@ The phase skill keeps carrying the procedure — only where it runs changes.
   permission denial, `GATE_EXIT:` after the fix child — with the child's result text last inside
   delimiters. Exit `0` only when the child completed and left its artifact; denials are reported and
   never fatal on their own. `--plugin-dir` is forwarded so a checkout's skills run in the child.
+  The child is launched **detached**, in a session of its own (`setsid`), with
+  `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`: a Claude Code session reaps its own background
+  tasks on a `memoryPressure` event from its runtime, and a driver runs the launcher as one of
+  those. Measured over an A/B run of five lanes, that reaper killed review children at 0.6, 0.8,
+  0.9, 1.1 and 2.9 GiB host memory free against one survivor at 1.6 GiB — host memory does not
+  predict it, the message ("stopped because the system is running low on memory") names the wrong
+  cause, and two lanes running the identical command went 6-for-6 killed and 0-for-1 killed. Only
+  this topology was exposed: an in-session review has no background task to reap. Because the
+  variable is read in the driver's process, where a skill cannot set it, the fix is the detach. A
+  launcher that is itself reaped leaves the child running, and re-running the same command
+  **attaches** to it by its `.pid` instead of paying for a second review of the same diff.
+  `--timeout <seconds>` (default 7200) bounds the wait and stops the child it was waiting on.
+  With no `setsid` on `PATH` the child runs inline and a `NOTE:` line says it is exposed.
+- **`NOTE:<line>`** in the launcher's output, after `RESULT_FILE:` and before `REASON:` — zero or
+  more: the detach or the lack of it, an attach to a child an earlier launcher left running, and
+  the one a caller most needs to see, that **no `--model` was given**. A child without `--model`
+  does not inherit the driver's model: it takes the user default from `settings.json`. In the same
+  A/B run a driver pinned to Sonnet reviewed on Opus because a `/model` command in an unrelated
+  session had just saved that default. The three drivers now pass `--model` on every launch —
+  `--review-model`'s alias when given, otherwise their own model.
 - **`lib/diff_fingerprint.sh <base>`** — one token for the diff plus untracked state, including
   the content of untracked files. `review.md` records it; apply mode refuses on a mismatch.
 - **`review.md`** — the fourth artifact: branch, base, fingerprint, source, tier, the two tallies,

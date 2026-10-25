@@ -129,8 +129,10 @@ bash "$GANTRY/lib/run_phase_headless.sh" --phase review --root <ROOT> --tier <ti
 bash "$GANTRY/lib/run_phase_headless.sh" --phase review-fix --root <ROOT>      # --review-fix, on REVIEW:pending
 ```
 
-Add `--model <alias>` / `--effort <level>` only when `--review-model` / `--review-effort` were
-given, and `--plugin-dir "$GANTRY"` when `$GANTRY` is not under
+**Pass `--model` every time**: a child with no `--model` takes the user default from
+`settings.json`, not this session's model. Use `--review-model`'s alias when it was given,
+otherwise the model this session is running on. Add `--effort <level>` only when `--review-effort`
+was given, and `--plugin-dir "$GANTRY"` when `$GANTRY` is not under
 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/` (a checkout, not an install). Then read the
 launcher's lines: exit `1` or `3` → the review did not happen; stop with its `REASON:` line, **no
 push, no PR**. Exit `2` → a broken environment (no `jq`, no `claude`); stop and say so. On exit

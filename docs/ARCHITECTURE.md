@@ -201,10 +201,33 @@ write either and single quotes matched neither. The fix child runs under `accept
 same Bash rules and no `Edit(` rule. Neither child gets `--disallowedTools`, `--lead`, or
 `--dangerously-skip-permissions`. Code stays untouchable by the harness, not by prose.
 
+**The child is detached, and that is load-bearing.** A driver runs the launcher as a backgrounded
+Bash task, and a Claude Code session registers a `memoryPressure` handler over *its own* background
+tasks: when the runtime raises the event, every running task of that session is marked killed with
+the message "stopped because the system is running low on memory". The event comes from the runtime
+inside one session process, so it fires regardless of what the host has free — measured at 0.6,
+0.8, 0.9, 1.1 and 2.9 GiB free against one survivor at 1.6 GiB, with two lanes running the identical
+command and one losing six children in a row while the other lost none. The message names the wrong
+cause, and only this topology is exposed: an in-session review has no background task to reap. The
+session variable that disables the handler is read in the *driver's* process, which a skill cannot
+set, so `run_phase_headless.sh` puts the child in a session of its own with `setsid` and lets a
+small wrapper record the exit code and touch `.done`. If the launcher is reaped the review carries
+on, and re-running the same command attaches to that child by its `.pid` rather than paying for a
+second review. With no `setsid` on `PATH` the child runs inline and a `NOTE:` line says it is
+exposed — the phase still works, it is just back where it was.
+
+**A child with no `--model` does not inherit the driver's.** It takes the user default from
+`settings.json`. The two are usually the same and were not once: a driver pinned to Sonnet launched
+its review children on Opus because a `/model` command in an unrelated session had just saved that
+default, and the review ran on a model nobody chose for it. The drivers therefore pass `--model`
+every time — `--review-model`'s alias when given, otherwise their own model — and the launcher
+raises a `NOTE:` when nobody did.
+
 **What the orchestrator's context holds afterwards.** The launcher's labeled lines — `SESSION:`,
 `MODEL:`, `EFFORT:`, `TURNS:`, `SUBTYPE:`, `COST_USD:`, `DENIALS:` and one `DENIED:` per denial,
-`GATE_EXIT:` after the fix child, `RESULT_FILE:`, `REASON:` on failure, and the child's result text
-inside `RESULT_BEGIN … RESULT_END`, last — plus `review.md` and `task.md`'s status, read from disk.
+`GATE_EXIT:` after the fix child, `RESULT_FILE:`, zero or more `NOTE:`, `REASON:` on failure, and
+the child's result text inside `RESULT_BEGIN … RESULT_END`, last — plus `review.md` and `task.md`'s
+status, read from disk.
 Not the child's transcript: a human who wants it runs `claude --resume <session id>`, and the id is
 in the report and in the journal's `phase` event.
 

@@ -152,12 +152,19 @@ reviewing itself — the weakest possible reviewer. The phase skill still carrie
    bash "$GANTRY/lib/run_phase_headless.sh" --phase review --root <worktree> --tier high
    ```
 
-   Add `--model <alias>` when `--review-model` was given and `--effort <level>` when
-   `--review-effort` was; with neither, pass neither. Add `--plugin-dir "$GANTRY"` when `$GANTRY`
+   **Pass `--model` every time.** A child with no `--model` does not inherit *your* model — it takes
+   the user default from `settings.json`, which is a different thing and was a different thing in
+   practice: a driver pinned to Sonnet launched its review children on Opus because a `/model`
+   command in an unrelated session had just saved that default. So pass `--review-model`'s alias
+   when it was given, and otherwise **the model this session is running on**. Pass
+   `--effort <level>` only when `--review-effort` was given. Add `--plugin-dir "$GANTRY"` when `$GANTRY`
    is not under `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/` — a checkout rather than an
-   install — so the child runs this checkout's skills and not the installed plugin's. If this
-   session resumed after the notification was lost, look for
-   `.claude/artifacts/headless/review.done` in the worktree before launching again.
+   install — so the child runs this checkout's skills and not the installed plugin's.
+
+   If this session resumed after the notification was lost, look for
+   `.claude/artifacts/headless/review.done` in the worktree before launching again. If it is
+   absent, run the same command: the child outlives the launcher, so the launcher finds it by its
+   `.pid` and attaches instead of starting a second review. A `NOTE:` line says which happened.
 
 2. **Read the launcher's lines.** Exit `1` or `3` → stop and hand the user its `REASON:` line
    (under `--lead`, remove the `lead:` line first). Exit `2` → a broken environment (no `jq`, no

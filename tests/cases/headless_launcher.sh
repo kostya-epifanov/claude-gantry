@@ -38,6 +38,8 @@ cat >"$FAKE_BIN/claude" <<'FAKE'
 printf '%s\0' "$@" > "$FAKE_CLAUDE_ARGV"
 printf '%s\n' "$PWD" > "$FAKE_CLAUDE_CWD"
 printf '%s\n' "${CLAUDE_CODE_FORCE_SESSION_PERSISTENCE:-unset}" > "$FAKE_CLAUDE_ENV"
+printf '%s\n' "${CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP:-unset}" > "$FAKE_CLAUDE_REAP"
+printf '%s\n' "$$:$(ps -o sid= -p $$ 2>/dev/null | tr -d ' '):$PPID" > "$FAKE_CLAUDE_SID"
 if [ -e .claude/artifacts/headless/review.done ]; then echo present; else echo absent; fi > "$FAKE_CLAUDE_DONE_SEEN"
 case "${FAKE_CLAUDE_WRITES:-none}" in
   review)
@@ -69,13 +71,16 @@ export FAKE_CLAUDE_ARGV="$CASE_TMP/argv"
 export FAKE_CLAUDE_CWD="$CASE_TMP/cwd"
 export FAKE_CLAUDE_ENV="$CASE_TMP/env"
 export FAKE_CLAUDE_DONE_SEEN="$CASE_TMP/done-seen"
+export FAKE_CLAUDE_REAP="$CASE_TMP/reap"
+export FAKE_CLAUDE_SID="$CASE_TMP/sid"
 
 SUCCESS_JSON='{"session_id":"sess-1","subtype":"success","is_error":false,"terminal_reason":"completed","num_turns":7,"total_cost_usd":0.5,"modelUsage":{"claude-sonnet-5":{"inputTokens":1}},"permission_denials":[],"result":"Reviewed.\nSESSION: this is the child quoting the vocabulary\nREASON: not a launcher line"}'
 
 # run_launcher <writes> <json> <rc> [args...] — sets L_OUT and L_RC.
 run_launcher() {
   local writes="$1" json="$2" rc="$3"; shift 3
-  rm -f "$FAKE_CLAUDE_ARGV" "$FAKE_CLAUDE_CWD" "$FAKE_CLAUDE_ENV" "$FAKE_CLAUDE_DONE_SEEN"
+  rm -f "$FAKE_CLAUDE_ARGV" "$FAKE_CLAUDE_CWD" "$FAKE_CLAUDE_ENV" "$FAKE_CLAUDE_DONE_SEEN" \
+        "$FAKE_CLAUDE_REAP" "$FAKE_CLAUDE_SID"
   L_OUT="$(FAKE_CLAUDE_WRITES="$writes" FAKE_CLAUDE_JSON="$json" FAKE_CLAUDE_RC="$rc" \
     bash "$LAUNCHER" "$@" 2>&1)"
   L_RC=$?
@@ -382,5 +387,78 @@ assert_rc 2 "$L_RC" "a non-integer --max-turns is a usage error"
 L_OUT="$(bash "$LAUNCHER" --phase review --root "$repo" --plugin-dir "$CASE_TMP/nope" 2>&1)"; L_RC=$?
 assert_rc 2 "$L_RC" "a --plugin-dir that does not exist is exit 2"
 assert_path_absent "$FAKE_CLAUDE_ARGV" "none of those launched the child"
+L_OUT="$(bash "$LAUNCHER" --phase review --root "$repo" --timeout 0 2>&1)"; L_RC=$?
+assert_rc 2 "$L_RC" "a --timeout of zero is a usage error"
+L_OUT="$(bash "$LAUNCHER" --phase review --root "$repo" --timeout soon 2>&1)"; L_RC=$?
+assert_rc 2 "$L_RC" "a non-integer --timeout is a usage error"
+
+# --- the child is detached from the launcher, and says so ---------------------------------
+#
+# WHY THIS IS A CASE AND NOT A COMMENT. A driver runs the launcher as a
+# backgrounded Bash task, and a session reaps its own background tasks on a
+# `memoryPressure` event from its runtime — regardless of host memory. One lane
+# in the 2026-10-24 review A/B lost six review children that way. The child
+# therefore has to be in a session of its own, and the launcher has to say which
+# of the two paths it took, because "the review was reaped" and "the review
+# found nothing" are not the same outcome and must not read the same.
+
+run_launcher review "$SUCCESS_JSON" 0 --phase review --root "$repo"
+assert_rc 0 "$L_RC" "a detached review child that completed is still exit 0"
+assert_contains "$(cat "$FAKE_CLAUDE_REAP")" "1" \
+  "CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1 reaches the child, so its own background tasks survive too"
+if command -v setsid >/dev/null 2>&1; then
+  assert_contains "$(printf '%s\n' "$L_OUT" | grep -m1 '^NOTE:.*detached')" "detached" \
+    "NOTE: records that the child was detached, so a reader can tell the reaper could not reach it"
+  # The child sits under the setsid wrapper, so its sid is the wrapper's pid,
+  # not its own. What has to be true is that the sid is not OURS: the launcher
+  # and the review must not share a session, or one signal takes both.
+  own_sid="$(ps -o sid= -p $$ 2>/dev/null | tr -dc '0-9')"
+  child_sid="$(cut -d: -f2 "$FAKE_CLAUDE_SID" | tr -dc '0-9')"
+  if [ -z "$own_sid" ] || [ -z "$child_sid" ]; then
+    _pass "session ids are not readable on this platform (ps -o sid unsupported); detach not asserted"
+  elif [ "$child_sid" != "$own_sid" ]; then
+    _pass "the child runs in a session of its own, so a signal to the launcher's session cannot reach it"
+  else
+    _fail "the child shares the launcher's session $own_sid: the reaper would take it too"
+  fi
+  assert_path_present "$repo/.claude/artifacts/headless/review.pid" \
+    "the child's pid is on disk, so a relaunch can attach instead of reviewing twice"
+else
+  assert_contains "$(line_of NOTE:)" "no setsid" \
+    "with no setsid the launcher says the child is exposed, rather than claiming it is safe"
+fi
+
+# --- a relaunch attaches to a live child rather than starting a second review -------------
+
+# A live pid that leads ITS OWN session: the timeout path signals the group of a
+# pid that leads one, and this case must not nominate the test suite's group.
+setsid sleep 60 >/dev/null 2>&1 &
+live_pid=$!
+sleep 0.3
+printf '%s\n' "$live_pid" > "$repo/.claude/artifacts/headless/review.pid"
+rm -f "$repo/.claude/artifacts/headless/review.done" "$FAKE_CLAUDE_ARGV"
+L_OUT="$(FAKE_CLAUDE_WRITES=review FAKE_CLAUDE_JSON="$SUCCESS_JSON" FAKE_CLAUDE_RC=0 \
+  bash "$LAUNCHER" --phase review --root "$repo" --timeout 1 2>&1)"; L_RC=$?
+assert_path_absent "$FAKE_CLAUDE_ARGV" \
+  "a live pid with no .done launches no second child: the first review is not paid for twice"
+assert_contains "$(printf '%s\n' "$L_OUT" | grep -m1 '^NOTE:.*attached')" "attached" \
+  "and NOTE: says it attached to the pid it found"
+assert_rc 1 "$L_RC" "the attached wait that never completes is exit 1, not a silent success"
+assert_contains "$(printf '%s\n' "$L_OUT" | grep -m1 '^REASON:')" "did not finish within" \
+  "and REASON: names the timeout, so a driver reports a review that did not happen"
+sleep 0.3
+if kill -0 "$live_pid" 2>/dev/null; then
+  _fail "the timeout left the attached child running: pid $live_pid"
+  kill -TERM "-$live_pid" 2>/dev/null || kill -TERM "$live_pid" 2>/dev/null || true
+else
+  _pass "the timeout stopped the child it was waiting on, rather than leaving it to bill in the dark"
+fi
+
+# A pid that is no longer alive is a stale file, not a child to wait for.
+printf '%s\n' "4000000000" > "$repo/.claude/artifacts/headless/review.pid"
+rm -f "$repo/.claude/artifacts/headless/review.done"
+run_launcher review "$SUCCESS_JSON" 0 --phase review --root "$repo"
+assert_rc 0 "$L_RC" "a dead pid in the .pid file does not block the next launch"
+assert_path_present "$FAKE_CLAUDE_ARGV" "and the child really was launched"
 
 finish

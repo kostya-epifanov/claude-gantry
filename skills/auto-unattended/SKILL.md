@@ -228,10 +228,18 @@ bash "$GANTRY/lib/run_phase_headless.sh" --phase review --root <worktree> --tier
 ```
 
 Run the launcher with the Bash tool's `run_in_background` and wait for the completion
-notification; do not poll. Add `--model <alias>` and `--effort <level>` only when `--review-model`
-/ `--review-effort` were given, and `--plugin-dir "$GANTRY"` when `$GANTRY` is not under
-`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/` (a checkout, not an install). On a resume, check
-for `.claude/artifacts/headless/review.done` before launching again.
+notification; do not poll.
+
+**Pass `--model` every time.** A child with no `--model` does not inherit this session's model —
+it takes the user default from `settings.json`, which is a different thing. Pass `--review-model`'s
+alias when it was given, otherwise the model this session is running on; an unattended run that
+silently reviewed on whatever a stray `/model` command last saved is not a reproducible run. Pass
+`--effort <level>` only when `--review-effort` was given, and `--plugin-dir "$GANTRY"` when
+`$GANTRY` is not under `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/` (a checkout, not an install).
+
+On a resume, check for `.claude/artifacts/headless/review.done` before launching again; if it is
+absent, run the same command — the child outlives the launcher, so the launcher attaches to it by
+its `.pid` rather than paying for a second review, and says so in a `NOTE:` line.
 
 The child runs `/gantry:review --headless --tier high`: it gets an independent read, verifies and
 triages, writes `review.md` with what is in scope to fix, invokes `gantry:handover` for what it
