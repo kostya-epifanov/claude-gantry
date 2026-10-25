@@ -94,8 +94,8 @@ head2 "skills that follow the lead protocol may use its tools"
 # (skills/auto/references/lead.md). A skill's allowed-tools RESTRICTS what is
 # permitted while it runs, so a skill that points at the protocol but omits
 # either tool cannot follow it — and the failure appears only mid-run, inside
-# that one phase, with a lead waiting. plan-grill shipped without Write for
-# exactly this reason until a critique caught it. `claude plugin validate` is
+# that one phase, with a lead waiting. The critique phase shipped without Write
+# for exactly this reason until a critique caught it. `claude plugin validate` is
 # skipped where the CLI is absent (CI), so this is the check that holds there.
 #
 # A skill with no allowed-tools line is unrestricted and passes.

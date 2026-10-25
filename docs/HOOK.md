@@ -27,8 +27,8 @@ None of those appear by accident. **Creating `.claude/gates.sh` is the opt-in.**
 the hook parses stdin, makes two file tests, and exits 0 with no perceptible delay.
 
 The window is deliberately narrow. `/gantry:implement` sets `status: implementing` before it
-touches a file, and every other status (`planning`, `planned`, `grilled`, `implemented`,
-`reviewed`, `shipped`, `blocked`) leaves the hook inert. That matters for `SubagentStop`: the
+touches a file, and every other status (`planning`, `planned`, `critiqued`, `grilled`,
+`implemented`, `reviewed`, `shipped`, `blocked`) leaves the hook inert. That matters for `SubagentStop`: the
 matcher is `*`, so every sub-agent's stop runs the hook, but no gantry sub-agent runs inside the
 window. `implement` dispatches nobody, and the explorer, critic and reviewer run under other
 statuses. Widening the matcher is the easiest way to make the hook fire constantly and get switched

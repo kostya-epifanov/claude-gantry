@@ -249,6 +249,21 @@ bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: lines
   here is a second source of truth that can drift from the contract the work was actually done
   against, which is the entire failure this heading exists to prevent. On `TASK:inherited` the file
   is the *previous* task's contract: do **not** quote it, and say the branch shipped without one.
+- **`task.md`'s `## Decisions` section holds entries** → a `## Decisions made` heading, carrying
+  each one: the question, what was chosen, and **why**. This is `/gantry:grill`'s record of the
+  conversation that settled the approach, and it is the only place that reasoning reaches a
+  reviewer — the critique's own log lives in `plan.md`, which this body does not quote. Carry
+  through anything grill marked **decided by recommendation, unconfirmed**: a decision the owner
+  did not actually confirm is exactly what a reviewer should see flagged.
+
+  **Entries, not the heading.** The task template ships this section with instructional prose in it,
+  so a `task.md` freshly copied from the template *has* the heading and no decisions. Read it the
+  way `lib/detect_stage.sh` reads *Open questions*: list items count, prose and fenced examples do
+  not. Keying on the heading would quote the template's own guidance into the body as if it were
+  this change's reasoning. A run with no entries — every `gantry:auto-unattended` run, since grill
+  never ran — gets the heading and one line saying no grill conversation ran, per the absent rule
+  below. And on **`TASK:inherited`** quote nothing here, for the same reason as the contract above:
+  the decisions on disk belong to the previous, merged task.
 - **`HANDOVER:present`** → a `## Deliberately not done` heading carrying `handover.md`'s items, one
   line each with its reason. This is what `/gantry:review` deferred; a reviewer who cannot see it
   re-reports every finding the run already triaged.
@@ -345,8 +360,8 @@ Three outcomes, and the skill owes the reader whichever one happened:
 #### Re-read what you just wrote
 
 The last thing before `gh pr create`, and the only scrutiny this prose will get.
-`/gantry:plan-grill` read `task.md` and `plan.md`; `/gantry:review` read the diff, if it was asked
-to. **None of them read this title, this body, or the commit subject** — all three are written
+`/gantry:plan-critique` read `task.md` and `plan.md`; `/gantry:review` read the diff, if it was
+asked to. **None of them read this title, this body, or the commit subject** — all three are written
 last, by the context most invested in the result.
 
 One rule, narrow on purpose:

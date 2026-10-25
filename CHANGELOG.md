@@ -1,5 +1,71 @@
 # Changelog
 
+## Unreleased
+
+**`/gantry:plan-grill` becomes two phases: `/gantry:plan-critique` and `/gantry:grill`.** The old
+phase did two jobs that pull in opposite directions. It dispatched a cold critic — the one read in
+the chain not written from inside the plan's own assumptions — and then compressed what came back
+into a count ("4 findings, 2 folded in, 1 noted") and asked a binary *"Proceed with this plan?"*.
+
+A critic attacks a plan from inside the plan's approach: it hunts steps that will fail, missing
+migrations, unfalsifiable criteria. Every one of those presupposes the approach is right. Nobody
+asked *is this the way to get what the task came for* — the question with the most leverage at plan
+time, and the one a human can answer and a critic cannot. Meanwhile the reasoning that lets an
+owner catch a wrong premise in a sentence, why approach A loses to approach B, was exactly what got
+thrown away.
+
+So the split is along mechanism versus interface. **`/gantry:plan-critique`** is the old phase minus
+every `AskUserQuestion`: headless, dispatches `gantry-critic` on every path, records the pass under
+`## Critique`, sets the new `status: critiqued`, and leaves every fork open. **`/gantry:grill`** is
+new and human-only: it explains the problem, asks in up to `--rounds N` rounds (default 3, or 1
+under `--lead`) where every question leads with a recommendation and every option is priced by what
+it costs — the recommended one included — then writes a `## Decisions` section into `task.md` and
+closes with a terminal question that **is** the plan approval. A reply meaning "go with your
+recommendation" ends the dialogue in one step, and each remaining fork is recorded as *decided by
+recommendation, unconfirmed* rather than as a confirmation nobody gave.
+
+**`gantry:auto` now has exactly one `AskUserQuestion` checkpoint**, the one before the side effects.
+Grill's terminal question replaces the plan-confirmation checkpoint, and both of the driver's fork
+rounds are gone — `plan` records forks instead of asking them, and grill is the one asking moment.
+Removing a stage renumbered the rest: ship is stage 7 and the report stage 8.
+
+**`gantry:auto-unattended` loses the conversation and keeps the critique.** `grill` is human-only
+and absent from that chain; `plan-critique` is headless and stays. Dropping both would have left
+`plan → implement` with nothing in between, and made the first independent read of anything happen
+after the code was written. Those runs reach `implement` at `critiqued`, which it accepts without a
+warning for that reason; `planned` still warns, and now names `/gantry:grill` as the cheaper path.
+
+**The reasoning finally reaches the reviewer.** `gantry:ship` quotes `task.md`'s `## Decisions` into
+the pull request body. The old `## Grilled` log lived in `plan.md`, which ship does not quote, so
+the argument behind an approach never left the worktree.
+
+**New status: `critiqued`, between `planned` and `grilled`.** The three now say who has read the
+plan — `planned` drafted, `critiqued` a critic read it, `grilled` a human agreed and every fork is
+closed — and only the last is an approval. `lib/detect_stage.sh` maps
+`planned → PHASE:critique → NEXT:/gantry:plan-critique` and
+`critiqued → PHASE:grill → NEXT:/gantry:grill`. The readiness hook is untouched: it still arms on
+exactly `implementing`, and `tests/cases/hook_inert_unless_armed.sh` now proves `critiqued` leaves
+it inert. `tests/cases/stage_phases.sh` covers the new status and, for the first time, the `NEXT:`
+mapping — a correct `PHASE` with a stale `NEXT` sends someone to a command that does not exist.
+
+`plan`'s own rule changed with it: it sets `status: planned` once the draft is complete, **whether
+or not a fork is open**, where through 0.6.x an open fork held it at `planning`. It had to move,
+because `planning` routes to `NEXT:/gantry:plan` — the chain's signpost pointing back at the phase
+that just finished. Dispatch is still protected by `/gantry:implement`'s unchanged `FORKS:open`
+refusal and by grill, which will not reach its approval while an entry is unchecked: two guards
+that read the forks directly rather than a status standing in for them.
+
+**Breaking, with no alias.** `/gantry:plan-grill` is gone — muscle memory and anything scripted
+against the command name both need updating. And note the name reuse: before 0.4.x `/gantry:grill`
+*was* the cold critique, which is why it was renamed to `plan-grill` in the first place. It now
+means the conversation. An alias would have made that ambiguity permanent instead of loud once.
+
+The always-on context budget rose from ~2,124 to **~2,230 tokens** (6,612 characters across 17
+components, measured with `claude --plugin-dir . plugin details gantry`), and
+`scripts/context_budget.sh`'s ceiling from 6,600 to 6,950. Most of that was not the new skill: both
+driver descriptions name the chain in prose, so one command name becoming two grew `auto` as well —
+the second-order drift that ceiling exists to make visible.
+
 ## 0.6.1
 
 **`/gantry:ship` sends the pull-request body from a file inside the worktree.** Ship documented an

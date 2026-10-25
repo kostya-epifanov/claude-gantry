@@ -18,16 +18,18 @@ Both drivers point here rather than duplicating it, so the two cannot drift apar
 
 ## The three modes
 
-gantry runs the same seven-phase chain three ways. The phases are identical; what differs is who
-is driving and how often it stops.
+gantry runs the same chain three ways. A phase that appears in two of them is the *same* phase, not
+a variant of it — that is the property the whole design rests on. What differs is who drives, how
+often it stops, and one phase: `grill` is human-only, so `gantry:auto-unattended` runs
+`plan-critique` and no grill at all.
 
 | | Semi-auto | `gantry:auto` | `gantry:auto-unattended` |
 |---|---|---|---|
 | Driver | you, typing each phase | this skill | this skill |
 | Phases run | in your session | invoked by the driver | invoked by the driver |
-| Stops | after every phase | two checkpoints | never |
+| Stops | after every phase | a grill conversation, then one checkpoint | never |
 | Red gate | you decide | stop and report | fix, capped at 2 attempts |
-| Open fork | `implement` warns; you decide | **AskUserQuestion**, after plan and after grill | **stop**, journal `escalation`, `blocked` |
+| Open fork | `implement` warns; you decide | settled inside `grill`, in priced options | **stop**, journal `escalation`, `blocked` |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
 | No gates found | continue, flagged | continue, flagged | **refuse to push** |
 | PR | ready | ready | **draft** |
@@ -36,9 +38,13 @@ is driving and how often it stops.
 Semi-auto has no driver skill — it *is* the phase skills, typed in order:
 
 ```
-/gantry:worktree → /gantry:plan → /gantry:plan-grill → /gantry:implement → /gantry:review --fix
+/gantry:worktree → /gantry:plan → /gantry:grill → /gantry:implement → /gantry:review --fix
                  → /gantry:handover (only if something was deferred) → /gantry:ship
 ```
+
+`/gantry:grill` chains `/gantry:plan-critique` itself when the status is `planned`, so typing grill
+by hand runs the cold critique too — which is why the line above names one command where the chain
+has two phases. Type `/gantry:plan-critique` separately only to re-run a critique.
 
 **The gate is a hard blocker in all three.** Unattended removes the human checkpoints; it never
 removes the gate. That is the whole design: model for judgment, script for the guarantee.
@@ -95,7 +101,8 @@ that a tool boundary means something:
 | Phase | Dispatches | For what | Repo override |
 |---|---|---|---|
 | plan | `gantry-explorer`, when the surface is unfamiliar or wide | locating files, entry points, patterns → *Affected areas* | `.claude/agents/explorer.md` |
-| grill | `gantry-critic`, **always, in every mode** | reading `task.md` and `plan.md` cold and returning findings | `.claude/agents/critic.md` |
+| critique | `gantry-critic`, **always, in every mode** | reading `task.md` and `plan.md` cold and returning findings | `.claude/agents/critic.md` |
+| grill | — | it converses; the critique it chains is `plan-critique`'s dispatch, never its own | — |
 | implement | — | the phase writes the code; the gate is a script | — |
 | review | `gantry-reviewer`, when `/code-review` is unavailable | reading a diff it did not write | `.claude/agents/reviewer.md` |
 
@@ -110,7 +117,7 @@ job is to say, at the end, which agents the phases reported actually dispatching
 
 **Why a driver still carries `Agent` in `allowed-tools`.** Not to dispatch phases. A skill's
 frontmatter *restricts* what is permitted while it is active; it does not grant. So a driver must
-permit every tool the phases it invokes need — `Agent` included, or `plan-grill` cannot dispatch
+permit every tool the phases it invokes need — `Agent` included, or `plan-critique` cannot dispatch
 its critic.
 
 If a dispatch fails with an unknown agent type, the repo's roster was added mid-session and needs a
@@ -130,9 +137,11 @@ would hang the run:
   up front.
 - **`gantry:ship`** pauses to ask how to split when it sees several unrelated changes. Keep the task
   single and coherent so the diff is one change.
-- **`gantry:plan`** asks when a genuine fork would change the work. Under `unattended` it records
-  the fork in *Open questions*, leaves it open, and does **not** mark the plan `planned`. It does
-  not take a reading of its own — see below.
+- **`gantry:plan`** asks only what it cannot draft without, in every mode; everything else it
+  records in *Open questions* and leaves open. It does not take a reading of its own — see below.
+- **`gantry:grill`** is human-only and therefore **not in this chain at all.** Unattended invokes
+  `/gantry:plan-critique` directly. The critique is what survives; the conversation is what this
+  mode gives up.
 
 If a prompt is unavoidable for a given task, that task isn't a fit for unattended — run it
 supervised.
@@ -144,10 +153,12 @@ not avoid the question by answering it conservatively; it **stops**:
 
 - `lib/detect_stage.sh` reports `FORKS:open|none|unknown|absent` from `task.md`'s *Open questions*.
   An unchecked box, or a bare bullet with no box, is open.
-- Both drivers check it **twice** — after plan, and again after grill, because a critique can open
-  a fork that planning never had.
-- **Supervised** puts the open forks to the user in one `AskUserQuestion` round at each point.
-  Planning is the cheap moment: the same fork found at review has an implementation on top of it.
+- `plan` **records** forks rather than asking them, in every mode. `plan-critique` can open one that
+  planning never had, and records it the same way.
+- **Supervised** settles them inside `grill`, as priced options in the rounds. Grill will not reach
+  its terminal question while an entry is unchecked, so a supervised run cannot carry an open fork
+  past it. Planning time is the cheap moment: the same fork found at review has an implementation on
+  top of it.
 - **Unattended** journals an `escalation` event, sets `status: blocked`, hands over, and stops.
 - `gantry:implement` refuses on `FORKS:open` when `mode:` is `auto` or `unattended`, so the
   guarantee holds even if a driver's own check were skipped. Typed by hand it warns instead — a
@@ -157,25 +168,37 @@ The reasoning is the same as the gate's. A conservative reading of a fork is sti
 nobody made, and once it is written into a plan it is indistinguishable from one somebody did. A
 blocked run costs a re-run; a wrong assumption costs the work built on it.
 
-## Checkpoints (`gantry:auto` only)
+## Where `gantry:auto` stops
 
-Two, both **AskUserQuestion** so the user can redirect in one step:
+Two stops, and they are different kinds of thing:
 
-1. **After plan and grill.** Show the plan as grilled, the findings that changed it, and the
-   branch and worktree that were created. "Proceed with this plan?" This is also the moment to
-   catch a wrong branch name — cheap to recreate now, before any edits.
-2. **After review, before anything outward-facing.** The gate is green and the review is in hand.
-   "Commit, push, and open the PR?" One gate in front of every side effect, since `gantry:ship`
-   won't pause once invoked.
+1. **The grill conversation**, which is a phase rather than a checkpoint. `/gantry:grill` explains
+   the problem, settles the open forks in priced options, and its **terminal question is the plan
+   approval**. There is no separate "Proceed with this plan?" dialog: a yes at the end of a
+   conversation is worth more than a yes in front of a wall of text, and the old dialog was the
+   cheapest possible form of input on a plan the user had just been handed. Grill is also the last
+   cheap moment to **catch a wrong branch name** — nothing has been edited yet, so the worktree
+   costs one command to recreate; after `implement` there is a diff to move.
+2. **One `AskUserQuestion` checkpoint, after review, before anything outward-facing.** The gate is
+   green and the review is in hand. "Commit, push, and open the PR?" One gate in front of every
+   side effect, since `gantry:ship` won't pause once invoked.
 
-No checkpoint between implement and gate — the gate is the check there, and it is automatic. There
-is deliberately no checkpoint after grill on its own: grill's whole job is to make the plan worth
-approving, so the approval belongs after it, not either side of it.
+So `gantry:auto` contains exactly one `AskUserQuestion` checkpoint. Everything else it asks, it asks
+through `grill`.
+
+No checkpoint between implement and gate — the gate is the check there, and it is automatic. And no
+checkpoint on either side of grill: its whole job is to make the plan worth approving, so the
+approval belongs at the end of it rather than after it.
+
+**A driver must not write `status: grilled` itself.** Grill leaves `critiqued` precisely when it did
+not converge — a fork still open — and with the fork rounds gone there is no later round to catch
+that. A driver that overwrote the status would be asserting an approval nobody gave; it stops and
+surfaces the fork instead.
 
 ### Lead mode
 
-Under `gantry:auto --lead <session>`, both checkpoints, both fork rounds, and the questions the
-phases ask themselves are put to the lead with `SendMessage` instead of `AskUserQuestion`.
+Under `gantry:auto --lead <session>`, the checkpoint, grill's rounds, and the questions the phases
+ask themselves are put to the lead with `SendMessage` instead of `AskUserQuestion`.
 `references/lead.md` is the whole protocol, and every asking phase points at it: which questions it
 replaces and of which kind, what the message carries, how a reply is classified by
 `lib/lead_reply.sh` rather than read, what a lead may decide and what stays the owner's, and how the

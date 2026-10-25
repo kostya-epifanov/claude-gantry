@@ -4,9 +4,11 @@ title: Add contact form to marketing site
 project: acme-site
 branch: task/contact-form
 mode: semi-auto           # semi-auto | auto | unattended — which mode is driving
-status: planning          # planning | planned | grilled | implementing | implemented |
-                          # reviewed | shipped | blocked. The readiness hook arms on
-                          # exactly `implementing` and ignores every other value.
+status: planning          # planning | planned | critiqued | grilled | implementing |
+                          # implemented | reviewed | shipped | blocked. `planned` means
+                          # drafted, `critiqued` means a critic read it, `grilled` means a
+                          # human agreed — only the last is an approval. The readiness hook
+                          # arms on exactly `implementing` and ignores every other value.
 ---
 
 ## Context & goal
@@ -49,6 +51,19 @@ verification:
 Filled by the explorer during code study — files, entry points, patterns in play,
 and the risks a change here would hit. Left empty until then.
 
+## Decisions
+
+Written by `gantry:grill` as the conversation settles each fork: the question, the
+options considered, what was chosen, and **why**. One entry per question.
+
+This is the section `gantry:ship` quotes into the pull request body, so it is how
+the reasoning behind the approach reaches a reviewer at all. Leave it empty here;
+a plan that has not been grilled yet has nothing to put in it.
+
+Anything marked *decided by recommendation, unconfirmed* was decided for the user
+rather than by them — grill does that when the reply was "go with your
+recommendation", and says so rather than recording a confirmation nobody gave.
+
 ## Open questions
 
 The forks the implementer must not resolve alone. Carried from the pre-plan
@@ -56,9 +71,9 @@ braindump; each one checked off as it is decided, never deleted — a deleted en
 reads exactly like one that was never raised.
 
 This section is a **precondition, not a note**. `lib/detect_stage.sh` parses it,
-`plan` and `plan-grill` will not mark the task ready while a fork is open, and
-`implement` refuses outright when a driver dispatched it. Supervised runs put the
-open forks to you; unattended runs stop and escalate rather than guess.
+`grill` will not reach its approval while a fork is open, and `implement` refuses
+outright when a driver dispatched it. Supervised runs settle the open forks inside
+`grill`; unattended runs stop and escalate rather than guess.
 
 Write each entry as a checkbox — an unchecked box, or a bare bullet with no box at
 all, counts as open:

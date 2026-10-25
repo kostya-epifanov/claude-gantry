@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # detect_stage.sh — read-only snapshot of where a task sits on the gantry chain
-# (plan -> grill -> implement -> review -> ship), for every phase skill.
+# (plan -> critique -> grill -> implement -> review -> ship), for every phase skill.
 #
 # Why this exists: the phase skills are individually invocable, so you can drop
 # out of the chain, edit by hand, and come back. That means no phase may infer
@@ -36,7 +36,7 @@
 #                              the comment above the check for why that is not detectable.
 #   DIRTY:clean                or  DIRTY:staged=<n> unstaged=<n> untracked=<n>
 #   NEXT:<command>             the phase skill that advances from here
-#   PHASE:<plan|grill|implement|review|ship|done|blocked|not-a-repo>
+#   PHASE:<plan|critique|grill|implement|review|ship|done|blocked|not-a-repo>
 #
 # PHASE is derived from STATUS when task.md carries a known one, and inferred
 # from which artifacts exist when it does not — a hand-written task.md with no
@@ -521,7 +521,8 @@ if [ "$DIRTY_TOTAL" -eq 0 ]; then echo "DIRTY:clean"; else echo "DIRTY:staged=$S
 # sensible instead of erroring.
 case "$STATUS" in
   planning)     PHASE=plan ;;
-  planned)      PHASE=grill ;;
+  planned)      PHASE=critique ;;   # a plan nobody has read yet
+  critiqued)    PHASE=grill ;;      # a critic read it; no human has agreed to it
   grilled)      PHASE=implement ;;
   implementing) PHASE=implement ;;   # resume: the gate has not gone green yet
   implemented)  PHASE=review ;;
@@ -541,7 +542,8 @@ esac
 
 case "$PHASE" in
   plan)      NEXT="/gantry:plan" ;;
-  grill)     NEXT="/gantry:plan-grill" ;;
+  critique)  NEXT="/gantry:plan-critique" ;;
+  grill)     NEXT="/gantry:grill" ;;
   implement) NEXT="/gantry:implement" ;;
   review)    NEXT="/gantry:review --fix" ;;
   ship)      NEXT="/gantry:ship" ;;
