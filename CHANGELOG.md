@@ -40,6 +40,21 @@ The phase skill keeps carrying the procedure — only where it runs changes.
   **attaches** to it by its `.pid` instead of paying for a second review of the same diff.
   `--timeout <seconds>` (default 7200) bounds the wait and stops the child it was waiting on.
   With no `setsid` on `PATH` the child runs inline and a `NOTE:` line says it is exposed.
+- **The child is told the one way to call a gantry script that the tool boundary can match**, and
+  the rules now carry the variable spelling too. A Bash rule matches the **literal text** of a
+  command, while `skills/review/SKILL.md` tells the child to run `bash "$GANTRY/lib/x.sh"` — a
+  spelling no emitted rule matched. Children that passed did so because they happened to expand the
+  variable and write the absolute path themselves; it was luck, not a contract. In the A/B run one
+  lane's review followed the skill's own `cd … && GANTRY=… && bash "$GANTRY/…"` idiom, took **19
+  denials**, lost `diff_fingerprint.sh`, and wrote HEAD/base SHAs into `review.md` where the
+  fingerprint belongs — an artifact `--fix` must refuse — while the launcher still exited `0`. Now:
+  the prompt names the resolved `lib/` path and states the convention (whole command, absolute path,
+  no `cd` prefix, no assignment prefix, no variable), the skill's headless section says the same and
+  tells the child to report a denied script rather than substitute a value for it, each script's
+  rule is additionally emitted in both literal `$GANTRY` forms, and a `review.md` whose `diff:` line
+  is not a fingerprint raises a `NOTE:` saying `--fix` will refuse it as stale. A compound command
+  is still undeniably deniable — nothing can rescue that — which is why the convention is stated to
+  the child rather than worked around.
 - **`NOTE:<line>`** in the launcher's output, after `RESULT_FILE:` and before `REASON:` — zero or
   more: the detach or the lack of it, an attach to a child an earlier launcher left running, and
   the one a caller most needs to see, that **no `--model` was given**. A child without `--model`

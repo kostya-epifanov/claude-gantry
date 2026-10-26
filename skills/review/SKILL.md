@@ -41,6 +41,16 @@ run the review in one child session and the fix in another.
 
 ### 1. Detect the stage and get the diff
 
+**Calling gantry's scripts in a headless child.** Under `--headless` the launcher hands you the
+absolute path to `lib/` in the prompt, and the tool boundary matches the **literal text** of a Bash
+command. So call a script as the whole command and nothing else — `bash /abs/path/lib/x.sh` — with
+no `cd` in front of it, no `VAR=…` assignment in front of it, and the path written out rather than
+routed through `$GANTRY`. A compound command is denied however correct the path inside it resolves
+to, and the denial is not fatal, so you will carry on half-blind unless you notice. If a script is
+denied, **say which one in your report and leave its output out** — never substitute a value the
+script was supposed to compute. A `review.md` whose `diff:` line holds anything but
+`diff_fingerprint.sh`'s token is one `--fix` will refuse as stale.
+
 `$GANTRY` is this skill's plugin root — resolve it from this file's own location rather than
 hardcoding a path.
 

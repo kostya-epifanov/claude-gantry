@@ -187,10 +187,33 @@ SAFE_BRANCH="$(printf '%s' "$BRANCH" | tr -c 'A-Za-z0-9._-' '-')"
 
 # --- the prompt and the boundary -----------------------------------------------
 
+RULE_ROOT_FOR_PROMPT="${PLUGIN_DIR:-$GANTRY}"
+
 case "$PHASE" in
   review)     PROMPT="/gantry:review --headless --tier ${TIER:-high}" ;;
   review-fix) PROMPT="/gantry:review --fix --headless" ;;
 esac
+
+# A BASH RULE MATCHES THE LITERAL COMMAND TEXT, so the child has to be told the
+# one spelling the rules below can match. It is not told for tidiness: lane W's
+# review (2026-10-25, session 585d7178) followed the skill's own idiom —
+# `cd … && GANTRY=… && bash "$GANTRY/lib/x.sh"` — and was denied 19 times,
+# including every attempt at diff_fingerprint.sh, so it wrote HEAD/base SHAs
+# into review.md where the fingerprint belongs and left an artifact `--fix`
+# must refuse. Earlier children passed only because they happened to expand the
+# variable themselves and write the absolute path. That is luck, not a contract.
+PROMPT="$PROMPT
+
+Gantry's scripts are at $RULE_ROOT_FOR_PROMPT/lib/. Call them by that absolute path, as the whole
+command, exactly like this:
+
+  bash $RULE_ROOT_FOR_PROMPT/lib/detect_stage.sh
+
+Never prefix one with \`cd\`, never put an assignment in front of it, and never route the path
+through a variable: the tool boundary matches the literal text of the command, so a \`cd\` prefix
+or a \`\$GANTRY\` in the path is denied however correct the path it resolves to. If a call is
+denied anyway, say so in your report and name the script — do not work around it silently, and do
+not invent a value the script was supposed to produce."
 
 # The rules name the plugin root the CHILD will resolve: the --plugin-dir when
 # one is forwarded (it wins over an install), else this script's own root.
@@ -199,6 +222,12 @@ RULES=()
 for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh; do
   RULES[${#RULES[@]}]="Bash(bash $RULE_ROOT/lib/$script:*)"
   RULES[${#RULES[@]}]="Bash(bash \"$RULE_ROOT/lib/$script\":*)"
+  # The variable spelling, literally: the skill's own text says
+  # `bash "$GANTRY/lib/x.sh"`, and a rule matches text, not a resolved path.
+  # Cheap to carry, and it rescues a child that uses the variable without a
+  # `cd` prefix (nothing can rescue one that writes a compound command).
+  RULES[${#RULES[@]}]='Bash(bash $GANTRY/lib/'"$script"':*)'
+  RULES[${#RULES[@]}]='Bash(bash "$GANTRY/lib/'"$script"'":*)'
 done
 
 CMD=("$CLAUDE_BIN" -p "$PROMPT" --output-format json --name "gantry-$PHASE-$SAFE_BRANCH"
@@ -366,6 +395,16 @@ case "$PHASE" in
       case "$STATUS" in
         reviewed|blocked) ;;
         *) ARTIFACT_OK=0; ARTIFACT_REASON="task.md status is '${STATUS:-none}', not reviewed or blocked" ;;
+      esac
+      # A review.md whose `diff:` line is not a fingerprint cannot be applied:
+      # `--fix` compares that line against diff_fingerprint.sh and refuses on a
+      # mismatch, so a child that could not run the script and wrote something
+      # else there has produced a review nobody can apply. Not fatal — the
+      # findings are still worth reading, and refusing is the safe half — but it
+      # must not pass in silence, which is what happened on lane W.
+      fp_line="$(sed -n 's/^diff:[[:space:]]*//p' "$ROOT/review.md" 2>/dev/null | head -1)"
+      case "$fp_line" in
+        *[!0-9a-fA-F]*|'') note "review.md's diff: line is not a fingerprint (\"${fp_line:0:60}\"): /gantry:review --fix will refuse it as stale. Check the DENIED: lines for diff_fingerprint.sh" ;;
       esac
     fi
     ;;

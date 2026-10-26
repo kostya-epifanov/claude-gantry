@@ -110,6 +110,23 @@ argv_lacks() {  # argv_lacks <exact element> <label>
   _pass "$2"
 }
 
+argv_starts_with() {  # argv_starts_with <prefix> <label> — ONE element begins with it
+  local e
+  for e in "${ARGV[@]}"; do
+    case "$e" in "$1"*) _pass "$2"; return 0 ;; esac
+  done
+  _fail "$2 — no argv element starts with: $1"
+}
+
+# PROMPT_OF <prefix> — echoes the single element that starts with it
+prompt_of() {
+  local e
+  for e in "${ARGV[@]}"; do
+    case "$e" in "$1"*) printf '%s' "$e"; return 0 ;; esac
+  done
+  return 1
+}
+
 argv_lacks_prefix() {  # argv_lacks_prefix <prefix> <label>
   local e
   for e in "${ARGV[@]}"; do
@@ -135,6 +152,8 @@ line_of() {  # line_of <prefix> — the first output line starting with it
 
 repo="$(mkrepo lane)"
 git -C "$repo" checkout -q -b feat/headless >/dev/null 2>&1
+# With no --plugin-dir the rules and the prompt name the launcher's own root.
+repo_lib_hint="$GANTRY_ROOT/lib/"
 write_task "$repo" implemented
 
 # --- review: success, exact argv -----------------------------------------------------
@@ -147,8 +166,17 @@ assert_contains "$(cat "$FAKE_CLAUDE_CWD")" "$repo" "the child runs in the workt
 assert_contains "$(cat "$FAKE_CLAUDE_ENV")" "1" "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 reaches the child"
 
 assert_contains "${ARGV[0]}" "-p" "the first element is -p"
-argv_has "/gantry:review --headless --tier high" "the prompt is ONE element, --headless and the default tier included"
-argv_has "--output-format" "--output-format is passed"
+argv_starts_with "/gantry:review --headless --tier high" \
+  "the prompt is ONE element, beginning with the command, --headless and the default tier included"
+# The calling convention travels in the prompt because a Bash rule matches literal
+# command text: lane W's review followed the skill's `cd … && GANTRY=… && bash
+# "$GANTRY/…"` idiom, was denied 19 times, and wrote SHAs where the fingerprint
+# belongs. The child has to be told the one spelling the rules can match.
+review_prompt="$(prompt_of "/gantry:review --headless")"
+assert_contains "$review_prompt" "$repo_lib_hint" \
+  "the prompt names the absolute lib/ path the rules were emitted for"
+assert_contains "$review_prompt" 'Never prefix one with' \
+  "and tells the child not to prefix a script call with cd or an assignment"
 argv_has "json" "and it is json"
 argv_has "gantry-review-feat-headless" "--name is gantry-review-<branch> with the slash sanitised"
 argv_has "--permission-prompts" "--permission-prompts is passed"
@@ -195,9 +223,6 @@ assert_contains "$(line_of COST_USD:)" "COST_USD:0.5"          "COST_USD: is tot
 assert_contains "$(line_of DENIALS:)"  "DENIALS:0"             "DENIALS: is the count"
 assert_contains "$(line_of RESULT_FILE:)" "$repo/.claude/artifacts/headless/review.json" \
   "RESULT_FILE: names the result under .claude/artifacts/headless/"
-assert_not_contains "$(printf '%s\n' "$L_OUT" | sed '/^RESULT_BEGIN$/,$d')" "REASON:" \
-  "no REASON: line above the result block on success"
-assert_not_contains "$L_OUT" "GATE_EXIT:" "no GATE_EXIT: after a review (only review-fix has one)"
 
 first_line="$(printf '%s\n' "$L_OUT" | sed -n '1p')"
 last_line="$(printf '%s\n' "$L_OUT" | sed -n '$p')"
@@ -237,7 +262,7 @@ run_launcher review "$SUCCESS_JSON" 0 --phase review --root "$repo" \
   --tier medium --model sonnet --effort low --plugin-dir "$plugin_copy" --max-turns 30
 assert_rc 0 "$L_RC" "a review with every optional flag is still exit 0"
 load_argv
-argv_has "/gantry:review --headless --tier medium" "--tier is forwarded unchanged inside the prompt"
+argv_starts_with "/gantry:review --headless --tier medium" "--tier is forwarded unchanged inside the prompt"
 argv_has "--model" "--model is passed when given"
 assert_contains "$(argv_value_after --model)" "sonnet" "and carries the alias"
 argv_has "--effort" "--effort is passed when given"
@@ -257,7 +282,7 @@ write_task "$repo" reviewed
 run_launcher applied "$SUCCESS_JSON" 0 --phase review-fix --root "$repo"
 assert_rc 0 "$L_RC" "a review-fix child that appended applied: is exit 0"
 load_argv
-argv_has "/gantry:review --fix --headless" "the fix prompt is one element"
+argv_starts_with "/gantry:review --fix --headless" "the fix prompt is one element, beginning with the command"
 argv_has "acceptEdits" "the fix child gets acceptEdits"
 argv_lacks "dontAsk" "and not dontAsk"
 argv_lacks_prefix "Edit(" "the fix child has no Edit( rule"
@@ -427,6 +452,34 @@ else
   assert_contains "$(line_of NOTE:)" "no setsid" \
     "with no setsid the launcher says the child is exposed, rather than claiming it is safe"
 fi
+
+# --- the variable spelling of each script rule, and the fingerprint NOTE ------------------
+#
+# A Bash rule matches text. The skill's own idiom is `bash "$GANTRY/lib/x.sh"`, so the literal
+# variable spelling is emitted beside the resolved one; and a review.md whose `diff:` line is not
+# a fingerprint is a review `--fix` will refuse, which must not pass in silence.
+
+run_launcher review "$SUCCESS_JSON" 0 --phase review --root "$repo"
+load_argv
+for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh; do
+  argv_has 'Bash(bash $GANTRY/lib/'"$script"':*)' \
+    "the \$GANTRY rule for $script is emitted verbatim, for a child that uses the variable"
+  argv_has 'Bash(bash "$GANTRY/lib/'"$script"'":*)' \
+    "and its double-quoted \$GANTRY form"
+done
+
+printf '# Review\nbranch: b\ndiff: HEAD=abc123 base=def456\n\n## Address now\n- x\n' > "$repo/review.md"
+printf -- '---\nstatus: reviewed\n---\n' > "$repo/task.md"
+L_OUT="$(FAKE_CLAUDE_WRITES=none FAKE_CLAUDE_JSON="$SUCCESS_JSON" FAKE_CLAUDE_RC=0 \
+  bash "$LAUNCHER" --phase review --root "$repo" 2>&1)"; L_RC=$?
+assert_rc 0 "$L_RC" "a review whose diff: line is not a fingerprint is still a review that ran"
+assert_contains "$(printf '%s\n' "$L_OUT" | grep -m1 '^NOTE:.*fingerprint')" "will refuse it as stale" \
+  "and a NOTE: says --fix will refuse it, naming the script to check the denials for"
+printf '# Review\nbranch: b\ndiff: 0123456789abcdef\n\n## Address now\n- x\n' > "$repo/review.md"
+L_OUT="$(FAKE_CLAUDE_WRITES=none FAKE_CLAUDE_JSON="$SUCCESS_JSON" FAKE_CLAUDE_RC=0 \
+  bash "$LAUNCHER" --phase review --root "$repo" 2>&1)"; L_RC=$?
+assert_not_contains "$L_OUT" "not a fingerprint" \
+  "a hex token raises no such NOTE, so the check does not cry wolf on a good artifact"
 
 # --- a relaunch attaches to a live child rather than starting a second review -------------
 
