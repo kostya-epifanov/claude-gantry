@@ -44,7 +44,24 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 # Raising it is a normal thing to do, and it should be a visible line in a diff
 # with a re-measured token count beside it. That visibility is the whole point:
 # the cost does not grow by decision, it grows by one helpful clause at a time.
-CEILING=6250
+#
+# Raised from 6,250 to 6,600 characters when `integrate` was added. Fresh reading
+# of this tree, for the token figure the docs quote:
+#
+#     claude --plugin-dir . plugin details gantry
+#     Always-on: ~2,124 tok   (integrate ~100 of it)
+#
+# The raise is in CHARACTERS, which is what this file measures; the reading above
+# is in tokens and is not what the ceiling is derived from. Thirteen skills and
+# three agents come to exactly 6,250 characters — zero headroom, so the next
+# clause anywhere would have failed the gate, and the obvious fix would then be
+# to trim whichever description was easiest rather than whichever was least
+# useful. 6,600 is that measured 6,250 plus about 5%: a deliberately thinner
+# margin than the ~10% v0.3 started with, because the text is now four times
+# closer to the ceiling and each raise should be a visible line in a diff rather
+# than a comfortable cushion. At this tree's ~2.94 characters per token it stands
+# for roughly ~2,240 tokens.
+CEILING=6600
 
 # Extract the value of a single-line `description:` field from a frontmatter
 # block. Every skill and agent in this repo uses the one-line form, and
