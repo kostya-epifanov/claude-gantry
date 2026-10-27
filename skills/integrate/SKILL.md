@@ -304,7 +304,123 @@ into the fix loop for a merge that is no longer in the tree — and `NEXT:` neve
 The settings ride on `git -c` rather than `git config`: a linked worktree's `git config` writes the
 repository-wide file that every other checkout reads.
 
-## Stage 7 — Review the resolutions, not just the diff
+## Stage 7 — Docs: check and update the docs for the combined tree
+
+Each source PR documented its own change alone, against the base it was cut from. The combined
+tree is what the docs now have to describe, and the boring shared surfaces — a skill count, a
+table, a flags list, a changelog — are exactly where two true-in-isolation edits add up to one
+wrong number or two entries for one change. This stage reconciles the docs **on the lane**, before
+the reviewer, so the reviewer reads the docs change together with the resolutions rather than
+finding the drift afterwards.
+
+On a fresh run `task.md` still says `status: implementing` from stage 5, and it stays so through
+this stage: the readiness hook is wanted here as much as in the loop. **On a re-run, set it back to
+`status: implementing` before anything else** — a resumed lane says `blocked`, `reviewed` or
+`shipped`, and under any of those the hook is off.
+
+### Collect what the PRs touched, or should have
+
+```bash
+git diff --stat origin/<BASE>..HEAD -- '*.md' docs/ README.md CHANGELOG.md
+```
+
+`origin/<BASE>`, which stage 2 fetched — a stale local `<BASE>` would list doc changes made on
+the base as if a PR had made them. Then each included PR's `## What this change is for`, **re-read
+here**, because a resumed run is usually a different session and nothing from stage 2 survives in
+it:
+
+```bash
+gh pr view <n> --json body
+```
+
+A `CONTRACT:none` PR contributes its title and its diff, and the report says it had no stated
+intent.
+
+### Check the combined tree against the docs
+
+The surfaces, **where the repo has them** — a surface the repo does not keep is nothing to check,
+never something to create:
+
+- `docs/SKILLS.md`: the skill-count line, the skills table, the shared-flags list. A count is the
+  sum of what every included PR added, not either PR's number — the same arithmetic rule as a
+  conflict in the loop, applied to a file that may have merged cleanly.
+- `README.md`: every section that names a skill or a flag.
+- `CHANGELOG.md`: one entry per included PR under the repo's unreleased heading, and no duplicate
+  or contradictory entries now that the merges have met.
+
+### Update, in one commit of its own
+
+If nothing is off, make no commit and carry **no docs change needed** forward to the report and
+the PR body. Otherwise, exactly one commit, separate from every merge and fix commit, so a reader
+can tell what the merges did from what the docs needed. First make sure the hook's own log cannot
+ride along — the readiness hook has been writing `.claude/artifacts/gate-hook.log` since `task.md`
+was written in stage 5, and the exclude otherwise lands only at Publish:
+
+```bash
+bash "$GANTRY/lib/ensure_excluded.sh" .claude/artifacts/
+```
+
+Then stage the doc paths **explicitly** — each file this stage edited, by name, never `git add -A`,
+and never a path the repo does not have, which `git add` refuses with nothing staged:
+
+```bash
+git add -- <each doc path this stage edited>
+```
+
+```bash
+git commit -m "integrate: docs — <what was reconciled>" -m "<one line per surface, and the PR it is for>"
+```
+
+`integration_state.sh` reads back only `integrate: merge <token> ` subjects, so this one is inert
+to a re-run.
+
+### The gate, like after any other commit
+
+```bash
+bash "$GANTRY/lib/run_gates.sh" --strict
+```
+
+Red → a **separate** fix commit, staged the same way, then the gate again, at most twice:
+
+```bash
+git add -- <each doc path the fix touched>
+```
+
+```bash
+git commit -m "integrate: fix docs — <why>"
+```
+
+Still red → set `status: blocked` and stop: the only thing that changed is the docs commit, and
+the tree must not reach the reviewer or the PR red. There is no pre-merge ref and no reset here —
+the docs commit is the lane's own, not a PR's. Exit `2` → stop, and it does not count as an
+attempt.
+
+### On a re-run
+
+A resumed run arrives here from `NEXT:nothing` — including one that last stopped `blocked` on a red
+docs gate, which nothing in git marks. Set `status: implementing`, then **run the gate first**,
+before deciding anything: the lane's last gate result is not in this session. Red → the fix loop
+above with a fresh budget of two, and the report says so. Then collect and check as on a fresh run.
+An earlier `integrate: docs` commit is never amended:
+
+```bash
+git log --first-parent --format=%h%x20%s origin/<BASE>..HEAD
+```
+
+A second one is made only if something is still off, and the report lists each. A docs commit made
+on a re-run goes on through review, the checkpoint and the push like any other — a lane that already
+has a PR takes only the push in Publish, and the commit must not stay local with the report naming
+its sha.
+
+### The rules this stage keeps
+
+- **Every command is flat**, as everywhere in this skill — `tests/cases/integrate_flat_commands.sh`
+  scans this stage too.
+- **Never touch a source PR's branch.** A docs gap that belongs to one PR is fixed on the lane,
+  and that PR's author learns of it from the comment in Publish, not from an edit to their branch.
+- **Never merge the integration PR.** That is still yours.
+
+## Stage 8 — Review the resolutions, not just the diff
 
 Set `status: implemented` first, because the reviewer's own stop would otherwise meet an armed
 readiness hook.
@@ -321,8 +437,10 @@ git show --remerge-diff <merge-sha>
 ```
 
 `--remerge-diff` shows exactly what the resolution changed against a mechanical merge, which is the
-part no ordinary diff review ever sees. Also give it each `integrate: fix` commit, the source PR
-numbers and their contracts, and ask specifically for what only appears when PRs meet:
+part no ordinary diff review ever sees. Also give it each `integrate: fix` commit **and the `integrate: docs`
+commit from stage 7** — the docs reconciliation is part of the combined change it is reviewing —
+plus the source PR numbers and their contracts, and ask specifically for what only appears when
+PRs meet:
 
 - two PRs adding the same helper under different names;
 - a count, a table or a list updated twice;
@@ -334,7 +452,7 @@ numbers and their contracts, and ask specifically for what only appears when PRs
 run. A finding about a single PR's own content is **not yours to fix** — invoke `gantry:handover`
 and let the source PR's author have it. Then set `status: reviewed`.
 
-## Stage 8 — Checkpoint: the pull request
+## Stage 9 — Checkpoint: the pull request
 
 First re-read reality, because a source PR may have been pushed while the loop ran:
 
@@ -349,11 +467,11 @@ bash "$GANTRY/skills/integrate/scripts/integration_state.sh" --base <BASE> 21=re
 Anything now `stale` is shown with the offer to merge the new commits first.
 
 **AskUserQuestion**, with the included table (number, title, merge commit, conflicts y/n, gate
-result), the skipped list with reasons, every resolution and its reasoning, and what the review
-found: "Push the lane, open the integration PR against `<BASE>`, and comment on the N included
+result), the skipped list with reasons, every resolution and its reasoning, the docs commit (or
+that none was needed), and what the review found: "Push the lane, open the integration PR against `<BASE>`, and comment on the N included
 PRs?"
 
-## Stage 9 — Publish
+## Stage 10 — Publish
 
 Set `status: shipped` first — the push is next, and a status written after it would miss it.
 
@@ -402,12 +520,14 @@ bash "$GANTRY/skills/ship/scripts/detect_state.sh" --base <BASE>
 gh pr checks
 ```
 
-## Stage 10 — Report
+## Stage 11 — Report
 
 - The base, the lane branch, and the worktree path.
 - **Included**: each PR, its merge commit, whether it conflicted, and its gate exit code.
 - **Skipped**: each PR and the reason, in the words the script or the loop used.
 - **Every conflict resolution** and what it was decided from.
+- **Docs**: the `integrate: docs` commit, sha and subject, and what it reconciled — or
+  `no docs change needed`.
 - The gate: `--strict` or overridden, the baseline result, the exit code after each merge, and how
   many fix attempts were used.
 - `HOOK:conditions-met` or `conditions-unmet` from `lib/detect_stage.sh` — and what that does not
