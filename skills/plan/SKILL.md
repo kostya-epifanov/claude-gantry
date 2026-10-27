@@ -23,8 +23,8 @@ step 3, and are written in step 4. Knowing what a change touches is what tells y
 touch, so writing the boundary from the task description alone is guessing — and both
 `gantry:review` and `gantry:handover` then read that guess as a contract.
 
-This is the first phase of the gantry chain. The next is `/gantry:plan-grill`, which attacks what you
-wrote here.
+This is the first phase of the gantry chain. The next is `/gantry:grill`, which chains a cold
+critique of what you wrote here and then settles the approach with the user.
 
 ## Ask, don't assume
 
@@ -48,9 +48,12 @@ questions** in `task.md` as an unchecked item and **leave it open**. Do not pick
 reading and continue: an assumption written into a plan looks exactly like a decision, and by the
 time it surfaces the implementation is built on it.
 
-An open fork is a **precondition**, not a note. While one is on the page the plan is not
-dispatchable, and step 7 will not mark it so. The driver decides what happens next — supervised
-puts the forks to the user, unattended stops the run — but neither outcome is yours to pre-empt by
+An open fork is a **precondition**, not a note — but it is no longer *this* phase's precondition.
+Step 7 marks the plan `planned` with forks open, because drafting is what this phase finishes. What
+an open fork blocks is **dispatch**, and two later guards read the forks directly to enforce that:
+`/gantry:grill` will not reach its approval while an entry is unchecked, and `/gantry:implement`
+hard-refuses on `FORKS:open` when a driver dispatched it. Supervised runs settle the fork inside
+grill's rounds; unattended runs stop and escalate. Neither outcome is yours to pre-empt by
 guessing.
 
 ## Steps
@@ -191,28 +194,50 @@ prose that cannot.
 
 State the test strategy explicitly: what gets a test, what does not, and why.
 
-### 6. Ask what is still open
+### 6. Ask only what you cannot draft without
 
-Put the forks from step 2 and anything code study raised to the user in one **AskUserQuestion**
-round. Fold the answers into both files, then **check each entry off in place** —
-`- [x] <the fork> — <what was decided>`.
+**`/gantry:grill` is the asking moment now, not this step.** Record every fork under *Open
+questions* and leave it open — which was already this skill's behaviour with no human present, and
+is now the default with one. Grill explains the problem, puts the forks to the user in priced
+options, and writes the decisions to disk.
 
-Do not delete a settled fork. A deleted entry is indistinguishable from one that was never raised,
-and the next reader cannot tell a decision from an oversight. The record of what was asked and
-answered is most of what this section is for.
+That leaves this step a narrow job: ask only what blocks *drafting*. If you genuinely cannot write
+a coherent plan without an answer — the task names two systems and you cannot tell which one it
+means — ask, in one **AskUserQuestion** round. Anything you can draft around is a fork, not a
+blocker, and recording it costs a line while asking it costs a round-trip the user did not need to
+spend twice.
+
+When you do settle something, **check each entry off in place** —
+`- [x] <the fork> — <what was decided>`. Do not delete a settled fork. A deleted entry is
+indistinguishable from one that was never raised, and the next reader cannot tell a decision from an
+oversight. The record of what was asked and answered is most of what this section is for.
 
 ### 7. Record the status
 
 Run the detector again and read its **`FORKS:`** line. It, not your recollection, decides whether
 this plan may leave the stage:
 
-- **`FORKS:none`** → set `task.md` frontmatter to `status: planned`. That is what tells
-  `/gantry:plan-grill`, and every later phase, where this task stands — the phases read it from disk,
-  never from the conversation.
-- **`FORKS:open`** → **leave `status: planning`** and report the open forks. `planned` is the
-  assertion that an implementer may be dispatched against this plan, and while a fork is open that
-  assertion is false. This is not a failure of the phase; a plan that correctly identifies a
-  decision nobody has made is the phase working.
+**Set `status: planned` once the draft is complete — whether or not a fork is open.** `planned`
+means *drafted*: these two files say what the task is and how it would be done. It deliberately does
+**not** mean an implementer may be dispatched. The chain now spells that out across three values —
+`planned` drafted, `critiqued` a critic read it, `grilled` a human agreed and the forks are closed —
+and only the last one is an approval.
+
+This is a change from the rule that held through 0.6.x, where an open fork kept the status at
+`planning`. It had to move: step 6 now records forks rather than asking them, so `FORKS:open` is the
+*normal* exit from planning, and `planning` routes to `NEXT:/gantry:plan` — the chain's own signpost
+pointing back at the phase that just finished. What protects dispatch is not this status but
+`/gantry:implement`, which hard-refuses on `FORKS:open` under `mode: auto` or `unattended`, and
+`/gantry:grill`, which will not reach its approval while an entry is unchecked. Two guards that read
+the forks directly, rather than a status standing in for them.
+
+So:
+
+- **`FORKS:none` or `FORKS:open`** → `status: planned`, and **report the open forks either way**. A
+  plan that correctly identifies a decision nobody has made is the phase working, not failing.
+- **Still drafting** — a section you could not write, a question from this step unanswered → leave
+  `status: planning`. That is what `planning` is for now: an unfinished draft, not a finished one
+  with questions attached.
 - **`FORKS:unknown`** → the file has no *Open questions* heading, so nothing can be checked. Warn,
   say the section is missing, and continue.
 
@@ -223,5 +248,6 @@ was dispatched or you read the code yourself, and the **`FORKS:` value with the 
 forks** — listing each one, if any survived. A fork left open is the single most important thing in
 this report: it is what stops the chain, and the reader needs to know what decision is waiting.
 
-End by naming the next command: `/gantry:plan-grill` on `FORKS:none`, or the fork itself on
-`FORKS:open` — there is nothing to grill a plan for until someone decides.
+End by naming the next command: **`/gantry:grill`**, which chains the cold critique itself and then
+puts every open fork to the user. Say how many forks are waiting there, so the reader knows what the
+conversation is for before it starts.

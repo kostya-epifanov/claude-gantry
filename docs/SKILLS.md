@@ -1,6 +1,6 @@
 # Skills reference
 
-Thirteen skills. Each section: what it does, its arguments, what it **refuses** to do, what it
+Fourteen skills. Each section: what it does, its arguments, what it **refuses** to do, what it
 invokes, and the scripts it owns. For the design argument see [METHOD.md](METHOD.md); for how they
 connect, [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -16,7 +16,8 @@ One chain of phases, three ways to run it.
 |---|---|---|---|
 | Driver | you, typing each phase | the skill | the skill |
 | Phases run | in your session | invoked by the driver | invoked by the driver |
-| Stops | after every phase | two checkpoints | never |
+| `grill` | yours to run | **yes** — it carries the plan approval | **no** — human-only |
+| Stops | after every phase | a grill conversation, then one checkpoint | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
 | No checks found | continue, flagged | continue, flagged | **refuse to ship** (exit 3) |
@@ -59,8 +60,10 @@ by hand, and pick it back up. What a phase is told comes in as arguments, like t
 Under `auto --lead`, that includes the lead for `worktree` and `plan`, which run before `task.md`
 exists to record it.
 
-**A phase that asks, asks the lead when there is one.** `worktree`, `plan`, `plan-grill`, `review`
-and `ship` each have a question they can put to you. When `task.md` names a `lead:` (or, for
+**A phase that asks, asks the lead when there is one.** `worktree`, `plan`, `grill`, `review`
+and `ship` each have a question they can put to you — `grill` most of all, since it is the chain's
+one asking moment. `plan-critique` is absent from this list on purpose: it is headless and asks
+nothing on any path. When `task.md` names a `lead:` (or, for
 `worktree` and `plan`, when the driver passed `--lead`), that question goes to the lead by
 `SendMessage` and the reply goes through `lib/lead_reply.sh`, following `auto`'s
 `references/lead.md`. Typed by hand with no lead recorded, they ask you as always.
@@ -68,7 +71,7 @@ and `ship` each have a question they can put to you. When `task.md` names a `lea
 **The chain has three hard refusals about its own state, all `implement`'s:** it refuses to start
 without a `plan.md`, it refuses to start while `task.md`'s *Open questions* still holds an
 undecided fork **and a driver dispatched it**, and it refuses to move past a non-zero gate. The
-other refusals below are narrower — `plan-grill` has nothing to critique without a `plan.md`, and
+other refusals below are narrower — `plan-critique` has nothing to critique without a `plan.md`, and
 `review` rejects an invalid `--tier` — and concern what a phase was asked, not where the chain
 stands. Everything else warns and proceeds, naming what was missing. Since you may iterate by hand
 between phases, a stale or absent artifact is a normal state rather than an error — which is
@@ -102,21 +105,50 @@ when it isn't, and says which it did.
 - **Invokes:** the explorer, conditionally.
 - **Templates:** the repo's `docs/templates/task.md` if it has one, else `templates/task.md`.
 
-## `/gantry:plan-grill` — attack the plan
+## `/gantry:plan-critique` — attack the plan
 
-`/gantry:plan-grill`
+`/gantry:plan-critique`
 
 Hunts unstated assumptions, unfalsifiable acceptance criteria, steps that will fail on contact with
-the code, missing work, and scope drift. Revises `plan.md` and records what changed.
+the code, missing work, and scope drift. Revises `plan.md`, records the pass under `## Critique`,
+and sets `status: critiqued`.
 
 **It always dispatches a fresh critic sub-agent, in every mode — including when you type it
 yourself.** A context that just wrote the plan already believes its assumptions and has already
 dismissed the alternatives; self-critique from there is theatre. The critic is given the file paths
 and no planning conversation, on purpose.
 
-- **Refuses:** to invent a plan in order to critique it — no `plan.md` means nothing to grill.
+**It is headless**, with no `AskUserQuestion` on any path, which is what keeps it available to
+`auto-unattended`. A finding that turns on someone else's decision is *recorded* as an open fork
+rather than resolved, and `grill` is where those close.
+
+- **Refuses:** to invent a plan in order to critique it — no `plan.md` means nothing to critique.
 - **Invokes:** `gantry-critic`; `gantry:handover` if the task itself turns out to be wrong.
 - **Honest about its limits:** a critique that found nothing is reported as such rather than padded.
+
+## `/gantry:grill` — settle the approach
+
+`/gantry:grill [--rounds N]`
+
+The chain's one asking moment. Explains the problem — what the task is for, the approach the plan
+takes, which findings bear on it — then asks in up to `--rounds N` rounds (default **3**, or **1**
+under `--lead`), folds the decisions into `task.md`'s `## Decisions`, and closes with a terminal
+question that **is** the plan approval.
+
+Every question leads with a recommendation and every option is priced by **what it costs**, the
+recommended one included. A round only happens if it would change the plan, and a reply meaning
+"go with your recommendation" ends the dialogue in one step — each remaining fork then recorded as
+*decided by recommendation, unconfirmed*.
+
+**It never critiques inline.** On `status: planned` it invokes `/gantry:plan-critique` first, so
+typing it by hand does the whole thing; the cold read always comes from a dispatched agent, because
+a context that converses about a plan is not the context that can attack it.
+
+- **Refuses:** to grill a draft (`status: planning`) or a missing plan; to reach its approval while
+  a fork is still open — it leaves `critiqued` and reports instead.
+- **Invokes:** `/gantry:plan-critique` when the critique has not run; `gantry:handover` if the task
+  itself turns out to be wrong.
+- **Not in `auto-unattended`:** it is human-only. That mode runs the critique and no grill.
 
 ## `/gantry:implement` — carry it out, and prove it
 
@@ -203,8 +235,8 @@ no sub-agents of its own; each phase delegates its own sub-job.
   detached HEAD.
 - **Invokes:** `gantry:worktree`, the four phase skills, `gantry:ship`.
 - **Detail:** `references/orchestration.md`, shared with `auto-unattended`.
-- **`--lead <session>`:** a lane a lead session steers. Every question — the two checkpoints, the
-  fork rounds, and the ones `worktree`, `plan`, `plan-grill`, `review` and `ship` ask — goes to the
+- **`--lead <session>`:** a lane a lead session steers. Every question — the checkpoint, `grill`'s
+  rounds, and the ones `worktree`, `plan`, `review` and `ship` ask — goes to the
   lead by `SendMessage`. A reply is not read but classified by `lib/lead_reply.sh`: an option label,
   `stop`, `proceed` at a checkpoint, or a file inside the worktree (read as data, then asked again);
   anything else is rejected and re-asked. A lead can direct the run as far as an open PR; merge and
@@ -274,7 +306,7 @@ the run that makes it. That disclosure is suppressed when the plugin root and th
 tree (the `--plugin-dir` shape), where the edits genuinely did run.
 
 Then it re-reads its own prose. The title, the body and the commit subject are the only text no
-phase reads — `plan-grill` reads the artifacts, `/gantry:review` reads the diff — and they are
+phase reads — `plan-critique` reads the artifacts, `/gantry:review` reads the diff — and they are
 written last, by the context most invested in the result. The rule is narrow: a claim about how
 something works either cites the file that establishes it or does not go in the body. Review is not
 extended to cover this because it runs before ship composes anything.
@@ -442,9 +474,10 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 | Component | Always-on |
 |---|---|
 | auto | ~180 |
-| auto-unattended | ~180 |
-| plan | ~100 |
-| plan-grill | ~120 |
+| auto-unattended | ~170 |
+| plan | ~90 |
+| plan-critique | ~120 |
+| grill | ~110 |
 | implement | ~100 |
 | review | ~170 |
 | handover | ~130 |
@@ -455,10 +488,11 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 | preserve | ~190 |
 | prune-worktrees | ~110 |
 | the three agents | ~240 combined |
-| **total always-on** | **~2,124** |
+| **total always-on** | **~2,230** |
 
 **These are measured, not derived** — `claude --plugin-dir . plugin details gantry`, against this
-tree (v0.5.1 plus `integrate`, which measured ~2,024 before it). v0.2 published a figure scaled from
+tree (0.7.0, where splitting `plan-grill` into `plan-critique` and `grill` took the total from
+~2,124 to ~2,230; v0.5.1 measured ~2,024 before `integrate`). v0.2 published a figure scaled from
 v0.1's reading, which is exactly the kind of claim this project argues does not belong in prose; the
 number is now read from the tool and, more to the point, **enforced**:
 `scripts/context_budget.sh` runs in `scripts/verify.sh` and fails the build when the descriptions

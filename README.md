@@ -4,9 +4,9 @@
 
 **Your agent says the tests pass. gantry runs them anyway, and won't let it finish until they do.**
 
-A worktree-to-PR workflow for Claude Code: thirteen skills that take a task from a fresh branch
-through a plan, a critique of that plan, implementation, a gate, an independent review, and a pull
-request. Then it merges the pull requests that piled up into one whose combined tree still passes.
+A worktree-to-PR workflow for Claude Code: fourteen skills that take a task from a fresh branch
+through a plan, a critique of that plan, a conversation that settles the approach, implementation,
+a gate, an independent review, and a pull request. Then it merges the pull requests that piled up into one whose combined tree still passes.
 
 The design principle, and the reason this is a plugin rather than a prompt:
 
@@ -44,10 +44,12 @@ command for you); `jq` is recommended. Skills, agents and the hook ship together
    /gantry:auto add a dark-mode toggle to settings
    ```
 
-4. It pauses twice. **After the plan has been grilled** it shows the plan, what the critique
-   changed, and the branch and worktree it created, and asks whether to proceed. **After the
-   review**, with the gate green, it asks once more before it commits, pushes, and opens the PR.
-   A genuine design fork in the plan is put to you as well, before any code is written.
+4. It stops for you twice, and they are different kinds of stop. **`grill` is a conversation**:
+   it explains what the task is for and what the plan would do, puts every genuine design fork to
+   you as options priced by what they cost, and its last question is the approval for the whole
+   plan. **After the review**, with the gate green, it asks once more before it commits, pushes,
+   and opens the PR. Nothing is decided for you and nothing is edited before you have agreed to
+   the approach.
 5. The PR opens ready for review, its body quoting the contract the change was built against and
    anything the review deliberately left out.
 
@@ -65,7 +67,8 @@ iterate by hand, and pick the chain back up.
 ```mermaid
 flowchart TD
   W["/gantry:worktree<br/>branch + worktree"] --> P["/gantry:plan<br/>writes task.md + plan.md"]
-  P --> G["/gantry:plan-grill<br/>a fresh critic attacks the plan"]
+  P --> C["/gantry:plan-critique<br/>a fresh critic attacks the plan"]
+  C --> G["/gantry:grill<br/>settle the approach, then approve it"]
   G --> I["/gantry:implement<br/>status: implementing — the hook arms"]
   I --> GATE{"gate<br/>run_gates.sh"}
   GATE -- "red" --> I
@@ -81,7 +84,7 @@ flowchart TD
 
 **The drivers contain no phase logic.** They invoke the same skills you would type, so the three
 ways of running cannot drift into three pipelines. Delegation happens inside the phases, to agents
-that are read-only by tool list: `plan` may dispatch an explorer, `plan-grill` always dispatches a
+that are read-only by tool list: `plan` may dispatch an explorer, `plan-critique` always dispatches a
 fresh critic, `review` dispatches an independent reviewer. Who dispatches whom, as a diagram:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#skills-carry-the-procedure-agents-carry-the-boundary).
 
@@ -93,11 +96,12 @@ conflicts from what each PR is *for* and running your checks after every merge.
 
 | Command | What it does |
 |---|---|
-| `/gantry:auto` | Task → open PR, supervised. Invokes each phase skill in turn; pauses twice. |
+| `/gantry:auto` | Task → open PR, supervised. Invokes each phase skill in turn; a grill conversation, then one checkpoint. |
 | `/gantry:auto-unattended` | The same chain with nobody watching, ending at a **draft** PR. |
 | `/gantry:worktree` | Create a worktree under `.claude/worktrees/` from an up-to-date parent, and enter it. |
 | `/gantry:plan` | Write the contract and the plan — `task.md` and `plan.md` — asking what needs asking. |
-| `/gantry:plan-grill` | Attack the plan with a fresh critic, before being wrong costs an implementation. |
+| `/gantry:plan-critique` | Attack the plan with a fresh critic, before being wrong costs an implementation. Headless. |
+| `/gantry:grill` | Settle the approach in conversation — priced options, decisions recorded, and the plan approval. |
 | `/gantry:implement` | Carry out the plan, then prove it with the gate. |
 | `/gantry:review` | Independent review of the diff. Read-only; `--fix` applies what's in scope. |
 | `/gantry:handover` | Write `handover.md` — what this change deliberately left, and the next action. |
@@ -178,7 +182,7 @@ not the change. `/gantry:ship` quotes what a reviewer needs from them into the P
 | File | Written by | Answers |
 |---|---|---|
 | `task.md` | `/gantry:plan` | what this is, when it's done, what it deliberately isn't |
-| `plan.md` | `/gantry:plan`, revised by `/gantry:plan-grill` | what the change was supposed to be |
+| `plan.md` | `/gantry:plan`, revised by `/gantry:plan-critique` | what the change was supposed to be |
 | `handover.md` | `/gantry:handover` | what this change left alone, and why |
 
 `task.md`'s `status:` is the phase marker every skill reads from disk, so a fresh session, a
@@ -188,8 +192,8 @@ files? See the [0.5.0 changelog entry](CHANGELOG.md#050).
 
 ## Context cost
 
-Skill descriptions sit in every session's context. gantry's come to about **2,124 always-on
-tokens** for thirteen skills and three agents. Check it yourself, and trust that over this figure:
+Skill descriptions sit in every session's context. gantry's come to about **2,230 always-on
+tokens** for fourteen skills and three agents. Check it yourself, and trust that over this figure:
 
 ```
 claude plugin details gantry@claude-gantry

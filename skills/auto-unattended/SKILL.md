@@ -1,14 +1,14 @@
 ---
 name: auto-unattended
-description: Runs a task from description to draft pull request with no human in the loop — creates a worktree, drives the gantry chain (plan, plan-grill, implement, review, ship) by invoking each phase skill in turn, keeps a journal.jsonl trail, and treats the repo's checks as the only blocker. Refuses to push if no checks were found. Built for headless use on a build box or in CI. Use when the user types "/gantry:auto-unattended" with a task, or asks to run something unattended, autonomously, or without supervision.
+description: Runs a task from description to draft pull request with no human in the loop — creates a worktree, drives the gantry chain (plan, critique, implement, review, ship) by invoking each phase skill in turn, keeps a journal.jsonl trail, and treats the repo's checks as the only blocker. Refuses to push if no checks were found. Built for headless use on a build box or in CI. Use when the user types "/gantry:auto-unattended" with a task, or asks to run something unattended, autonomously, or without supervision.
 argument-hint: "[task] [--no-pr] [--branch <name>] [--here] [--base <branch>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent
 ---
 
 # gantry:auto-unattended
 
-The gantry chain with nobody watching: worktree → **plan → plan-grill → implement → review** → draft PR.
-No checkpoints, no questions, one blocker — the gate.
+The gantry chain with nobody watching: worktree → **plan → plan-critique → implement → review** →
+draft PR. No checkpoints, no questions, one blocker — the gate.
 
 Built for `claude -p "/gantry:auto-unattended <task>" --dangerously-skip-permissions` on a build box
 or in CI. Use `gantry:auto` when you are at the keyboard.
@@ -18,7 +18,7 @@ them. It differs from `gantry:auto` in exactly four things: it never pauses, the
 `--strict`, it keeps a journal, and it opens a **draft** PR.
 
 **You do not dispatch sub-agents; the phases do.** `plan` dispatches the explorer when the surface
-warrants it, `plan-grill` always dispatches a fresh critic, `review` dispatches an independent
+warrants it, `plan-critique` always dispatches a fresh critic, `review` dispatches an independent
 reviewer — each scoped to its own sub-job and read-only by tool list. `Agent` is in this skill's
 `allowed-tools` for that reason alone: frontmatter restricts what is permitted, it does not grant,
 so a phase cannot dispatch what the driver has not allowed.
@@ -157,25 +157,37 @@ a stop nobody can act on.
 
 On `FORKS:unknown` the file has no such section: say so and continue.
 
-## Stage 3 — Grill
+## Stage 3 — Critique
 
-**Invoke `/gantry:plan-grill`.** It dispatches a fresh critic against the artifacts on disk — paths, not
-contents — and triages what comes back.
+**Invoke `/gantry:plan-critique`.** It dispatches a fresh critic against the artifacts on disk —
+paths, not contents — and triages what comes back. It asks nothing on any path, which is why this
+mode can run it at all.
+
+**This mode loses the conversation, not the critique.** `/gantry:grill` is human-only and has no
+place here; `/gantry:plan-critique` is headless and keeps its place in every mode. Dropping both
+would leave `plan → implement` with nothing in between, and make the first independent read of
+anything happen *after* the code was written. That is an unforced loss, and it is why the phase was
+split along mechanism versus interface rather than simply removed from this chain.
 
 This phase matters more here than anywhere else: it is the only scrutiny the plan will get before
-implementation, because there is no checkpoint behind it. If grill sets `status: blocked`, **stop**
-— journal it, hand over, and report. Do not proceed on a plan that did not survive.
+implementation, because there is no checkpoint behind it. If it sets `status: blocked`, **stop** —
+journal it, hand over, and report. Do not proceed on a plan that did not survive.
 
 **Check `FORKS:` again, on the same terms as stage 2.** A critique that surfaces a genuine design
-fork records it rather than absorbing it, so grill can open one that planning never had — and the
+fork records it rather than absorbing it, so it can open one that planning never had — and the
 stage 2 check ran before the critic did. `FORKS:open` here ends the run exactly as it does there:
-journal the `escalation`, set `status: blocked`, hand over, stop.
+journal the `escalation`, set `status: blocked`, hand over, stop. Supervised runs settle such a fork
+in `grill`; this mode has no one to ask, so it stops instead of guessing.
+
+The phase leaves `status: critiqued`, and that is the status this mode carries into `implement` —
+`grilled` is only ever written by `grill`, which does not run here. `/gantry:implement` accepts
+`critiqued` without a warning for exactly this reason.
 
 Journal a `phase` event, naming the critic that ran:
 
 ```bash
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from plan --to grill --mode unattended
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase grill --result ok --agent gantry-critic --summary <findings by severity, in a sentence> --artifact plan.md
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from plan --to critique --mode unattended
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase critique --result ok --agent gantry-critic --summary <findings by severity, in a sentence> --artifact plan.md
 ```
 
 ## Stage 4 — Implement
@@ -284,7 +296,7 @@ Written for someone who was not here, because nobody was:
   conditions were unmet — or whose hook was never registered — was self-policed by a script it
   could have skipped; say so, and say which of the two you actually know.
 - Which review tier ran, named plainly.
-- **Every assumption `plan` or `plan-grill` had to make** because there was nobody to ask. Genuine
+- **Every assumption `plan` or `plan-critique` had to make** because there was nobody to ask. Genuine
   design forks are not on this list — those stop the run rather than becoming assumptions — but
   the judgement calls inside a plan still are, and the reader of a draft PR needs them.
 - **What the run shipped without proving**, repeated from ship's report: whether `task.md` carried

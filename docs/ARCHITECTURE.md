@@ -67,12 +67,14 @@ they dispatch the same phase skills a human would type.
 ```mermaid
 flowchart TB
   subgraph drivers ["the two drivers — dispatch only, no phase logic"]
-    A["gantry:auto — pauses twice"]
+    A["gantry:auto — a grill conversation, then one checkpoint"]
     U["gantry:auto-unattended — never pauses, draft PR"]
   end
   subgraph chain ["the phase skills — one procedure, whoever runs it"]
-    P["gantry:plan → task.md + plan.md"] --> GR["gantry:plan-grill → a fresh critic"]
-    GR --> I["gantry:implement → owns the gate"]
+    P["gantry:plan → task.md + plan.md"] --> GR["gantry:plan-critique → a fresh critic"]
+    GR -- "supervised" --> GL["gantry:grill → settle the approach, then approve it"]
+    GL --> I["gantry:implement → owns the gate"]
+    GR -- "unattended: no human to ask" --> I
     I --> RV["gantry:review → report, fix with --fix, hand over"]
   end
   W["gantry:worktree — branch, worktree, parent fetch"] --> P
@@ -115,7 +117,7 @@ delegation trustworthy:
 So a driver **invokes** `/gantry:plan` — rather than restating the planning procedure into a
 prompt, which is how two copies of a procedure start disagreeing. Delegation happens one level
 down, inside the phase, where the sub-job is narrow enough for a tool boundary to mean something:
-`plan` dispatches the explorer when the surface warrants it, `plan-grill` always dispatches a fresh
+`plan` dispatches the explorer when the surface warrants it, `plan-critique` always dispatches a fresh
 critic, `review` dispatches an independent reviewer.
 
 **That split is what lets every shipped agent be read-only.** A phase has to write — `task.md`,
@@ -129,13 +131,14 @@ One consequence worth stating, because it is easy to get backwards: a skill's `a
 carries `Agent` not because it dispatches phases, but because the phases it invokes dispatch their
 own agents, and a tool the driver has not allowed is one the phase cannot reach.
 
-Drawn out, with the two checkpoints `auto` adds and where each phase's sub-job goes:
+Drawn out, with the one checkpoint `auto` adds, the grill conversation that carries the plan
+approval, and where each phase's sub-job goes:
 
 ```mermaid
 flowchart TD
   E["/gantry:auto<br/>/gantry:auto-unattended"] --> W["gantry:worktree"]
   subgraph D ["the driver invokes each phase skill in turn"]
-    P["/gantry:plan"] --> G["/gantry:plan-grill"]
+    P["/gantry:plan"] --> PC["/gantry:plan-critique"] --> G["/gantry:grill"]
     G --> I["/gantry:implement"]
     I --> GATE{"gate<br/>--strict when unattended"}
     GATE -- "red" --> I
@@ -147,10 +150,10 @@ flowchart TD
     RV(["gantry-reviewer"])
   end
   P -. "when the surface is wide" .-> EX
-  G -. "always" .-> C
+  PC -. "always" .-> C
   R -. "if /code-review is absent" .-> RV
   W --> P
-  G -.- K1{{"auto pauses here:<br/>confirm the plan"}}
+  G -.- K1{{"grill's last question<br/>IS the plan approval"}}
   R -.- K2{{"auto pauses here:<br/>confirm the PR"}}
   R --> S["gantry:ship"]
   S --> A(["auto → ready PR"])
@@ -211,7 +214,7 @@ Every mode writes artifacts at the **worktree root** — not just the delegated 
 | Artifact | Written by | Committed | How a reader gets it |
 |---|---|---|---|
 | `task.md` | `gantry:plan` (Affected areas pasted from the explorer) | no — `.git/info/exclude` | `gantry:ship` quotes the contract into the PR body |
-| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | no — same exclusion | the human who approves it reads it in the worktree |
+| `plan.md` | `gantry:plan`, revised by `gantry:plan-critique` | no — same exclusion | the human who approves it reads it in the worktree |
 | `handover.md` | `gantry:handover`, when review defers something | no — same exclusion | `gantry:ship` quotes it into the PR body |
 | `journal.jsonl` | `gantry:auto-unattended`, append-only | no — same exclusion | a run artifact, not a deliverable |
 | gate logs | the gate script | no — same exclusion | evidence, kept out of the diff |
@@ -259,15 +262,22 @@ boundary written from the task description alone is a guess that later phases re
 Its `status` field is the chain's state machine:
 
 ```
-planning → planned → grilled → implementing → implemented → reviewed → shipped
-    ↓                                ↓
- blocked                          blocked
+planning → planned → critiqued → grilled → implementing → implemented → reviewed → shipped
+                          ↓                          ↓
+                       blocked                    blocked
 ```
 
-`planning → blocked` is the open-fork stop: `plan` and `plan-grill` will not advance a task whose
+The three states before `implementing` are deliberately distinct, and the distinction is who has
+read the plan: **`planned`** means drafted and nothing has read it; **`critiqued`** means a cold
+critic read it and `plan.md` carries the findings; **`grilled`** means a human agreed to the
+approach and every fork is closed. Only the last is an approval, and only `/gantry:grill` writes
+it. `gantry:auto-unattended` has no grill, so its runs reach `implement` at `critiqued` — which
+`/gantry:implement` accepts without a warning for exactly that reason.
+
+`critiqued → blocked` is the open-fork stop: `/gantry:grill` will not reach its approval while
 *Open questions* still holds an undecided fork, and an unattended run journals an `escalation` and
-blocks there rather than guessing at the answer. A supervised run resolves the fork with the user
-instead and continues, so it never reaches that edge.
+blocks there rather than guessing at the answer. A supervised run settles the fork inside grill's
+rounds and continues, so it never reaches that edge.
 
 **The readiness hook arms on exactly one of those values, `implementing`, and ignores the rest.**
 That narrowness is deliberate: the hook must not fire while planning is still under way, and
@@ -323,7 +333,7 @@ however it is prompted.
 | Agent | Tools | Model | Dispatched by | Role |
 |---|---|---|---|---|
 | `gantry-explorer` | Read, Grep, Glob | haiku | `gantry:plan`, when the surface is unfamiliar or wide | read-only scout; produces the text for `task.md`'s Affected areas. Physically cannot write it. |
-| `gantry-critic` | Read, Grep, Glob | opus | `gantry:plan-grill`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
+| `gantry-critic` | Read, Grep, Glob | opus | `gantry:plan-critique`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
 | `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
 
 There is deliberately no planner or implementer agent. Writing is what those phases *are*, so an

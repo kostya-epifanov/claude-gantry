@@ -32,13 +32,29 @@ check_phase() {  # check_phase <status> <expected-phase>
 }
 
 check_phase planning     plan
-check_phase planned      grill
+check_phase planned      critique
+check_phase critiqued    grill
 check_phase grilled      implement
 check_phase implementing implement
 check_phase implemented  review
 check_phase reviewed     ship
 check_phase shipped      "done"
 check_phase blocked      blocked
+
+# --- the command each status routes to --------------------------------------
+# PHASE is internal; NEXT is what a phase skill names to the user, and the two
+# are deliberately decoupled: for three releases `PHASE:grill` named a command
+# spelled differently from the phase. So the mapping needs its own assertions — a
+# correct PHASE with a stale NEXT sends someone to a command that does not exist.
+check_next() {  # check_next <status> <expected-next>
+  write_task "$repo" "$1"
+  run_stage "$repo"
+  assert_contains "$STAGE_OUT" "NEXT:$2" "status:$1 routes to $2"
+}
+
+check_next planned   "/gantry:plan-critique"
+check_next critiqued "/gantry:grill"
+check_next grilled   "/gantry:implement"
 
 # --- the fallbacks, for a hand-written or half-edited task.md ----------------
 rm -f "$repo/task.md"

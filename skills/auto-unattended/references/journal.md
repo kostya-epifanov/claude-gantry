@@ -91,7 +91,7 @@ not editing an earlier one — an edited log is not evidence.
 ```
 
 `from` is `null` on the first line of a run (entering the first stage). Stage names match the
-orchestrator's own: `contract`, `plan`, `grill`, `implement`, `gate`, `review`, `ship`.
+orchestrator's own: `contract`, `plan`, `critique`, `implement`, `gate`, `review`, `ship`.
 
 ### `phase` — a phase skill returned
 
@@ -99,7 +99,8 @@ orchestrator's own: `contract`, `plan`, `grill`, `implement`, `gate`, `review`, 
 {"ts":"2026-08-16T09:44:22Z","task":"2026-08-16-contact-form","event":"phase","phase":"plan","agents":["gantry-explorer"],"result":"ok","summary":"Four steps; the form posts to the existing /api/contact handler.","artifacts":["task.md","plan.md"]}
 ```
 
-- `phase` — `plan` | `grill` | `implement` | `review`.
+- `phase` — `plan` | `critique` | `implement` | `review`. (`grill` never appears: it is
+  human-only and this mode does not run it.)
 - `agents` — the sub-agents the phase actually dispatched, resolved names, in order. `[]` when it
   dispatched none (a `plan` that read the code directly, a `review` that used `/code-review`).
   This is the delegation roll-call the final report is checked against, so record what happened,
@@ -170,7 +171,7 @@ but a human's answer exists nowhere else.
 {"ts":"2026-08-16T09:45:31Z","task":"2026-08-16-contact-form","event":"escalation","stage":"plan","reason":"open-fork","detail":["Postgres or SQLite? Changes the migration story and the deploy."],"status":"blocked"}
 ```
 
-- `stage` — where the run stopped: `plan` or `grill` for an open fork.
+- `stage` — where the run stopped: `plan` or `critique` for an open fork.
 - `reason` — why. `open-fork` is the one `gantry:auto-unattended` emits today.
 - `detail` — one string per thing needing a decision, in the terms the reader has to answer in.
   For an open fork, the entries from `task.md`'s *Open questions*, verbatim. This is the payload
