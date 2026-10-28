@@ -1,7 +1,7 @@
 ---
 name: auto
 description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, critique, grill, implement, review, ship) by invoking each phase skill in turn. Supervised: it settles the approach with you in conversation, then pauses once before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
-argument-hint: "[task] [--task <id>] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--lead <session>]"
+argument-hint: "[task] [--task <id>] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--lead <session>] [--review-model <alias>] [--review-effort <level>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion, SendMessage
 ---
 
@@ -45,11 +45,14 @@ hardcoding a path.
 ## Stage 0 — Arguments
 
 `$ARGUMENTS` is one string; read it yourself. Recognise `--no-pr`, `--branch <name>`,
-`--task <id>`, `--here` (alias `--on-current`), `--base <branch>`, and `--lead <session>`; strip
-them; what remains is the task. The tracker id and the `--branch` value are not read by eye: write
-the whole string to a file and run `lib/task_id.sh` on it, as `references/orchestration.md`
-§ *Deriving the branch name* describes — its `TEXT:` line is the task with those two removed. On
-its exit `2` (a `--task` or `--branch` with a missing or bad value), ask. `--here` and `--branch` are mutually exclusive — `--here` wins. If
+`--task <id>`, `--here` (alias `--on-current`), `--base <branch>`, `--lead <session>`,
+`--review-model <alias>` and `--review-effort <level>`; strip them; what remains is the task. The
+tracker id and the `--branch` value are not read by eye: write the whole string to a file and run
+`lib/task_id.sh` on it, as `references/orchestration.md` § *Deriving the branch name* describes —
+its `TEXT:` line is the task with those two removed. On its exit `2` (a `--task` or `--branch` with
+a missing or bad value), ask. `--review-model` and `--review-effort` are carried to stage 5's
+launcher and nowhere else; with neither, the review child inherits the user's default model and
+effort. `--here` and `--branch` are mutually exclusive — `--here` wins. If
 no task text remains, ask what the task is. A `--lead` with no session name after it is also a
 question, and it goes to the owner: there is no lead to ask yet.
 
@@ -140,20 +143,60 @@ Take from its report: the gate's exit code, and whether the hook's firing condit
 
 ## Stage 5 — Review
 
-**Invoke `/gantry:review --fix`.**
+**Do not invoke `/gantry:review` in this session.** Launch it as a fresh headless child through
+`lib/run_phase_headless.sh` and read its results back from disk. By now your context holds the
+plan, the critique and the whole implementation, so a reviewer that inherits it is the author
+reviewing itself — the weakest possible reviewer. The phase skill still carries the procedure; only
+*where* it runs changes. `references/orchestration.md` § *Headless phases* has the detail.
 
-It gets an independent read of the diff — `/code-review` if available, otherwise a reviewer
-sub-agent it dispatches itself — verifies each finding against the repo, then fixes what is clearly
-in scope, re-runs the gate after any fix, and invokes `gantry:handover` for anything it deferred.
-Read back which of its three sources actually ran; if it fell through to self-review, your report
-must say so.
+1. **Launch the review child** with the Bash tool's `run_in_background`, so the wait is the
+   completion notification rather than a foreground call under the ten-minute cap. Do not poll.
 
-**`--fix` is not optional here.** Review is read-only without it: it would report the findings and
-edit nothing, and the chain would ship a change it had reviewed and not repaired. The flag is what
-licenses the in-scope fixes and the gate re-run that follows them.
+   ```bash
+   bash "$GANTRY/lib/run_phase_headless.sh" --phase review --root <worktree> --tier high
+   ```
 
-If review set `status: blocked`, stop and surface it, removing the `lead:` line first under
-`--lead`.
+   **Pass `--model` every time.** A child with no `--model` does not inherit *your* model — it takes
+   the user default from `settings.json`, which is a different thing and was a different thing in
+   practice: a driver pinned to Sonnet launched its review children on Opus because a `/model`
+   command in an unrelated session had just saved that default. So pass `--review-model`'s alias
+   when it was given, and otherwise **the model this session is running on**. Pass
+   `--effort <level>` only when `--review-effort` was given. Add `--plugin-dir "$GANTRY"` when `$GANTRY`
+   is not under `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/` — a checkout rather than an
+   install — so the child runs this checkout's skills and not the installed plugin's.
+
+   If this session resumed after the notification was lost, look for
+   `.claude/artifacts/headless/review.done` in the worktree before launching again. If it is
+   absent, run the same command: the child outlives the launcher, so the launcher finds it by its
+   `.pid` and attaches instead of starting a second review. A `NOTE:` line says which happened.
+
+2. **Read the launcher's lines.** Exit `1` or `3` → stop and hand the user its `REASON:` line
+   (under `--lead`, remove the `lead:` line first). Exit `2` → a broken environment (no `jq`, no
+   `claude`): stop and report it as that, not as a failed review. On exit `0`, run
+   `bash "$GANTRY/lib/detect_stage.sh"`: `STATUS:blocked` → the review found the change unsafe to
+   ship; stop and surface it, as before. Keep every `DENIED:` line verbatim for the report — a
+   denial does not fail the launcher, but a review denied a tool it needed is a weaker review.
+
+3. **Route on `REVIEW:`.**
+   - `pending` → launch the fix child the same way, with the same `--model`, `--effort` and
+     `--plugin-dir`, and wait for it:
+
+     ```bash
+     bash "$GANTRY/lib/run_phase_headless.sh" --phase review-fix --root <worktree>
+     ```
+
+     Read `GATE_EXIT:` from its lines and treat it as `implement` treats the gate: non-zero →
+     stop and hand the failure to the user. A launcher exit of `1` or `3` → stop with `REASON:`.
+   - `clean` → the review found nothing in scope to fix. Say so and launch nothing.
+   - `absent` after exit `0` cannot happen — the launcher checks for the file before exiting
+     `0`. If it does, say the launcher's contract was broken, and stop.
+
+Take from the children's output, for the report: the source named by `review.md`'s `source:` line
+(`code-review`, `gantry-reviewer` or `self-review` — if it fell through to self-review, your report
+must say so), both `SESSION:` ids, `MODEL:` and `EFFORT:`, every `DENIED:` line, and `GATE_EXIT:`.
+
+Under `--lead`: a print-mode child cannot ask the lead, so anything `/gantry:review` would have
+asked about it deferred instead. It is in `handover.md`, and stage 6's checkpoint shows it.
 
 ## Stage 6 — Checkpoint: confirm the side effects
 
@@ -188,7 +231,10 @@ merged: a lead may direct the chain as far as an open PR, and merge stays the ow
 ## Stage 8 — Report
 
 The task and the mode. The branch and worktree path. Which sub-agents the phases actually
-dispatched — the explorer if `plan` used one, and which critic ran.
+dispatched — the explorer if `plan` used one, and which critic ran. **The review children**: the
+review child's session id and the fix child's (if one ran), the model and effort they ran with —
+effort `inherit` when none was passed — the gate exit the fix child recorded, and every permission
+denial, verbatim from the launcher's `DENIED:` lines.
 
 **The grill conversation: how many rounds it took, every fork that was put to the user, and what
 they decided.** Those are the decisions that shaped the work. They are on disk in `task.md`'s

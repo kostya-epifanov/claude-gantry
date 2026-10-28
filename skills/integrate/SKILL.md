@@ -476,7 +476,7 @@ PRs?"
 Set `status: shipped` first — the push is next, and a status written after it would miss it.
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" .claude/artifacts/
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md .claude/artifacts/
 ```
 
 Compose the body per `references/pr-body.md` into

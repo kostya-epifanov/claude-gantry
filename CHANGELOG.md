@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 **`/gantry:integrate` reconciles the docs for the combined tree before the review** (BASE-71).
 Each source PR documents its own change alone, against the base it was cut from, so a merge that
@@ -115,6 +115,106 @@ and `--branch` are flags only ahead of the task text, so a task that mentions th
 its words.
 `tests/cases/task_id.sh` covers the sources, the precedence, the copied URL shapes and the
 refusals.
+
+**The review phase runs in a fresh headless child session.** `gantry:auto` and
+`gantry:auto-unattended` invoked every phase in the driver's own session, so by the time
+`/gantry:review` ran that session carried the plan, the critique and the whole implementation — in
+the one `auto` run on disk, `/code-review` started at 187k tokens of context and ran inline, with
+`Bash` and `Edit`, dispatching no sub-agent. The diff was reviewed by the model that wrote it. Both
+drivers, and `gantry:ship --review`, now launch `claude -p "/gantry:review --headless …"` in the
+worktree through a launcher, wait for it, and read its results from disk. The child can write only
+the chain's artifacts, by a path-scoped allowlist the harness enforces; the fix is a second child
+running `gantry:review --fix`, which applies what the first one recorded instead of reviewing again.
+The phase skill keeps carrying the procedure — only where it runs changes.
+
+**Added**
+- **`lib/run_phase_headless.sh`** — builds and launches the child (`--output-format json`,
+  `--name gantry-<phase>-<branch>`, `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`, `--permission-prompts
+  none`, `dontAsk` with `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`,
+  `handover.md` and `task.md` plus `Skill(gantry:handover)` for the review child — the absolute form
+  because a `cd` inside one Bash call persists and the relative rule then misses the root; the Skill
+  rule because a plugin skill is denied under `dontAsk` without one, both observed in a real run —
+  `acceptEdits` plus the Skill rule for the fix child, and Bash rules in both quote forms for `run_gates.sh`,
+  `ensure_excluded.sh`, `detect_stage.sh` and `diff_fingerprint.sh`), removes an earlier run's result
+  files first, writes the child's JSON under `.claude/artifacts/headless/`, verifies the artifact
+  the phase promises, and prints fixed labeled lines — session id, model, effort, turns, cost, every
+  permission denial, `GATE_EXIT:` after the fix child — with the child's result text last inside
+  delimiters. Exit `0` only when the child completed and left its artifact; denials are reported and
+  never fatal on their own. `--plugin-dir` is forwarded so a checkout's skills run in the child.
+  The child is launched **detached**, in a session of its own (`setsid`), with
+  `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`: a Claude Code session reaps its own background
+  tasks on a `memoryPressure` event from its runtime, and a driver runs the launcher as one of
+  those. Measured over an A/B run of five lanes, that reaper killed review children at 0.6, 0.8,
+  0.9, 1.1 and 2.9 GiB host memory free against one survivor at 1.6 GiB — host memory does not
+  predict it, the message ("stopped because the system is running low on memory") names the wrong
+  cause, and two lanes running the identical command went 6-for-6 killed and 0-for-1 killed. Only
+  this topology was exposed: an in-session review has no background task to reap. Because the
+  variable is read in the driver's process, where a skill cannot set it, the fix is the detach. A
+  launcher that is itself reaped leaves the child running, and re-running the same command
+  **attaches** to it by its `.pid` instead of paying for a second review of the same diff.
+  `--timeout <seconds>` (default 7200) bounds the wait and stops the child it was waiting on.
+  With no `setsid` on `PATH` the child runs inline and a `NOTE:` line says it is exposed.
+- **The child is told the one way to call a gantry script that the tool boundary can match**, and
+  the rules now carry the variable spelling too. A Bash rule matches the **literal text** of a
+  command, while `skills/review/SKILL.md` tells the child to run `bash "$GANTRY/lib/x.sh"` — a
+  spelling no emitted rule matched. Children that passed did so because they happened to expand the
+  variable and write the absolute path themselves; it was luck, not a contract. In the A/B run one
+  lane's review followed the skill's own `cd … && GANTRY=… && bash "$GANTRY/…"` idiom, took **19
+  denials**, lost `diff_fingerprint.sh`, and wrote HEAD/base SHAs into `review.md` where the
+  fingerprint belongs — an artifact `--fix` must refuse — while the launcher still exited `0`. Now:
+  the prompt names the resolved `lib/` path and states the convention (whole command, absolute path,
+  no `cd` prefix, no assignment prefix, no variable), the skill's headless section says the same and
+  tells the child to report a denied script rather than substitute a value for it, each script's
+  rule is additionally emitted in both literal `$GANTRY` forms, and a `review.md` whose `diff:` line
+  is not a fingerprint raises a `NOTE:` saying `--fix` will refuse it as stale. A compound command
+  is still undeniably deniable — nothing can rescue that — which is why the convention is stated to
+  the child rather than worked around.
+- **`NOTE:<line>`** in the launcher's output, after `RESULT_FILE:` and before `REASON:` — zero or
+  more: the detach or the lack of it, an attach to a child an earlier launcher left running, and
+  the one a caller most needs to see, that **no `--model` was given**. A child without `--model`
+  does not inherit the driver's model: it takes the user default from `settings.json`. In the same
+  A/B run a driver pinned to Sonnet reviewed on Opus because a `/model` command in an unrelated
+  session had just saved that default. The three drivers now pass `--model` on every launch —
+  `--review-model`'s alias when given, otherwise their own model.
+- **`lib/diff_fingerprint.sh <base>`** — one token for the diff plus untracked state, including
+  the content of untracked files. `review.md` records it; apply mode refuses on a mismatch.
+- **`review.md`** — the fourth artifact: branch, base, fingerprint, source, tier, the two tallies,
+  and the address-now findings (or `None.`). Written on every review, never committed, never quoted.
+- **`REVIEW:absent|pending|applied|clean`** from `lib/detect_stage.sh`, permissive toward `pending`;
+  a `reviewed` task with a `pending` file reports `PHASE:review` and `NEXT:/gantry:review --fix`.
+- **`--headless`** on `gantry:review`: defer an ambiguous finding instead of asking, in every mode.
+- **`--review-model <alias>`** and **`--review-effort <level>`** on `auto`, `auto-unattended` and
+  `ship`, reaching the child as `--model` and `--effort`; absent, the child inherits the user's
+  defaults.
+- **`session`** on the journal's `phase` event, and `review-fix` as a phase name;
+  `headless-child-failed` as an escalation reason.
+- **`scripts/verify.sh`** checks that every `ensure_excluded.sh` call under `skills/` naming
+  `/task.md` also names `/review.md`, and that `review.md` is not tracked at the root.
+- **Tests:** `tests/cases/headless_launcher.sh` (a fake `claude` that records its argv
+  NUL-delimited; exact-element checks of the prompt and every allowlist rule per phase; success,
+  success without the artifact, `is_error`, `max_turns`, a non-zero exit, denials, stale `.done`
+  removal), `tests/cases/diff_fingerprint.sh`, `tests/cases/verify_artifact_set.sh`, and the
+  `REVIEW:` and `session` cases in `stage_phases.sh` and `journal_append.sh`.
+- **`docs/ARCHITECTURE.md` § Headless phases** — why review is first, how the read/write split is
+  preserved by an allowlist on the child, what the orchestrator's context holds afterwards, and the
+  limits.
+
+**Changed**
+- Where review runs: `auto` stage 5, `auto-unattended` stage 5 and `ship --review` /
+  `--review-fix` launch headless children and never invoke `/gantry:review` in their own session.
+  The "commit the review's edits separately" rule and the re-detect in ship are unchanged.
+- `gantry:review --fix` is stage-aware: with `REVIEW:pending` and `status: reviewed` it applies the
+  listed findings, re-runs the gate, and appends `applied: <date> gate=<exit>`; with `pending` and
+  any other status, or a fingerprint mismatch, it stops and names `/gantry:review`. It also stops
+  on `status: implementing` in every mode.
+- The artifact set is four: every call that asserted `/task.md /plan.md /handover.md` now names
+  `/review.md` too, `.gitignore` lists it, and `lib/gate_coverage.sh` sets it aside with the others.
+- `PHASE` and `NEXT` for `status: reviewed` depend on `REVIEW:`: `pending` keeps the task at the fix
+  step; anything else moves it to ship.
+- The allowlist names two more read-only scripts than first planned — `detect_stage.sh` and
+  `diff_fingerprint.sh` — because a `dontAsk` child was probed to deny `bash <abs>/lib/detect_stage.sh`
+  with only the gate rules present, and the review child needs both to find its stage and to
+  fingerprint the diff it records.
 
 ## 0.6.1
 

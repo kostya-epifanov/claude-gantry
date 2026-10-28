@@ -17,6 +17,7 @@ One chain of phases, three ways to run it.
 | Driver | you, typing each phase | the skill | the skill |
 | Phases run | in your session | invoked by the driver | invoked by the driver |
 | `grill` | yours to run | **yes** — it carries the plan approval | **no** — human-only |
+| Review runs | in your session | **headless child** | **headless child** |
 | Stops | after every phase | a grill conversation, then one checkpoint | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
@@ -52,6 +53,8 @@ flags only ahead of the task's first word, so a task that mentions them in prose
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. |
 | `--base <branch>` | Override the PR base branch. Passed through to `ship` and its detector. |
 | `--lead <session>` | **`auto` only.** Put every question to that lead session by message instead of a dialog, accepting only an option label, `proceed`, `stop`, or a file path. `auto-unattended` refuses it. |
+| `--review-model <alias>` | The model the headless review children run on (`--model` to the child). Absent, the child inherits your default. `sonnet` is a cost-neutral choice for a review. `ship --review` takes it too. |
+| `--review-effort <level>` | The effort level for the review children (`--effort` to the child). Absent, the child inherits. `ship --review` takes it too. |
 
 **Naming.** When the task carries a tracker id — from `--task <id>`, an id at the start of the task
 text (`BASE-71 integrate should update docs`), a tracker URL in it (a GitHub issue becomes `GH-<n>`;
@@ -183,7 +186,7 @@ This phase owns the gate loop, because "implemented" and "passes the checks" are
 
 ## `/gantry:review` — independent read, then act
 
-`/gantry:review [--tier <medium|high|xhigh|max>] [--fix]`
+`/gantry:review [--tier <medium|high|xhigh|max>] [--fix] [--headless]`
 
 Three **sources**, and it **always names which one ran**: `/code-review`, then a `gantry-reviewer`
 sub-agent, then self-review — the last being materially weaker, which is exactly why hiding it
@@ -203,15 +206,35 @@ absorb what review turned up is how a focused diff becomes an unreviewable one.
 
 **Read-only without `--fix`**, where read-only means the code under review. It still writes
 `task.md`'s status — always, because that is what `detect_stage.sh` reads to move the chain on —
-and `handover.md` when something was deferred.
+`review.md`, always, and `handover.md` when something was deferred.
+
+**`review.md` is the findings file**, written at the worktree root on every review: the branch,
+the base, a fingerprint of the diff from `lib/diff_fingerprint.sh`, the source that ran, the tier,
+the two tallies, and the address-now findings (file, line, what is wrong, the failure) — or
+`None.`, so the fix step can tell "reviewed, nothing to apply" from "never reviewed".
+`lib/detect_stage.sh` reports it as `REVIEW:absent|pending|applied|clean`, and a `reviewed` task
+whose file is still `pending` stays at the fix step rather than moving to ship.
+
+**`--fix` is stage-aware.** With `REVIEW:pending` and `status: reviewed` it is **apply mode**: it
+checks the file's branch and fingerprint against the tree, applies the listed findings without
+reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit>` to the file. A
+fingerprint that no longer matches is a refusal — the file describes a different diff — and so is a
+`pending` file under any other status, which means the review that wrote it did not finish. With
+`REVIEW:absent` it reviews and then fixes, as before.
+
+**`--headless`** is what the drivers' launcher passes: a finding whose triage is honestly
+ambiguous is deferred rather than asked about, whatever `mode:` says — a print-mode child cannot
+wait for a reply.
 
 Gets the diff with `git diff <base>` plus `git status --short`, because the tree is normally
 uncommitted at this point and a three-dot range would come back empty.
 
 - **Refuses:** to expand scope in order to fix a finding; to pass `--fix` through to
-  `/code-review`; an out-of-set `--tier`, without falling back to `high`.
+  `/code-review`; an out-of-set `--tier`, without falling back to `high`; to apply a `review.md`
+  whose branch or fingerprint no longer matches the tree; to review a tree whose status is still
+  `implementing`.
 - **Invokes:** `gantry:handover` for everything deferred, with or without `--fix`.
-- **Scripts:** `lib/run_gates.sh`, after any fix it makes.
+- **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`.
 
 ## `/gantry:handover` — what this change left
 
@@ -244,9 +267,17 @@ grilled, and before anything outward-facing. Opens a **ready-for-review** PR.
 what stops the three ways of running from becoming three subtly different pipelines. It dispatches
 no sub-agents of its own; each phase delegates its own sub-job.
 
+**The review runs in a fresh headless child session**, not in the driver's — `claude -p
+"/gantry:review --headless"` launched through `lib/run_phase_headless.sh`, with a tool boundary the
+harness enforces (it can write only the chain's artifacts), then a second child for the fix step.
+The driver's own context is the author's by then, and the reviewer must not inherit it. The report
+carries both children's session ids, the model and effort they ran with, the gate exit the fix
+child recorded, and any permission denials. `docs/ARCHITECTURE.md` § *Headless phases*.
+
 - **Refuses:** to proceed past a non-zero gate; to run `--here` on the default branch or a
-  detached HEAD.
-- **Invokes:** `gantry:worktree`, the four phase skills, `gantry:ship`.
+  detached HEAD; to carry on when a review child failed.
+- **Invokes:** `gantry:worktree`, `plan`, `plan-critique`, `grill` and `implement` in its session; `review` and
+  its fix step as headless children; `gantry:ship`.
 - **Detail:** `references/orchestration.md`, shared with `auto-unattended`.
 - **`--lead <session>`:** a lane a lead session steers. Every question — the checkpoint, `grill`'s
   rounds, and the ones `worktree`, `plan`, `review` and `ship` ask — goes to the
@@ -270,7 +301,10 @@ missing roster.
 
 Its report is written for someone who was not there, because nobody was: every assumption `plan` had
 to make without being able to ask, which agents the phases actually dispatched, which review tier
-ran, the gate's exit code on every run, and whether the hook's firing conditions were met.
+ran, the gate's exit code on every run, and whether the hook's firing conditions were met. The
+review runs as headless children, the same way `auto`'s does, and the journal's `phase` events
+carry their session ids; a child that fails sets `status: blocked` with the launcher's reason in
+the journal.
 
 - **Refuses:** to push when no checks were found; to proceed on a plan that failed its critique;
   to fall back to inline work when a dispatch fails; `--lead`, which has no questions to route here.
@@ -285,7 +319,7 @@ ran, the gate's exit code on every run, and whether the hook's firing conditions
 
 ## `/gantry:ship` — commit, push, PR
 
-`/gantry:ship [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--base <branch>]`
+`/gantry:ship [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--review-model <alias>] [--review-effort <level>] [--base <branch>]`
 
 An idempotent stage machine. It runs `detect_state.sh` once, routes on the reported stage, and
 falls through the remaining steps without re-detecting — **except** after `--review-fix`, which can
@@ -293,11 +327,13 @@ create a commit and therefore forces a re-detect before the push.
 
 **Ship does not review.** There is no review stage on its path, and a bare `/gantry:ship` never
 invokes a reviewer: a review is slow, expensive and worth choosing, so it is asked for rather than
-suppressed. `--review` invokes `gantry:review` between the commit and the push; `--review-fix`
-invokes it with `--fix`, so findings are applied, committed separately, and the gate re-run over
-them, with a red gate stopping the push. Both take an optional tier — `--review=<tier>` — which
-ship forwards **unvalidated**, because `gantry:review` owns that list and a second copy would
-drift. A review you asked for can block the ship; a missing reviewer never does.
+suppressed. `--review` launches `gantry:review` as a headless child between the commit and the
+push, through the same launcher the drivers use; `--review-fix` then launches a second child for
+the fix step, so findings are applied, committed separately, and the gate re-run over them, with
+a red gate stopping the push. Both take an optional tier — `--review=<tier>` — which ship forwards
+**unvalidated**, because `gantry:review` owns that list and a second copy would drift;
+`--review-model` and `--review-effort` reach the child as `--model` and `--effort`. A review you
+asked for can block the ship; a missing reviewer never does.
 
 The drivers pass no review flag: the chain runs `/gantry:review --fix` as its own phase, and a
 second pass here would reopen the deferrals that phase recorded in `handover.md`.

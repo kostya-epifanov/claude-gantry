@@ -99,16 +99,23 @@ orchestrator's own: `contract`, `plan`, `critique`, `implement`, `gate`, `review
 {"ts":"2026-08-16T09:44:22Z","task":"2026-08-16-contact-form","event":"phase","phase":"plan","agents":["gantry-explorer"],"result":"ok","summary":"Four steps; the form posts to the existing /api/contact handler.","artifacts":["task.md","plan.md"]}
 ```
 
-- `phase` — `plan` | `critique` | `implement` | `review`. (`grill` never appears: it is
-  human-only and this mode does not run it.)
+- `phase` — `plan` | `critique` | `implement` | `review` | `review-fix`. (`grill` never appears:
+  it is human-only and this mode does not run it.)
 - `agents` — the sub-agents the phase actually dispatched, resolved names, in order. `[]` when it
   dispatched none (a `plan` that read the code directly, a `review` that used `/code-review`).
   This is the delegation roll-call the final report is checked against, so record what happened,
-  not what was expected.
+  not what was expected. For a headless `review`, take it from `review.md`'s `source:` line.
 - `result` — `ok` | `failed` | `refused` (the phase stopped rather than improvise).
 - `summary` — the phase's **summary**, one or two sentences. Never the raw material it read;
   that is the whole point of the delegation.
 - `artifacts` — worktree-relative paths it produced or filled.
+- `session` — the id of the headless child session the phase ran in (`review` and `review-fix`
+  since 0.7.0), from the launcher's `SESSION:` line, so a reader can `claude --resume` it. Absent,
+  not null, on a phase that ran in the driver's own session.
+
+```json
+{"ts":"2026-10-22T11:02:41Z","task":"2026-10-22-contact-form","event":"phase","phase":"review","agents":[],"result":"ok","summary":"code-review at high; 6 returned, 4 verified, 2 to fix, 2 deferred.","artifacts":["review.md","handover.md"],"session":"a3db7bee-f955-4e18-a8a5-59a8d59c4454"}
+```
 
 ### `gate` — a gate decision
 
@@ -171,8 +178,10 @@ but a human's answer exists nowhere else.
 {"ts":"2026-08-16T09:45:31Z","task":"2026-08-16-contact-form","event":"escalation","stage":"plan","reason":"open-fork","detail":["Postgres or SQLite? Changes the migration story and the deploy."],"status":"blocked"}
 ```
 
-- `stage` — where the run stopped: `plan` or `critique` for an open fork.
-- `reason` — why. `open-fork` is the one `gantry:auto-unattended` emits today.
+- `stage` — where the run stopped: `plan` or `critique` for an open fork, `review` for a headless
+  child that failed.
+- `reason` — why. `open-fork` and `headless-child-failed` are the ones `gantry:auto-unattended`
+  emits today.
 - `detail` — one string per thing needing a decision, in the terms the reader has to answer in.
   For an open fork, the entries from `task.md`'s *Open questions*, verbatim. This is the payload
   that makes the escalation actionable, so it carries the question rather than a count of them.
@@ -229,9 +238,10 @@ of stop adds a `reason` value rather than a new event type.
 
 ## Not committed
 
-`journal.jsonl` is a **run artifact, not a deliverable.** `task.md` and `plan.md` travel into
-the PR — they are the human-facing contract a reviewer wants. The journal does not: a
-per-run log in every PR is review noise and conflicts on every rebase. It stays in the
+`journal.jsonl` is a **run artifact, not a deliverable.** `task.md`'s contract and `handover.md`
+reach the pull request through the body `gantry:ship` composes — they are the human-facing record
+a reviewer wants. The journal does not: a per-run log in every PR is review noise and conflicts on
+every rebase. It stays in the
 worktree, next to the run it describes, for whoever is reading that run back. The
 orchestrator excludes it via `.git/info/exclude`, using `lib/ensure_excluded.sh`:
 

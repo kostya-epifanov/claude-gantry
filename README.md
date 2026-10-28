@@ -88,6 +88,11 @@ that are read-only by tool list: `plan` may dispatch an explorer, `plan-critique
 fresh critic, `review` dispatches an independent reviewer. Who dispatches whom, as a diagram:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#skills-carry-the-procedure-agents-carry-the-boundary).
 
+**The review does not run in the driver's session at all.** By then that session is the author's,
+so the drivers launch `/gantry:review` as a fresh headless child that can write only the chain's
+artifacts, then a second child to apply what it found — the reviewer never inherits the
+implementation's context. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#headless-phases).
+
 Run several lanes and you get several pull requests, each checked only on its own.
 `/gantry:integrate` merges the ready ones into one integration branch, one PR at a time, resolving
 conflicts from what each PR is *for* and running your checks after every merge.
@@ -96,16 +101,16 @@ conflicts from what each PR is *for* and running your checks after every merge.
 
 | Command | What it does |
 |---|---|
-| `/gantry:auto` | Task → open PR, supervised. Invokes each phase skill in turn; a grill conversation, then one checkpoint. |
-| `/gantry:auto-unattended` | The same chain with nobody watching, ending at a **draft** PR. |
+| `/gantry:auto` | Task → open PR, supervised. Invokes each phase skill in turn; a grill conversation, then one checkpoint. The review runs in a fresh headless child session. `--review-model`, `--review-effort`. |
+| `/gantry:auto-unattended` | The same chain with nobody watching, ending at a **draft** PR. Same headless review. |
 | `/gantry:worktree` | Create a worktree under `.claude/worktrees/` from an up-to-date parent, and enter it. |
 | `/gantry:plan` | Write the contract and the plan — `task.md` and `plan.md` — asking what needs asking. |
 | `/gantry:plan-critique` | Attack the plan with a fresh critic, before being wrong costs an implementation. Headless. |
 | `/gantry:grill` | Settle the approach in conversation — priced options, decisions recorded, and the plan approval. |
 | `/gantry:implement` | Carry out the plan, then prove it with the gate. |
-| `/gantry:review` | Independent review of the diff. Read-only; `--fix` applies what's in scope. |
+| `/gantry:review` | Independent review of the diff, recorded in `review.md`. Read-only; `--fix` applies what's in scope; `--headless` defers instead of asking. |
 | `/gantry:handover` | Write `handover.md` — what this change deliberately left, and the next action. |
-| `/gantry:ship` | Advance one step toward a merged PR — commit, push, open PR. Idempotent. Reviews only with `--review`. |
+| `/gantry:ship` | Advance one step toward a merged PR — commit, push, open PR. Idempotent. Reviews only with `--review`, in a headless child. |
 | `/gantry:integrate` | Merge the ready open PRs one at a time into one integration PR, checking the combined tree after each. |
 | `/gantry:sync` | Return to the base branch and bring it up to date. Refuses on a dirty tree. |
 | `/gantry:prune-worktrees` | Review stale or merged worktrees and remove the ones you approve. |
@@ -176,7 +181,7 @@ It is the wrong tool if you want any of these, all left out by design:
 
 ## The artifacts
 
-Three files land at the worktree root and are **not committed**: they are the run's working state,
+Four files land at the worktree root and are **not committed**: they are the run's working state,
 not the change. `/gantry:ship` quotes what a reviewer needs from them into the PR body.
 
 | File | Written by | Answers |
@@ -184,6 +189,7 @@ not the change. `/gantry:ship` quotes what a reviewer needs from them into the P
 | `task.md` | `/gantry:plan` | what this is, when it's done, what it deliberately isn't |
 | `plan.md` | `/gantry:plan`, revised by `/gantry:plan-critique` | what the change was supposed to be |
 | `handover.md` | `/gantry:handover` | what this change left alone, and why |
+| `review.md` | `/gantry:review` | what the review found in scope to fix, for the fix step that follows |
 
 `task.md`'s `status:` is the phase marker every skill reads from disk, so a fresh session, a
 sub-agent and a resumed conversation agree on where the work stands. The exclusion goes in
