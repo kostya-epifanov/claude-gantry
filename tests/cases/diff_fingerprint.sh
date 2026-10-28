@@ -110,12 +110,12 @@ fp "$other" master; other_tok="$FP_TOKEN"
 
 fp "$repo" no-such-base
 assert_rc 2 "$FP_RC" "a base that does not resolve is exit 2"
-FP_OUT="$(cd "$repo" && bash "$FP" 2>&1)"; FP_RC=$?
+(cd "$repo" && bash "$FP") >/dev/null 2>&1; FP_RC=$?
 assert_rc 2 "$FP_RC" "no base at all is a usage error"
-FP_OUT="$(cd "$repo" && bash "$FP" master extra 2>&1)"; FP_RC=$?
+(cd "$repo" && bash "$FP" master extra) >/dev/null 2>&1; FP_RC=$?
 assert_rc 2 "$FP_RC" "two arguments is a usage error"
 plain="$(mkdir_plain fp-plain)"
-FP_OUT="$(cd "$plain" && bash "$FP" master 2>&1)"; FP_RC=$?
+(cd "$plain" && bash "$FP" master) >/dev/null 2>&1; FP_RC=$?
 assert_rc 2 "$FP_RC" "outside a repository is exit 2"
 
 finish
