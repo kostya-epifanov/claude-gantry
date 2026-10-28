@@ -318,11 +318,28 @@ extended to cover this because it runs before ship composes anything.
 All of these are **disclosures, not refusals**: none withholds the PR, fails the gate, or blocks
 the push.
 
+**It can also bring an existing body up to date.** The body used to be write-once: composed at
+`gh pr create` and never touched again. But `handover.md` is normally written *after* the PR opens,
+because `/gantry:review` is what produces one — so the body went on saying no handover existed
+while the file held verified findings, and the worktree holding the only copy was one merge away
+from a prune. A refresh sub-stage, entered both when stage 4 finds a PR already open and at stage 5,
+asks `lib/handover_body_state.sh` whether the body carries the current handover and rewrites **only
+the `## Deliberately not done` section** when it does not, through `lib/splice_pr_section.sh`. The
+answer is a digest marker ship leaves in the body as an HTML comment, so a body that is already
+current is edited **not at all**, a hand-edit inside the section survives, and an ambiguous heading
+is a refusal rather than a guess. That branch also fixes a pre-existing defect: stage 4's only
+fenced commands were `gh pr create`, which fails outright when a dirty or ahead tree routes a
+branch whose PR is already open.
+
 - **Refuses:** to run on the repo's default branch; to rewrite history on a diverged branch; to
-  bundle several unrelated changes without asking how to split them.
+  bundle several unrelated changes without asking how to split them; to splice a body whose
+  handover heading appears more than once; to edit a body it could not first read back from
+  GitHub — an empty fetch would otherwise read as "no handover section" and replace the whole body
+  with that one section.
 - **Degrades:** with `gh` missing or unauthenticated it still commits and pushes, then prints the
   `gh pr create` command for you.
-- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`).
+- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`), plus
+  `lib/handover_body_state.sh` and `lib/splice_pr_section.sh` for the refresh.
 
 ## `/gantry:integrate` — N pull requests into one
 
@@ -420,6 +437,8 @@ then the optional external profile resolver, then `ship`'s detection.
 - **Honest about its limits:** merge classification only works for `develop`/`master`/`main`; any
   other base gets an explicit "merge classification unavailable" note rather than a confident wrong
   answer.
+- **Names what is at stake:** each prunable candidate it reports carries the chain artifacts that
+  worktree is holding, so an operator approving the handoff has seen which of them hold a handover.
 - **Invokes:** `gantry:prune-worktrees`.
 - **Scripts:** none of its own — reuses `ship`'s and `prune-worktrees`'.
 
@@ -428,13 +447,26 @@ then the optional external profile resolver, then `ship`'s detection.
 `/gantry:prune-worktrees`
 
 Buckets every worktree (stale at 7+ days idle, or merged into develop/master/main), summarises each
-candidate's last five commits, then asks: review individually, prune all, or abort. Review is
-batched in groups of four with **nothing checked by default**, and every selected path gets a
-`git status --porcelain` safety re-check immediately before removal.
+candidate's last five commits and **which chain artifacts it is holding**, then asks: review
+individually, prune all, or abort. Review is batched in groups of four with **nothing checked by
+default**, and every selected path is archived, re-checked with `git status --porcelain`, and
+removed — one worktree at a time, so nothing happens between a path's re-check and its removal.
+
+**Why the archive.** The chain's artifacts are excluded from git, and `git status --porcelain` does
+not list ignored files — so a worktree holding `task.md`, `plan.md`, `handover.md`, `review.md`,
+its journal and its gate logs reports **clean**, and `git worktree remove` deletes the directory
+with rc 0 and no warning. `lib/archive_artifacts.sh` copies them to
+`~/.claude/sessions/<repo-slug>/worktrees/<date>-<branch-slug>-<sha8>/` first, beside where
+`gantry:preserve` writes, and a non-zero exit from it drops that path from the removal list. The
+artifacts field itself changes no classification: every gantry worktree holds artifacts, so making
+them a `dirty`-style skip would make the skill inert.
 
 - **Refuses:** to delete branches — scope is worktree checkouts only. It prints the manual
-  `git branch -d` line and leaves the decision to you.
-- **Scripts:** `scripts/detect_candidates.sh`.
+  `git branch -d` line and leaves the decision to you. And to remove a worktree whose artifacts
+  could not be archived — including one whose directory has already vanished, which `git worktree
+  prune` clears instead.
+- **Scripts:** `scripts/detect_candidates.sh`, plus `lib/worktree_artifacts.sh` and
+  `lib/archive_artifacts.sh`.
 
 ## `/gantry:preserve` — session handoff
 
@@ -446,12 +478,14 @@ exact next action. It gathers from the conversation, deliberately not from the r
 
 Docs land at `~/.claude/sessions/<repo-slug>/<date>-<slug>.md` — outside the repo, so a worktree
 prune can't destroy them and `git add -A` can't sweep them in. Same day plus same label means the
-same file, and it reads an existing doc before overwriting.
+same file, and it reads an existing doc before overwriting. `lib/session_paths.sh` holds that
+convention, which `gantry:prune-worktrees`' artifact archive now shares — it writes a `worktrees/`
+subtree into the same per-repo directory, for the same reason.
 
 The closing check is the point: *could a session with no memory pick up from this file alone?*
 
 - **Deliberately not a git report:** no sync state, no uncommitted-file lists, no commit dumps.
-- **Scripts:** `scripts/doc_path.sh`.
+- **Scripts:** `scripts/doc_path.sh`, over `lib/session_paths.sh`.
 
 ---
 

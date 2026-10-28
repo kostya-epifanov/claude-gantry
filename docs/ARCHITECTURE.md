@@ -308,12 +308,12 @@ Every mode writes artifacts at the **worktree root** — not just the delegated 
 
 | Artifact | Written by | Committed | How a reader gets it |
 |---|---|---|---|
-| `task.md` | `gantry:plan` (Affected areas pasted from the explorer) | no — `.git/info/exclude` | `gantry:ship` quotes the contract into the PR body |
-| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | no — same exclusion | the human who approves it reads it in the worktree |
-| `handover.md` | `gantry:handover`, when review defers something | no — same exclusion | `gantry:ship` quotes it into the PR body |
-| `review.md` | `gantry:review` — the findings in scope to fix, with the diff's fingerprint | no — same exclusion | the fix step reads it; never quoted; `lib/detect_stage.sh` reports it as `REVIEW:` |
-| `journal.jsonl` | `gantry:auto-unattended`, append-only | no — same exclusion | a run artifact, not a deliverable |
-| gate logs | the gate script | no — same exclusion | evidence, kept out of the diff |
+| `task.md` | `gantry:plan` (Affected areas pasted from the explorer) | no — `.git/info/exclude` | `gantry:ship` quotes the contract into the PR body; the prune archive keeps a copy |
+| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | no — same exclusion | the human who approves it reads it in the worktree; the prune archive keeps a copy |
+| `handover.md` | `gantry:handover`, when review defers something | no — same exclusion | `gantry:ship` quotes it into the PR body **and refreshes that section when the file is newer than the body**; the prune archive keeps a copy |
+| `review.md` | `gantry:review` — the findings in scope to fix, with the diff's fingerprint | no — same exclusion | the fix step reads it; never quoted; `lib/detect_stage.sh` reports it as `REVIEW:`; archived |
+| `journal.jsonl` | `gantry:auto-unattended`, append-only | no — same exclusion | a run artifact, not a deliverable; archived |
+| gate logs | the gate script | no — same exclusion | evidence, kept out of the diff; archived |
 
 **Why none of them are committed.** They are the chain's working state, not the change. Committing
 them put a file at the repo root of every target repo that nothing ever deleted, so each merged PR
@@ -332,11 +332,38 @@ drifting in one call site at a time.
 gantry's own repository additionally lists them in its `.gitignore`, because there it is the target
 repo and a fresh clone should be safe before any gantry command has run.
 
+**An excluded file is one git will silently delete.** `git status --porcelain` does not list ignored
+files, so a worktree holding every artifact in the table above reports **clean** — and
+`git worktree remove` then deletes the directory with rc 0 and no warning. Verified on git 2.55: an
+ignored file is removed silently, while a non-ignored untracked file aborts the removal. The
+exclusion that keeps these files out of the diff is precisely what makes git willing to destroy
+them, which is a consequence of the contract above rather than a bug in it. Two mechanisms close
+it. `skills/prune-worktrees/scripts/detect_candidates.sh` reports, per worktree, which artifacts it
+holds — read from the filesystem by `lib/worktree_artifacts.sh`, because git cannot answer the
+question — so `prune-worktrees` and `sync` can show the operator what a removal would cost. And
+`lib/archive_artifacts.sh` copies them to
+`~/.claude/sessions/<repo-slug>/worktrees/<date>-<branch-slug>-<sha8>/` before `git worktree remove`
+runs, next to where `gantry:preserve` writes and outside every repo; a non-zero exit from it drops
+that path from the removal list. The artifacts are **reported, never classified**: making an
+artifact-bearing worktree `dirty` would make the prune skill inert, since every gantry worktree
+holds artifacts. `scripts/verify.sh` compares `worktree_artifacts.sh`'s `ROOT_ARTIFACTS` array
+against the `ensure_excluded.sh` arguments under `skills/`, so a fifth artifact added to one and
+not the other is a red check rather than a file that is excluded and never archived.
+
 **What a reviewer loses, and where it went.** The contract used to reach the reviewer by riding
 along in the diff. It now reaches them through the pull request body, which `gantry:ship` composes
 — see *Stage 4* in `skills/ship/SKILL.md`. That is a strictly better channel for it: the body is
 read, the root-level file was scrolled past, and an unattended run already treated the body as the
 entire interface to the reviewer.
+
+That channel used to be **write-once**, which quietly broke for `handover.md`. The body is composed
+when the PR is *created*, and a handover is normally written after that — `gantry:review` is what
+produces one. Observed on this repository: a PR opened at 2026-10-21T23:48Z whose `handover.md` was
+written an hour later, with the body still reading *"No `handover.md` was written"* while the file
+held two verified findings. Ship now refreshes that one section when the body is out of date,
+deciding it from a digest marker it leaves in the body rather than from judgement
+(`lib/handover_body_state.sh`), and replacing only that section
+(`lib/splice_pr_section.sh`) so a hand-edit made on GitHub after the PR opened survives.
 
 These files are also the chain's memory. `task.md`'s `status:` is the phase marker, and
 `lib/detect_stage.sh` is the one place a phase reads it from — so a fresh session, a sub-agent, and

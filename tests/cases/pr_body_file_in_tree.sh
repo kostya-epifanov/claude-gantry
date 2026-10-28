@@ -94,10 +94,14 @@ fi
 
 # Per file, not a total: integrate plus one ship line would satisfy "at least
 # two", and losing ship's --draft variant would then go unnoticed.
-if [ "$ship_count" -ge 2 ]; then
-  _pass "ship opens its PR from a body file, plain and --draft ($ship_count)"
+#
+# Three, not two, since the handover refresh: ship opens a PR plain and --draft,
+# and edits an existing one's body with `gh pr edit`. A floor of two would let
+# the refresh command be deleted without this case noticing.
+if [ "$ship_count" -ge 3 ]; then
+  _pass "ship opens its PR plain and --draft, and edits an existing body ($ship_count)"
 else
-  _fail "ship: expected at least 2 body-file gh pr commands, found $ship_count"
+  _fail "ship: expected at least 3 body-file gh pr commands, found $ship_count"
 fi
 if [ "$integrate_count" -ge 1 ]; then
   _pass "integrate opens its PR from a body file ($integrate_count)"

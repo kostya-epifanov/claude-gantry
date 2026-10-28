@@ -13,6 +13,21 @@ the chain's artifacts, by a path-scoped allowlist the harness enforces; the fix 
 running `gantry:review --fix`, which applies what the first one recorded instead of reviewing again.
 The phase skill keeps carrying the procedure — only where it runs changes.
 
+**The chain's artifacts survive a prune, and a handover reaches the pull request whenever it was
+written.** Two failures with one root. `git status --porcelain` does not list ignored files, so a
+worktree holding `task.md`, `plan.md`, `handover.md`, `review.md`, its journal and its gate logs
+reports **clean** — and `git worktree remove` deletes the directory with rc 0 and no warning
+(verified on git 2.55: an ignored file goes silently, a non-ignored untracked file aborts the
+removal). The exclusion that keeps the artifacts out of the diff is what makes git willing to
+destroy them. Meanwhile the pull request body was write-once, composed at `gh pr create`, while
+`handover.md` is normally written *after* that because `/gantry:review` is what produces one: PR #30
+here was opened at 2026-10-21T23:48Z, its handover written an hour later, and the body still read
+*"No `handover.md` was written"* while the file held two verified findings — with the worktree one
+merge away from a prune that would have deleted the only copy. Now `detect_candidates.sh` reports
+per worktree what it is holding, `prune-worktrees` shows that in its summary and in the question it
+asks and archives it outside the repo before each removal, `sync` names it in the report that hands
+off, and `ship` refreshes a stale handover section in an existing body.
+
 **Added**
 - **`lib/run_phase_headless.sh`** — builds and launches the child (`--output-format json`,
   `--name gantry-<phase>-<branch>`, `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`, `--permission-prompts
@@ -84,6 +99,45 @@ The phase skill keeps carrying the procedure — only where it runs changes.
 - **`docs/ARCHITECTURE.md` § Headless phases** — why review is first, how the read/write split is
   preserved by an allowlist on the child, what the orchestrator's context holds afterwards, and the
   limits.
+- **`lib/worktree_artifacts.sh`** — which chain artifacts a worktree holds, from the filesystem,
+  because git cannot answer it. Two arrays: the contract's four root artifacts, and the run state
+  (`journal.jsonl`, a non-empty `.claude/artifacts/`). `-` for none, exit 2 for a path that is not a
+  readable **and traversable** directory — `-x`, not just `-r`, because the `-f` tests need
+  traversal: a mode-400 worktree would otherwise answer `-` and be removed with its handover in it.
+- **`lib/archive_artifacts.sh`** — copies them to
+  `~/.claude/sessions/<repo-slug>/worktrees/<date>-<branch-slug>-<sha8>/` and prints `ARCHIVE=` plus
+  a `COPIED=` line per item. Exit 0 covers "nothing to copy", so a worktree with no artifacts stays
+  prunable; non-zero names what failed, and `prune-worktrees` then refuses to remove that path. The
+  directory is reused and overwritten on a retry by design: the `<sha8>` distinguishes two tips, not
+  two prunes.
+- **`lib/session_paths.sh`** — `slugify`, `repo_slug` and `sessions_dir`, so the archive and
+  `gantry:preserve` cannot drift apart on where "outside the repo" is.
+  `skills/preserve/scripts/doc_path.sh` sources it; its own output is unchanged, error paths
+  included, which is why the lib defines functions and sets no shell options. The source itself is
+  the one exception to doc_path's print-the-lines-anyway rule: without `-e` bash walks past a failed
+  `.`, and the script used to print `DOC=/<date>-session.md` — the filesystem root — and exit 0, so
+  a missing lib is now exit 2.
+- **`lib/handover_body_state.sh`** — `CURRENT` | `STALE` | `MISSING` | `NO-HANDOVER` for a body
+  against a handover file, decided by a digest marker ship leaves in the body as an HTML comment.
+  `--marker` prints that line, so the digest has one definition. Only an equal marker is `CURRENT`:
+  a crude rule that rewrites each pre-marker body once and then converges, chosen over an earlier
+  design that tried to infer currency from each item's file citations — which `skills/handover`
+  guarantees no item has. Marker and heading are both matched **outside fenced blocks**: this repo
+  documents the marker, so a body explaining the mechanism is where one gets quoted, and the scan
+  stops at its first hit — a quoted wrong digest would pin the body to `STALE` and have every run
+  re-splice over a hand-edit, a quoted right one would suppress the refresh entirely.
+- **`lib/splice_pr_section.sh`** — replaces one `## ` section and prints the result, with the
+  boundary rules in its header: the first match outside a fence, ending at the next `## ` outside a
+  fence; more than one match is exit 1 with nothing printed; an absent heading inserts before
+  `## Not proven by this run` or appends. `\r` is stripped unconditionally — the premise that GitHub
+  can return CRLF is recorded as **unverified**, and the mitigation costs one line either way.
+- **Six new test cases** — `session_paths`, `worktree_artifacts`, `archive_artifacts`,
+  `prune_candidates_artifacts` (the first test of `detect_candidates.sh` at all) and
+  `handover_pr_body`, plus the array-vs-exclusions controls in `verify_artifact_set`.
+- **Three `scripts/verify.sh` checks** — `ROOT_ARTIFACTS` against the `ensure_excluded.sh`
+  arguments under `skills/`; `prune-worktrees` running `archive_artifacts.sh` before
+  `git worktree remove`, judged on fenced lines only; and the literal row format appearing in both
+  consumers and in the script that emits it.
 
 **Changed**
 - Where review runs: `auto` stage 6, `auto-unattended` stage 5 and `ship --review` /
@@ -101,6 +155,42 @@ The phase skill keeps carrying the procedure — only where it runs changes.
   `diff_fingerprint.sh` — because a `dontAsk` child was probed to deny `bash <abs>/lib/detect_stage.sh`
   with only the gate rules present, and the review child needs both to find its stage and to
   fingerprint the diff it records.
+- **`detect_candidates.sh`'s row gains a seventh field**:
+  `path|branch|status|days_idle|merged_into|head_sha|artifacts`. Appended, because both consumers
+  parse positionally. `-` is "holds nothing" and `?` is "could not be read" — kept distinct,
+  because the call is guarded with `|| echo '?'` precisely so a worktree git still lists but whose
+  directory is gone cannot truncate the row stream under `set -e`, and a truncation with no marker
+  is how a partial candidate list gets bucketed and approved. **No classification changed**: the
+  `git status --porcelain` test keeps its exact meaning, so a clean worktree holding only artifacts
+  is still `candidate`/`keep` and never `dirty`.
+- **`gantry:prune-worktrees`** names each candidate's artifacts in the printed summary, in the
+  per-candidate option and preview, and counts the artifact-bearing candidates in the question it
+  asks — which the "prune all N" fast path needs, since it never reaches the per-candidate options.
+  Its removal loop is now **per path**: archive, re-check `git status --porcelain`, remove, one
+  worktree at a time, in **three separate fenced blocks** because each one's result decides whether
+  the next may run — one block listing all three reads as a single call, and `worktree remove` would
+  then run whatever the archive exited. Archiving every worktree between the re-checks and the
+  removals would reopen the window the re-check exists to close. A `?` row lands on the archive's
+  failure branch and is reported as already vanished: there is nothing to copy and nothing to
+  remove, and step 9's `git worktree prune` is what clears it.
+- **`gantry:sync`**'s Stage 6 names the artifacts of each candidate it reports; bucket 3 keeps its
+  one-line-with-a-count shape and gains a count of how many carry artifacts. Stage 7 is unchanged —
+  sync still removes nothing, so the archive belongs to the skill that does the removing.
+- **`gantry:ship`'s Stage 4 branches on `PR`.** `PR:none` composes and creates as before; anything
+  else goes to a refresh sub-stage, which Stage 5 also enters before its status read. That fixes a
+  pre-existing defect as well: `detect_state.sh` routes a dirty or ahead tree to `commit`/`push`
+  whether or not a PR exists, so "write the handover, commit once more, ship" used to arrive at a
+  stage whose only fenced commands were `gh pr create`. The create path now also writes the digest
+  marker, so a body born under this release is comparable on the next run. The refresh fetches the
+  live body through a `.tmp` it promotes with `mv` only on success: a plain redirect truncates its
+  target before `gh` runs, so a failed fetch left an **empty** body file, which reads as `MISSING`
+  and would have had the refresh replace the pull request's entire body with the handover section
+  alone. It also `mkdir -p`s `.claude/artifacts/` (`ensure_excluded.sh` creates the directory
+  holding the *exclude file*, not that one, and this is the only place the first write there is a
+  shell redirect rather than a Write call), cleans up its three files only after `gh pr edit`
+  succeeded, and runs once per ship rather than twice on the PR-already-open path.
+- `tests/cases/pr_body_file_in_tree.sh` raises ship's body-file floor from 2 to 3, so losing the
+  refresh command would be noticed.
 
 ## 0.6.1
 
