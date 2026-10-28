@@ -60,7 +60,8 @@ bash "$GANTRY/lib/detect_stage.sh"
   there is no built app worth testing yet. Name `/gantry:implement`.
 - `TASK:absent` / `TASK:inherited` → there is no contract and so no scenarios to run or derive —
   an inherited `task.md` is the *previous* task's. Say so and **stop**; write nothing.
-- `STATUS:planned` / `grilled` with a clean tree → nothing has been built. Say so, name `NEXT`, stop.
+- `STATUS:planned` / `critiqued` / `grilled` with a clean tree → nothing has been built. Say so, name
+  `NEXT`, stop.
 
 Then read four more lines, which decide the rest of the run:
 
