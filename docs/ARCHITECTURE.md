@@ -12,7 +12,7 @@ gantry/
 ├── .claude-plugin/
 │   ├── plugin.json          name: gantry  → the /gantry: namespace
 │   └── marketplace.json     name: claude-gantry, one plugin, source "./"
-├── skills/<name>/SKILL.md   → /gantry:<name>          (13)
+├── skills/<name>/SKILL.md   → /gantry:<name>          (14)
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             skill-local deterministic work, run not read
 │   └── templates/           the task.md fallback
@@ -27,7 +27,10 @@ gantry/
 │   └── diff_fingerprint.sh  one token for the diff, so review.md can be tied to it
 ├── agents/gantry-*.md       → the delegation roster    (3)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
-└── examples/gates.sh        a starter repo-owned gate
+└── examples/
+    ├── gates.sh             a starter repo-owned gate
+    ├── qa-env.sh            a starter repo-owned QA environment script
+    └── agents/qa.md         a starter repo-owned qa agent — gantry ships no default
 ```
 
 `lib/` exists because these scripts are shared by several skills *and* by the hook. Putting the
@@ -84,6 +87,7 @@ flowchart TB
     GL --> I["gantry:implement → owns the gate"]
     GR -- "unattended: no human to ask" --> I
     I --> RV["gantry:review → report, fix with --fix, hand over"]
+    RV --> Q["gantry:qa → runs the e2e scenarios, if the repo has a qa agent"]
   end
   W["gantry:worktree — branch, worktree, parent fetch"] --> P
   H["gantry:handover → handover.md"]
@@ -91,8 +95,8 @@ flowchart TB
   A --> W
   U --> W
   You["you, typing them"] --> W
-  RV -- "deferred" --> H --> S
-  RV -- "clean" --> S
+  Q -- "deferred" --> H --> S
+  Q -- "clean, or no qa agent" --> S
 ```
 
 The **drivers** own three things and nothing else: which mode is running, when to pause, and which
@@ -246,7 +250,12 @@ failing or writing nothing parseable; `2` is usage or environment.
 least: it writes only artifacts, and the fix step that does write code is gated by the same script
 `implement` uses. `implement` would be next — the gain is smaller (it has no author bias to shed)
 and the boundary is wider (it must write code) — and `plan-critique` already gets its independence
-from the critic's own tool list.
+from the critic's own tool list. `qa` is not headless either, for a different reason: its heavy
+context (screenshots, UI trees) already lives in the repo's `qa` sub-agent and the phase takes back
+a summary; there is no author bias to shed, because the driver is a different agent by
+construction; and a `qa` child would need the launcher to allowlist that agent's MCP tools, which
+the launcher cannot know. It could be made headless later if the orchestrator's context turns out
+to matter in practice.
 
 **Limits, stated.** The child runs under print-mode permission defaults, so anything outside the
 allowlist that would prompt is denied — tests, Python, shell writes — and a review that needed one
@@ -315,6 +324,7 @@ Every mode writes artifacts at the **worktree root** — not just the delegated 
 | `plan.md` | `gantry:plan`, revised by `gantry:plan-critique` | no — same exclusion | the human who approves it reads it in the worktree |
 | `handover.md` | `gantry:handover`, when review defers something | no — same exclusion | `gantry:ship` quotes it into the PR body |
 | `review.md` | `gantry:review` — the findings in scope to fix, with the diff's fingerprint | no — same exclusion | the fix step reads it; never quoted; `lib/detect_stage.sh` reports it as `REVIEW:` |
+| `qa.md` | `gantry:qa` — the outcome and one verdict per e2e scenario, with the evidence paths | no — same exclusion | `gantry:ship` quotes it under *Exercised by this run*; `lib/detect_stage.sh` reports its outcome as `QA:` |
 | `journal.jsonl` | `gantry:auto-unattended`, append-only | no — same exclusion | a run artifact, not a deliverable |
 | gate logs | the gate script | no — same exclusion | evidence, kept out of the diff |
 
@@ -327,11 +337,11 @@ repository published three of its dogfooding artifacts to everyone who installed
 
 The exclusion goes in **`.git/info/exclude`**, never `.gitignore`: the latter is tracked, so
 writing to it would itself be a diff in the user's pull request. `lib/ensure_excluded.sh` asserts
-the patterns — `/task.md`, `/plan.md`, `/handover.md`, `/review.md`, each anchored so a project's
-own nested `task.md` is untouched — and is idempotent, so every phase that writes one may assert
-them first. `scripts/verify.sh` holds the set at four: a call under `skills/` that names `/task.md`
-without `/review.md`, or the reverse, is a red check, so the next artifact fails CI rather than
-drifting in one call site at a time.
+the patterns — `/task.md`, `/plan.md`, `/handover.md`, `/review.md`, `/qa.md`, each anchored so a
+project's own nested `task.md` is untouched — and is idempotent, so every phase that writes one may
+assert them first. `scripts/verify.sh` holds the set at five: a call under `skills/` that names any
+of `/task.md`, `/review.md` or `/qa.md` without the other two is a red check, so the next artifact
+fails CI rather than drifting in one call site at a time.
 gantry's own repository additionally lists them in its `.gitignore`, because there it is the target
 repo and a fresh clone should be safe before any gantry command has run.
 
@@ -446,6 +456,19 @@ to the sub-jobs that genuinely only need to read.
 **Resolution is per role, repo first**, and the *phase* does it. If the target repo defines
 `.claude/agents/<role>.md`, the phase dispatches that; otherwise `gantry-<role>`. A repo that has
 tuned one agent to its codebase overrides that one and inherits the rest.
+
+**One role has no `gantry-` fallback: `qa`.** `gantry:qa` runs the task's e2e scenarios against the
+built app, and the agent that drives the app needs a tool that taps real UI — a Maestro MCP server
+for a Flutter app, a Playwright one for a web app, nothing at all for a CLI. A published plugin
+cannot pick that, and a reviewer must never hold it. So the repo supplies `.claude/agents/qa.md`
+whole, its `tools:` line is the boundary (and is recorded in `qa.md`, so a reader knows what
+observed the verdict), and the phase pairs it with a repo-owned `.claude/qa-env.sh` that builds and
+boots the app with the gate's exit-code shape. Absent, the phase reports `no-agent` and the chain
+continues — the same stance as the `gantry-profile` contract below: absence is the normal case and
+is never a warning. `examples/agents/qa.md` and `examples/qa-env.sh` are the starters. The verdict
+is **reported, never enforced**, like `gate_coverage.sh`: what blocks is what the repo put in
+`.claude/gates.sh` — which is also where a flow file the qa agent wrote ends up, so that a scenario
+explored once by judgment is enforced from then on by a script.
 
 **There is deliberately no verifier agent either.** v0.1 and v0.2 shipped a `gantry-verifier` that
 nothing dispatched, defended as available to callers who wanted a scoped read-only check-runner,

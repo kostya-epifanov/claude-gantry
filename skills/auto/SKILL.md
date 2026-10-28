@@ -1,6 +1,6 @@
 ---
 name: auto
-description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, critique, grill, implement, review, ship) by invoking each phase skill in turn. Supervised: it settles the approach with you in conversation, then pauses once before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
+description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, critique, grill, implement, review, qa, ship) by invoking each phase skill in turn. Supervised: it settles the approach with you in conversation, then pauses once before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
 argument-hint: "[task] [--task <id>] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--lead <session>] [--review-model <alias>] [--review-effort <level>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion, SendMessage
 ---
@@ -9,7 +9,7 @@ allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion, SendMessa
 
 One command from a task description to an open pull request, supervised. It creates the branch and
 worktree, then walks the gantry chain — **plan → plan-critique → grill → implement → review →
-ship** — invoking each phase skill in turn.
+qa → ship** — invoking each phase skill in turn.
 
 **It stops for you twice, and they are different kinds of stop.** `grill` is a conversation: it
 explains the problem, asks what only you can answer, and its last question is the approval for the
@@ -198,9 +198,41 @@ must say so), both `SESSION:` ids, `MODEL:` and `EFFORT:`, every `DENIED:` line,
 Under `--lead`: a print-mode child cannot ask the lead, so anything `/gantry:review` would have
 asked about it deferred instead. It is in `handover.md`, and stage 6's checkpoint shows it.
 
+## Stage 5b — QA
+
+**Invoke `/gantry:qa --fix`.** It runs the task's e2e scenarios against the built app — if, and
+only if, this repo opted in with `.claude/agents/qa.md` and `.claude/qa-env.sh` — and writes
+`qa.md`, which `gantry:ship` quotes into the PR body. The verdict is **reported, never enforced**:
+nothing it finds blocks on its own, in this mode or any other.
+
+It runs **after** review and once, on the final tree: review is cheap and iterates on the code, a
+QA pass costs a build and a device boot. The known cost is that an in-scope fix `qa --fix` makes
+was not seen by the reviewer; the phase re-runs the gate over it and says so in `qa.md`'s
+`applied:` line, and your report repeats that disclosure. `--fix` is passed here because the chain
+should not ship a change it watched fail; `gantry:auto-unattended` does not pass it.
+
+It runs in this session, not in a headless child. The expensive context — screenshots, UI trees — is
+the repo's `qa` **sub-agent's**, and what comes back is a summary; there is no author bias to shed,
+because the driver is a different agent by construction.
+
+Read `bash "$GANTRY/lib/detect_stage.sh"` afterwards and route on `QA:`:
+
+- `no-agent` → the repo has not opted in. One line in the report; continue. This is the normal case.
+- `unrunnable` → the environment did not come up. Continue; carry the `reason:` line into the
+  report. Ship puts the declared scenarios under *Not proven by this run*.
+- `no-scenarios` → nothing user-reachable to drive. Continue.
+- `exercised` → carry each scenario's verdict into the report. A failing scenario was already
+  triaged by the phase; if it set `status: blocked` — a stated acceptance criterion is observably
+  false and `--fix` did not repair it — stop and surface it, removing the `lead:` line first under
+  `--lead`.
+
+If the phase reported **flow files**, it has already asked you (or the lead) whether to keep them;
+relay the decision in the report. A kept flow is committed by ship with the change.
+
 ## Stage 6 — Checkpoint: confirm the side effects
 
-**AskUserQuestion.** The gate is green and the review is in hand. "Commit, push, and open the PR?"
+**AskUserQuestion.** The gate is green, the review is in hand, and the QA verdict is on disk.
+"Commit, push, and open the PR?"
 
 One gate in front of every side effect, since `gantry:ship` won't pause once invoked.
 
@@ -220,9 +252,10 @@ given.
 Passing `--review` or `--review-fix` here would review the same diff a second time — and under
 `--review-fix`, reopen and apply findings `/gantry:review` deliberately deferred to `handover.md`.
 
-`task.md`, `plan.md` and any `handover.md` are **not** committed — they stay in the worktree, and
-ship quotes the contract and the handover into the PR body instead. They are still the record of
-what was decided and what was left; they just are not part of the diff.
+`task.md`, `plan.md`, `review.md`, `qa.md` and any `handover.md` are **not** committed — they stay
+in the worktree, and ship quotes the contract, the QA verdict and the handover into the PR body
+instead. They are still the record of what was decided, what was seen and what was left; they just
+are not part of the diff.
 
 `gantry:auto` opens a **ready-for-review** PR. You were in the room for the review, so it does not
 need to arrive as a draft. Under `--lead` the PR is still ready-for-review, and it is still never
@@ -246,8 +279,11 @@ second look.
 
 What the critique changed. The gate's exit code and whether the readiness hook's firing conditions
 were met — which is not the same as the hook having run, since registration is not visible to the
-detector. Which review tier ran, plainly named. What was deferred and the `handover.md` path if
-there is one. The commit, the push, and the PR URL.
+detector. Which review tier ran, plainly named. **The QA outcome** — `no-agent`, `unrunnable` with
+its reason, `no-scenarios`, or `exercised` with one verdict per scenario and the agent's `tools:`
+line — whether `qa --fix` changed anything after the review, and what was decided about any flow
+files. What was deferred and the `handover.md` path if there is one. The commit, the push, and the
+PR URL.
 
 Under `--lead`, also report every question sent to the lead, each reply's classification from
 `lib/lead_reply.sh`, and any question that hit the re-ask cap and went to the owner (the run carried

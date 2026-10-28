@@ -137,7 +137,7 @@ This step only *decides*; nothing is created until step 8, so that step 7's excl
 hardcoding a path.
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" '**/.claude/worktrees/' /task.md /plan.md /handover.md /review.md
+bash "$GANTRY/lib/ensure_excluded.sh" '**/.claude/worktrees/' /task.md /plan.md /handover.md /review.md /qa.md
 ```
 
 The worktrees directory, plus the four artifacts the chain writes at the worktree root, which are

@@ -29,11 +29,15 @@ verification:
     lint: true
     tests: true
     e2e:
-      setup: { use_profile: true }
+      setup: { use_profile: true }   # applied by the repo's .claude/qa-env.sh
       scenarios:
-        - name: "scenario name"
-          goal: "what success looks like, in a sentence"
-          steps: []                # optional; empty = agent derives from goal
+        # Uncomment and replace. `/gantry:qa` runs each entry against the built
+        # app, and `gantry:ship` puts one that was not run under "Not proven by
+        # this run" — so a live placeholder here would put a scenario called
+        # "scenario name" on every PR. Empty `steps` = the agent derives them.
+        # - name: "scenario name"
+        #   goal: "what success looks like, in a sentence"
+        #   steps: []
   human_only:
     # Uncomment and replace. Every entry here is surfaced verbatim in the pull
     # request body under "Not proven by this run", so leaving the placeholder

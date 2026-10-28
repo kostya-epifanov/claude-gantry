@@ -82,7 +82,21 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 # ~2.97 characters per token here, so 6,950 stands for roughly ~2,340 tokens. The
 # raise is 6,612 plus about 5%, the same thin margin as the last one and for the
 # same reason.
-CEILING=6950
+#
+# Raised again, from 6,950 to 7,550, when `qa` joined the same 0.7.0 tree. On its
+# own branch (before the plan-grill split) qa measured 6,809 against a 7,150
+# ceiling: its description is 551 characters, and the other eight were
+# second-order — both driver descriptions and the manifest name the chain in
+# prose, so one new phase grew each by four. Combined with the split, measured
+# on this tree:
+#
+#     bash scripts/context_budget.sh      -> 7,171 characters, 18 components
+#     claude --plugin-dir . plugin details gantry
+#       Always-on: ~2,438 tok
+#
+# 7,550 is that plus about 5%, the same thin margin as the last raises and for
+# the same reason.
+CEILING=7550
 
 # Extract the value of a single-line `description:` field from a frontmatter
 # block. Every skill and agent in this repo uses the one-line form, and

@@ -1,6 +1,6 @@
 # Skills reference
 
-Fourteen skills. Each section: what it does, its arguments, what it **refuses** to do, what it
+Fifteen skills. Each section: what it does, its arguments, what it **refuses** to do, what it
 invokes, and the scripts it owns. For the design argument see [METHOD.md](METHOD.md); for how they
 connect, [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -18,6 +18,9 @@ One chain of phases, three ways to run it.
 | Phases run | in your session | invoked by the driver | invoked by the driver |
 | `grill` | yours to run | **yes** — it carries the plan approval | **no** — human-only |
 | Review runs | in your session | **headless child** | **headless child** |
+| QA runs | `/gantry:qa` when you type it | `/gantry:qa --fix`, in the driver's session | `/gantry:qa`, no `--fix` |
+| No qa agent / env failed | continue | continue; declared scenarios under *Not proven* | continue, journaled; same disclosure |
+| A failing scenario | you decide | triaged; stop on `blocked` | triaged, deferred; `blocked` only on an acceptance criterion observably false |
 | Stops | after every phase | a grill conversation, then one checkpoint | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
@@ -76,10 +79,10 @@ by hand, and pick it back up. What a phase is told comes in as arguments, like t
 Under `auto --lead`, that includes the lead for `worktree` and `plan`, which run before `task.md`
 exists to record it.
 
-**A phase that asks, asks the lead when there is one.** `worktree`, `plan`, `grill`, `review`
-and `ship` each have a question they can put to you — `grill` most of all, since it is the chain's
-one asking moment. `plan-critique` is absent from this list on purpose: it is headless and asks
-nothing on any path. When `task.md` names a `lead:` (or, for
+**A phase that asks, asks the lead when there is one.** `worktree`, `plan`, `grill`, `review`,
+`qa` and `ship` each have a question they can put to you — `grill` most of all, since it is the
+chain's one asking moment. `plan-critique` is absent from this list on purpose: it is headless and
+asks nothing on any path. When `task.md` names a `lead:` (or, for
 `worktree` and `plan`, when the driver passed `--lead`), that question goes to the lead by
 `SendMessage` and the reply goes through `lib/lead_reply.sh`, following `auto`'s
 `references/lead.md`. Typed by hand with no lead recorded, they ask you as always.
@@ -235,6 +238,66 @@ uncommitted at this point and a three-dot range would come back empty.
   `implementing`.
 - **Invokes:** `gantry:handover` for everything deferred, with or without `--fix`.
 - **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`.
+- **Shared:** its verify, triage and hand-over steps (3, 4 and 6) are the ones `qa` applies to a
+  failing scenario, by reference — one procedure, two phases.
+
+## `/gantry:qa` — run the product, not the diff
+
+`/gantry:qa [--fix]`
+
+Runs the task's e2e scenarios against the **built app** and records, per scenario, `pass`, `fail`
+or `could-not-reach` with a concrete observation and the evidence it saved. The gate proves the
+tree with an exit code and `review` reads the diff; neither taps through the feature, and until
+this phase that was the slowest step still left to a human reviewer.
+
+**The repo supplies the driver and the environment; gantry supplies the contract.** Two files,
+both repo-owned, both opt-in:
+
+- `.claude/agents/qa.md` — the agent that drives the app. Its `tools:` line carries whatever drives
+  that stack (the Maestro MCP tools, the Playwright MCP tools) and **is the boundary**; the phase
+  records that line in `qa.md`. **gantry ships no `gantry-qa`**: a default would have to pick a
+  stack, which a published plugin cannot do, and a reviewer must never hold a tool that taps real
+  UI. Absent, the phase reports `no-agent` and the chain continues — the normal case, never a
+  warning, the same stance as the `gantry-profile` contract.
+- `.claude/qa-env.sh` — build, boot, install, log in: the deterministic half, with the gate's
+  exit-code shape. `0` the app is up · `1`+ setup failed · `2` the script could not run. Non-zero is
+  **`unrunnable`**, which is never a failed QA: "the feature does not work" and "nobody could check"
+  are different lines in the PR body. An agent file with no env script beside it is a configuration
+  error the phase names and treats as `unrunnable`.
+
+Scenarios come from `task.md`'s `e2e.scenarios` block (`declared`); when the block is empty the
+phase derives two to four from the acceptance criteria the diff touches (`derived`), and `qa.md`
+says which each was. Nothing to derive is `no-scenarios`, decided **before** anything is booted.
+
+**Reported, never enforced.** The verdict blocks nothing on its own, in any mode. A failing
+scenario goes through `review`'s own verify/triage/hand-over steps, by reference; with `--fix` an
+in-scope failure is repaired, the gate re-runs, and the failed scenarios are re-run once against
+the rebuilt app. The one `blocked`: a verified failure that falsifies a stated acceptance criterion
+and was not repaired — a fact about the task, not an enforcement of the verdict.
+
+**The loop.** When the agent reproduced a scenario as a flow file in the repo's own format, the
+phase asks whether to keep it (supervised) or keeps it and writes a `handover.md` item (unattended).
+Once `.claude/gates.sh` runs it, that scenario is enforced from the next task on, by the hook, with
+no model in the loop — the exploratory pass is the expensive step, and what it leaves behind is the
+cheap one.
+
+**`qa.md`** is the fifth artifact: written at the worktree root on every run that got past the
+stage check, whatever the outcome, so that "qa ran and found no agent" and "qa never ran" are
+different facts on disk. `lib/detect_stage.sh` reports its `outcome:` as
+`QA:absent|exercised|unrunnable|no-agent|no-scenarios|unknown`, the task's block as
+`E2E:present|none|absent`, and the two opt-ins as `QA_ROLE:` and `QA_ENV:`. `ship` quotes the file
+under a fixed `## Exercised by this run` heading, and puts declared scenarios that were not run
+under `## Not proven by this run`.
+
+It runs in the caller's session, not a headless child: the screenshots and UI trees are the
+sub-agent's context, and there is no author bias to shed.
+
+- **Refuses:** to run on `status: implementing` (no proven tree to build from); to drive the app
+  itself when the repo's agent cannot be dispatched; to fix anything without `--fix`; to fix
+  anything *Out of scope* with it.
+- **Invokes:** the repo's `qa` agent; `gantry:handover` for what it deferred.
+- **Scripts:** `lib/run_gates.sh`, after any fix it makes; the repo's `.claude/qa-env.sh`.
+- **Starters:** `examples/agents/qa.md`, `examples/qa-env.sh`.
 
 ## `/gantry:handover` — what this change left
 
@@ -276,8 +339,8 @@ child recorded, and any permission denials. `docs/ARCHITECTURE.md` § *Headless 
 
 - **Refuses:** to proceed past a non-zero gate; to run `--here` on the default branch or a
   detached HEAD; to carry on when a review child failed.
-- **Invokes:** `gantry:worktree`, `plan`, `plan-critique`, `grill` and `implement` in its session; `review` and
-  its fix step as headless children; `gantry:ship`.
+- **Invokes:** `gantry:worktree`, `plan`, `plan-critique`, `grill`, `implement` and `qa --fix` in
+  its session; `review` and its fix step as headless children; `gantry:ship`.
 - **Detail:** `references/orchestration.md`, shared with `auto-unattended`.
 - **`--lead <session>`:** a lane a lead session steers. Every question — the checkpoint, `grill`'s
   rounds, and the ones `worktree`, `plan`, `review` and `ship` ask — goes to the
@@ -304,7 +367,8 @@ to make without being able to ask, which agents the phases actually dispatched, 
 ran, the gate's exit code on every run, and whether the hook's firing conditions were met. The
 review runs as headless children, the same way `auto`'s does, and the journal's `phase` events
 carry their session ids; a child that fails sets `status: blocked` with the launcher's reason in
-the journal.
+the journal. `qa` runs without `--fix` — a UI-driven fix nobody watched is the wrong kind of
+autonomy — and a failing scenario is deferred into the draft PR's body rather than repaired.
 
 - **Refuses:** to push when no checks were found; to proceed on a plan that failed its critique;
   to fall back to inline work when a dispatch fails; `--lead`, which has no questions to route here.
@@ -347,8 +411,10 @@ the whole interface to the reviewer, so three things are composed into it rather
 memory. It runs `lib/detect_stage.sh` for the `HUMAN_ONLY:` line — its own `detect_state.sh` reads
 git state and never opens `task.md` — and on `present` emits a fixed `## Not proven by this run`
 heading carrying `task.md`'s `human_only` entries verbatim; the heading is fixed so that its
-*absence* is information. Under `--draft` it also states what draft does not mean: unwatched, not
-unverified. Separately, when the repo is itself a plugin and the diff touches `skills/`, `lib/`,
+*absence* is information. Declared e2e scenarios that `/gantry:qa` did not run go under the same
+heading, with the reason; the ones it did run go under a second fixed heading, `## Exercised by this
+run`, one verdict per scenario from `qa.md`. Under `--draft` it also states what draft does not
+mean: unwatched, not unverified. Separately, when the repo is itself a plugin and the diff touches `skills/`, `lib/`,
 `hooks/` or `agents/`, it names the plugin version that actually executed — because the harness
 loads `skills/` and `agents/` from the *installed* plugin, so a change to them is not exercised by
 the run that makes it. That disclosure is suppressed when the plugin root and the repo are the same
@@ -524,32 +590,34 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 
 | Component | Always-on |
 |---|---|
-| auto | ~180 |
-| auto-unattended | ~170 |
-| plan | ~90 |
+| auto | ~190 |
+| auto-unattended | ~180 |
+| plan | ~100 |
 | plan-critique | ~120 |
-| grill | ~110 |
+| grill | ~120 |
 | implement | ~100 |
 | review | ~170 |
+| qa | ~180 |
 | handover | ~130 |
 | ship | ~230 |
 | integrate | ~100 |
 | sync | ~220 |
 | worktree | ~70 |
 | preserve | ~190 |
-| prune-worktrees | ~110 |
+| prune-worktrees | ~120 |
 | the three agents | ~240 combined |
-| **total always-on** | **~2,230** |
+| **total always-on** | **~2,438** |
 
 **These are measured, not derived** — `claude --plugin-dir . plugin details gantry`, against this
 tree (0.7.0, where splitting `plan-grill` into `plan-critique` and `grill` took the total from
-~2,124 to ~2,230; v0.5.1 measured ~2,024 before `integrate`). v0.2 published a figure scaled from
+~2,124 to ~2,230, and adding `qa` took it to ~2,438; v0.5.1 measured ~2,024 before `integrate`). v0.2 published a figure scaled from
 v0.1's reading, which is exactly the kind of claim this project argues does not belong in prose; the
 number is now read from the tool and, more to the point, **enforced**:
 `scripts/context_budget.sh` runs in `scripts/verify.sh` and fails the build when the descriptions
 outgrow a declared ceiling. Adding `integrate` landed exactly on the old ceiling of 6,250
 **characters** — the unit that check counts — so it was raised to 6,600, that measurement plus about
-5%, in the same commit as the skill. A ceiling with no headroom does not hold the cost down; it just
+5%, in the same commit as the skill; adding `qa` cleared that by 200 and raised it again to 7,150
+on the same rule. A ceiling with no headroom does not hold the cost down; it just
 means the next edit trims whichever description is easiest rather than whichever is least useful.
 The token figures in the table are a separate reading, from the CLI, and the ceiling is not derived
 from them.

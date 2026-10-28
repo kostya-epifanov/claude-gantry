@@ -116,6 +116,68 @@ its words.
 `tests/cases/task_id.sh` covers the sources, the precedence, the copied URL shapes and the
 refusals.
 
+**A `qa` phase runs the task's e2e scenarios against the built app — repo-first, reported, never
+enforced.** The gate proves the tree with an exit code and the review reads the diff; neither one
+runs the product, and for a mobile or web app the question a reviewer still answered by hand was
+"does the feature work when I tap through it?". `task.md` has declared `verification.automated.e2e.scenarios`
+since 0.2 and no phase consumed the block. Now `/gantry:qa` does, between `review` and `ship`. The
+plugin does not know the word Maestro: the repo supplies the driver (`.claude/agents/qa.md`, whose
+`tools:` line is the boundary) and the environment (`.claude/qa-env.sh`, with the gate's exit-code
+shape), and gantry supplies the contract. There is deliberately **no default `gantry-qa` agent** — a
+published plugin cannot pick a stack, and a reviewer must never hold a tool that taps real UI — so a
+repo with neither file gets one `no-agent` line and the chain continues, the same stance as the
+`gantry-profile` contract. The verdict blocks nothing on its own; what blocks is `.claude/gates.sh`,
+which is also where a flow file the qa agent wrote ends up, so a scenario explored once by judgment
+is enforced from then on by a script.
+
+**Added**
+- **`skills/qa/SKILL.md`** — detect the stage (stops on `implementing`, skips on no contract); resolve
+  the role (`no-agent`, or `unrunnable` when the agent has no env script beside it); read the
+  task's declared scenarios or derive two to four from the acceptance criteria the diff touches,
+  saying which; run `.claude/qa-env.sh` (`0` up · `1`+ setup failed · `2` could not run — non-zero
+  is `unrunnable`, never a fail); dispatch the repo's `qa` agent with paths and take back one
+  verdict per scenario (`pass`, `fail`, `could-not-reach`) plus the evidence and any flow files;
+  triage failures through `review`'s own steps 3, 4 and 6 by reference; `--fix` repairs in scope,
+  re-runs the gate and re-runs the failed scenarios once; ask (or hand over, unattended) about flow
+  files; write `qa.md`. Blocks on exactly one thing: a verified failure that falsifies a stated
+  acceptance criterion and was not repaired.
+- **`qa.md`** — the fifth artifact: `outcome:` (`exercised`, `unrunnable`, `no-agent`,
+  `no-scenarios`), the agent's `tools:` line, the env exit, one line per scenario with its verdict
+  and observation, the flow files, and an `applied:` line after `--fix`. Written on every run that
+  got past the stage check, never committed.
+- **`lib/detect_stage.sh`**: `QA:absent|exercised|unrunnable|no-agent|no-scenarios|unknown` from
+  `qa.md`; `E2E:present|none|absent` from the task's `e2e.scenarios` block, with the same
+  permissive-toward-`present` rules as `HUMAN_ONLY:`; `QA_ROLE:` and `QA_ENV:` for the two opt-ins.
+  `PHASE` and `NEXT` are unchanged — the verdict is not a state on the chain's machine.
+- **`gantry:ship`** composes a second fixed heading, **`## Exercised by this run`**: on
+  `QA:exercised` the scenario lines of `qa.md` verbatim with the agent's `tools:` line; on any other
+  value one line saying why not. Declared scenarios that were not run land under the existing
+  `## Not proven by this run`, verbatim, with the reason — the contract promised them and the run
+  did not keep them.
+- **Drivers**: `gantry:auto` stage 5b invokes `/gantry:qa --fix` after the review children and
+  before the side-effects checkpoint; `gantry:auto-unattended` stage 5b invokes `/gantry:qa`
+  without `--fix` (a UI-driven fix nobody watched is the wrong kind of autonomy), journals a `qa`
+  stage and phase, escalates `qa-criterion-false` on a block, and journals `unexercised-e2e`
+  disclosures from ship's report. Both run it in their own session — the heavy context is the
+  sub-agent's, and there is no author bias to shed.
+- **`examples/qa-env.sh`** and **`examples/agents/qa.md`** — the two starters a repo copies in.
+- **Tests:** `tests/cases/stage_qa.sh` (the e2e parser's three states including the template's
+  commented sample, the block sequence at the key's own indentation, a `scenarios:` key under
+  another parent, every `QA:` value, the opt-in lines, and `PHASE:` still last).
+
+**Changed**
+- The artifact set is five: every `ensure_excluded.sh` call that named `/review.md` now names
+  `/qa.md`, `.gitignore` lists it, `lib/gate_coverage.sh` sets it aside, and `scripts/verify.sh`
+  requires a call naming any of `/task.md`, `/review.md`, `/qa.md` to name all three.
+- The task template's sample e2e scenario is **commented out**, like `human_only`'s placeholder: a
+  live one would have put a scenario called "scenario name" under *Not proven* on every pull
+  request now that something reads the block.
+- `scripts/context_budget.sh` ceiling 6,950 → 7,550 characters. On its own branch qa measured
+  6,809 against 7,150 (its description is 551 of it); combined with the `plan-grill` split above,
+  the 0.7.0 tree measures 7,171 across 18 components, and always-on reads ~2,438 tokens, qa ~180
+  of it.
+- `lead.md` gains `qa`'s two questions (an ambiguous failure, the flow files), both `fork`.
+
 **The review phase runs in a fresh headless child session.** `gantry:auto` and
 `gantry:auto-unattended` invoked every phase in the driver's own session, so by the time
 `/gantry:review` ran that session carried the plan, the critique and the whole implementation — in

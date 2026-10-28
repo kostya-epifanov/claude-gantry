@@ -4,7 +4,7 @@
 
 **Your agent says the tests pass. gantry runs them anyway, and won't let it finish until they do.**
 
-A worktree-to-PR workflow for Claude Code: fourteen skills that take a task from a fresh branch
+A worktree-to-PR workflow for Claude Code: fifteen skills that take a task from a fresh branch
 through a plan, a critique of that plan, a conversation that settles the approach, implementation,
 a gate, an independent review, and a pull request. Then it merges the pull requests that piled up into one whose combined tree still passes.
 
@@ -73,8 +73,9 @@ flowchart TD
   I --> GATE{"gate<br/>run_gates.sh"}
   GATE -- "red" --> I
   GATE -- "green" --> R["/gantry:review<br/>independent read of the diff"]
-  R -- "deferred findings" --> H["/gantry:handover<br/>writes handover.md"]
-  R -- "nothing deferred" --> S["/gantry:ship<br/>commit, push, PR"]
+  R --> Q["/gantry:qa<br/>runs the e2e scenarios, if the repo has a qa agent"]
+  Q -- "deferred findings" --> H["/gantry:handover<br/>writes handover.md"]
+  Q -- "nothing deferred" --> S["/gantry:ship<br/>commit, push, PR"]
   H --> S
   S --> PR(["PR open — ready for review"])
   PR --> SY["/gantry:sync"]
@@ -85,7 +86,9 @@ flowchart TD
 **The drivers contain no phase logic.** They invoke the same skills you would type, so the three
 ways of running cannot drift into three pipelines. Delegation happens inside the phases, to agents
 that are read-only by tool list: `plan` may dispatch an explorer, `plan-critique` always dispatches a
-fresh critic, `review` dispatches an independent reviewer. Who dispatches whom, as a diagram:
+fresh critic, `review` dispatches an independent reviewer. `qa` dispatches **your** agent — the one
+in `.claude/agents/qa.md` holding whatever drives your UI — and ships none of its own. Who
+dispatches whom, as a diagram:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#skills-carry-the-procedure-agents-carry-the-boundary).
 
 **The review does not run in the driver's session at all.** By then that session is the author's,
@@ -109,6 +112,7 @@ conflicts from what each PR is *for* and running your checks after every merge.
 | `/gantry:grill` | Settle the approach in conversation — priced options, decisions recorded, and the plan approval. |
 | `/gantry:implement` | Carry out the plan, then prove it with the gate. |
 | `/gantry:review` | Independent review of the diff, recorded in `review.md`. Read-only; `--fix` applies what's in scope; `--headless` defers instead of asking. |
+| `/gantry:qa` | Run the task's e2e scenarios against the built app with the repo's own `qa` agent, recorded in `qa.md`. Reported, never enforced; no agent in the repo means one line and the chain continues. |
 | `/gantry:handover` | Write `handover.md` — what this change deliberately left, and the next action. |
 | `/gantry:ship` | Advance one step toward a merged PR — commit, push, open PR. Idempotent. Reviews only with `--review`, in a headless child. |
 | `/gantry:integrate` | Merge the ready open PRs one at a time into one integration PR, checking the combined tree after each. |
@@ -181,7 +185,7 @@ It is the wrong tool if you want any of these, all left out by design:
 
 ## The artifacts
 
-Four files land at the worktree root and are **not committed**: they are the run's working state,
+Five files land at the worktree root and are **not committed**: they are the run's working state,
 not the change. `/gantry:ship` quotes what a reviewer needs from them into the PR body.
 
 | File | Written by | Answers |
@@ -190,6 +194,7 @@ not the change. `/gantry:ship` quotes what a reviewer needs from them into the P
 | `plan.md` | `/gantry:plan`, revised by `/gantry:plan-critique` | what the change was supposed to be |
 | `handover.md` | `/gantry:handover` | what this change left alone, and why |
 | `review.md` | `/gantry:review` | what the review found in scope to fix, for the fix step that follows |
+| `qa.md` | `/gantry:qa` | which e2e scenarios were run against the app, and what each one showed |
 
 `task.md`'s `status:` is the phase marker every skill reads from disk, so a fresh session, a
 sub-agent and a resumed conversation agree on where the work stands. The exclusion goes in
@@ -198,8 +203,8 @@ files? See the [0.5.0 changelog entry](CHANGELOG.md#050).
 
 ## Context cost
 
-Skill descriptions sit in every session's context. gantry's come to about **2,230 always-on
-tokens** for fourteen skills and three agents. Check it yourself, and trust that over this figure:
+Skill descriptions sit in every session's context. gantry's come to about **2,438 always-on
+tokens** for fifteen skills and three agents. Check it yourself, and trust that over this figure:
 
 ```
 claude plugin details gantry@claude-gantry

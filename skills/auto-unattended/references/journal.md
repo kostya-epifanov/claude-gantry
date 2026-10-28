@@ -91,7 +91,7 @@ not editing an earlier one — an edited log is not evidence.
 ```
 
 `from` is `null` on the first line of a run (entering the first stage). Stage names match the
-orchestrator's own: `contract`, `plan`, `critique`, `implement`, `gate`, `review`, `ship`.
+orchestrator's own: `contract`, `plan`, `critique`, `implement`, `gate`, `review`, `qa`, `ship`.
 
 ### `phase` — a phase skill returned
 
@@ -99,12 +99,14 @@ orchestrator's own: `contract`, `plan`, `critique`, `implement`, `gate`, `review
 {"ts":"2026-08-16T09:44:22Z","task":"2026-08-16-contact-form","event":"phase","phase":"plan","agents":["gantry-explorer"],"result":"ok","summary":"Four steps; the form posts to the existing /api/contact handler.","artifacts":["task.md","plan.md"]}
 ```
 
-- `phase` — `plan` | `critique` | `implement` | `review` | `review-fix`. (`grill` never appears:
-  it is human-only and this mode does not run it.)
+- `phase` — `plan` | `critique` | `implement` | `review` | `review-fix` | `qa`. (`grill` never
+  appears: it is human-only and this mode does not run it.)
 - `agents` — the sub-agents the phase actually dispatched, resolved names, in order. `[]` when it
-  dispatched none (a `plan` that read the code directly, a `review` that used `/code-review`).
-  This is the delegation roll-call the final report is checked against, so record what happened,
-  not what was expected. For a headless `review`, take it from `review.md`'s `source:` line.
+  dispatched none (a `plan` that read the code directly, a `review` that used `/code-review`, a
+  `qa` whose outcome was anything but `exercised`). This is the delegation roll-call the final
+  report is checked against, so record what happened, not what was expected. For a headless
+  `review`, take it from `review.md`'s `source:` line; for `qa`, `["qa"]` is the repo's own agent
+  — there is no `gantry-qa`.
 - `result` — `ok` | `failed` | `refused` (the phase stopped rather than improvise).
 - `summary` — the phase's **summary**, one or two sentences. Never the raw material it read;
   that is the whole point of the delegation.
@@ -144,8 +146,8 @@ what makes the difference legible after the fact.
   `no-checks` · `no-changes` · `unknown`. A green gate with `no-overlap` is
   **green-but-uncovered** — genuinely green, and not evidence about this diff.
 - `changed` / `covered` — path counts. The orchestrator's own artifacts (`task.md`, `plan.md`,
-  `handover.md`, `journal.jsonl`, `.claude/artifacts/`) are excluded from `changed`, so the
-  number means source paths.
+  `handover.md`, `review.md`, `qa.md`, `journal.jsonl`, `.claude/artifacts/`) are excluded from
+  `changed`, so the number means source paths.
 - `heuristic` — always `true`, and it is there to be read. **A root is the directory a check was
   run in, never the set of files it read**, and it errs in both directions: a suite rooted in a
   subdirectory may import from the repo root, and a check that ran at the root counts as
@@ -179,9 +181,10 @@ but a human's answer exists nowhere else.
 ```
 
 - `stage` — where the run stopped: `plan` or `critique` for an open fork, `review` for a headless
-  child that failed.
-- `reason` — why. `open-fork` and `headless-child-failed` are the ones `gantry:auto-unattended`
-  emits today.
+  child that failed, `qa` for a scenario that falsified an acceptance criterion.
+- `reason` — why. `open-fork`, `headless-child-failed` and `qa-criterion-false` are the ones
+  `gantry:auto-unattended` emits today. For the last, `detail` carries the scenario and the
+  criterion it falsified, verbatim from `qa.md`.
 - `detail` — one string per thing needing a decision, in the terms the reader has to answer in.
   For an open fork, the entries from `task.md`'s *Open questions*, verbatim. This is the payload
   that makes the escalation actionable, so it carries the question rather than a count of them.
@@ -199,9 +202,14 @@ alone, without reopening the worktree.
 ```
 
 - `stage` — where the disclosure was made. `ship` is the only one that emits it today.
-- `kind` — what was not proven. Two values so far:
+- `kind` — what was not proven. Three values so far:
   - `unproven-acceptance` — `task.md` carried a non-empty `human_only` block, so the run shipped
     against acceptance criteria no gate could check. `detail` carries those entries verbatim.
+  - `unexercised-e2e` — `task.md` declared `e2e.scenarios` and `/gantry:qa` did not run them: no
+    qa agent in the repo, an environment that did not come up, or the phase did not run. `detail`
+    carries the scenarios verbatim, with the reason ship gave on its first line. A scenario that
+    ran and failed is **not** this kind — it is a result under *Exercised by this run*, and if it
+    blocked the run, an `escalation`.
   - `unexercised-plugin-change` — the diff changed the plugin's own `skills/`, `agents/`, `lib/` or
     `hooks/` while the skills that ran came from the installed plugin. `detail` must distinguish
     the two senses ship distinguishes, because one sentence is false for half of them: `skills/`
