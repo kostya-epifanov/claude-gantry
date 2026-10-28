@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+**A first eval suite scores `gantry-critic` and `gantry-reviewer` instead of reading them.**
+`tests/` proves that the scripts keep their exit-code guarantees and says nothing about whether the
+agents produce good work: every edit to an agent's prose so far has been judged by reading the
+prompt, which is an opinion about a prompt rather than a measurement of its output. `evals/` holds
+five `claude plugin eval` cases — two seeded and one control for the critic, one seeded and one
+control for the reviewer. Each seeded case plants a defect with a known right answer (a plan step
+calling a helper the source does not have, an acceptance criterion no step touches, a stale caller
+outside the diff) and its grader names that defect, so it fails when the defect is not reported. A
+control's grader names the absence of one, so an agent that always finds something is caught. No
+case needs `--allow-tools` or a scaffold script, and every case declares a turn and time bound, so
+a full run has a known cost ceiling. It is a floor, not a benchmark, and the instrument for the
+later topology questions that need a score to answer.
+
+A run spends API credit, so the gate does not run one. `scripts/check_evals.sh` is the free half:
+it reads every `case.yaml` without the CLI, a credential or the network, and fails on a tool outside
+the ungated set, a scaffold script, a missing bound, a grader the harness would silently ignore, or a
+`change.diff` that no longer applies to its fixture. `scripts/verify.sh` runs it, and
+`tests/cases/check_evals.sh` holds each of those failures to a red exit. `evals/results/` is
+git-ignored. `docs/EVALS.md` states how to run the suite, what it costs roughly, how to add a case,
+and what the scores do and do not prove.
+
 ## 0.6.1
 
 **`/gantry:ship` sends the pull-request body from a file inside the worktree.** Ship documented an
