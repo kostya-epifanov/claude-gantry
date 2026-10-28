@@ -1,13 +1,13 @@
 ---
 name: auto-unattended
-description: Runs a task from description to draft pull request with no human in the loop — creates a worktree, drives the gantry chain (plan, plan-grill, implement, review, ship) by invoking each phase skill in turn, keeps a journal.jsonl trail, and treats the repo's checks as the only blocker. Refuses to push if no checks were found. Built for headless use on a build box or in CI. Use when the user types "/gantry:auto-unattended" with a task, or asks to run something unattended, autonomously, or without supervision.
+description: Runs a task from description to draft pull request with no human in the loop — creates a worktree, drives the gantry chain (plan, plan-grill, implement, review, qa, ship) by invoking each phase skill in turn, keeps a journal.jsonl trail, and treats the repo's checks as the only blocker. Refuses to push if no checks were found. Built for headless use on a build box or in CI. Use when the user types "/gantry:auto-unattended" with a task, or asks to run something unattended, autonomously, or without supervision.
 argument-hint: "[task] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--review-model <alias>] [--review-effort <level>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent
 ---
 
 # gantry:auto-unattended
 
-The gantry chain with nobody watching: worktree → **plan → plan-grill → implement → review** → draft PR.
+The gantry chain with nobody watching: worktree → **plan → plan-grill → implement → review → qa** → draft PR.
 No checkpoints, no questions, one blocker — the gate.
 
 Built for `claude -p "/gantry:auto-unattended <task>" --dangerously-skip-permissions` on a build box
@@ -291,6 +291,45 @@ The `gate` lines are the pass and the fail shape; write the one `GATE_EXIT:` say
 the literal code. A red fix-gate journaled as `pass` is a journal that lies about the one thing an
 unattended run exists to prove.
 
+## Stage 5b — QA
+
+**Invoke `/gantry:qa`** — **without `--fix`.** It runs the task's e2e scenarios against the built
+app if, and only if, the repo opted in with `.claude/agents/qa.md` and `.claude/qa-env.sh`, and
+writes `qa.md`, which ship quotes into the draft PR's body. No `--fix` here: a UI-driven fix nobody
+watched is the wrong kind of autonomy, and `review` already applied the fixes a reviewer judged in
+scope. A failing scenario is **deferred** through `gantry:handover` and reaches the reviewer under
+*Deliberately not done*, with its evidence paths.
+
+It runs in this session, not in a headless child: the screenshots and UI trees are the repo's `qa`
+sub-agent's context, and what comes back is a summary.
+
+```bash
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from review --to qa --mode unattended
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase qa --result ok --agent qa --summary <the outcome; on exercised, the verdicts in one sentence> --artifact qa.md
+```
+
+Repeat `--agent qa` only when the phase dispatched the repo's agent — the outcome was `exercised`.
+On `no-agent`, `unrunnable` and `no-scenarios` nothing was dispatched and `agents` is `[]`.
+
+Then read `bash "$GANTRY/lib/detect_stage.sh"` and route on `QA:`:
+
+- `no-agent` → the normal case; journaled above, continue. Never a warning.
+- `unrunnable` → continue; the `reason:` line goes in the summary. Ship puts the declared scenarios
+  under *Not proven by this run*, and stage 6 journals that as a `disclosure`.
+- `no-scenarios` → continue.
+- `exercised` → continue, **unless** `STATUS:blocked`. The phase blocks on exactly one thing — a
+  verified failure that falsifies a stated acceptance criterion — and with no `--fix` nothing could
+  have repaired it, so the change provably does not do what its contract says. Then: journal the
+  `escalation`, invoke `gantry:handover` if the phase has not, and **stop**.
+
+```bash
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event escalation --stage qa --reason qa-criterion-false --detail <the scenario and the criterion it falsified, verbatim from qa.md> --status blocked
+```
+
+If `qa.md` lists **flow files**, the phase kept them in the tree and wrote a `handover.md` item
+naming each one and the wiring it still needs; nobody was present to ask. Say so in the report —
+a flow in a draft PR that nothing runs yet is the loop half-closed, and the reviewer closes it.
+
 ## Stage 6 — Ship
 
 Set `task.md` to `status: shipped` **first**, then **invoke `gantry:ship --draft`**, passing
@@ -303,14 +342,15 @@ Passing `--review` or `--review-fix` here would review the same diff a second ti
 `--review-fix`, reopen and apply findings `/gantry:review` deliberately deferred to
 `handover.md`.
 
-`task.md`, `plan.md` and any `handover.md` are **not** committed — they are excluded alongside
-`journal.jsonl` and the gate logs. Ship quotes the contract and the handover into the PR body,
-which for an unattended run is the reviewer's only interface to either.
+`task.md`, `plan.md`, `review.md`, `qa.md` and any `handover.md` are **not** committed — they are
+excluded alongside `journal.jsonl` and the gate logs. Ship quotes the contract, the QA verdict and
+the handover into the PR body, which for an unattended run is the reviewer's only interface to any
+of them.
 
 The PR is a **draft**, always. Journal the final `stage` event once ship returns:
 
 ```bash
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from review --to ship --mode unattended
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from qa --to ship --mode unattended
 ```
 
 ```bash
@@ -318,7 +358,8 @@ bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event disclosure --stage
 ```
 
 Journal a **`disclosure`** event for anything ship reported that this run did not prove — a
-non-empty `human_only` block in `task.md`, or a change to the plugin's own files that the run could
+non-empty `human_only` block in `task.md`, e2e scenarios the task declared that QA did not run
+(`unexercised-e2e`), or a change to the plugin's own files that the run could
 not exercise. Repeat `--detail` once per item, and omit `--pr` under `--no-pr`, where the field is
 recorded as `null`. Take it **from ship's report**, not from your own reading of the tree: the journal is
 append-only and the project treats it as evidence, so an invented line is worse than a missing one.
@@ -336,6 +377,10 @@ Written for someone who was not here, because nobody was:
   same as the hook having fired: the detector cannot see registration. An unattended run whose
   conditions were unmet — or whose hook was never registered — was self-policed by a script it
   could have skipped; say so, and say which of the two you actually know.
+- **The QA outcome**: `no-agent` (the normal case, stated as such), `unrunnable` with the
+  environment's exit code and reason, `no-scenarios`, or `exercised` with one verdict per scenario
+  and the agent's `tools:` line. Any flow files the run left in the tree, and that nothing runs
+  them yet. A failing scenario that did not block was deferred; say so and where.
 - Which review tier ran, named plainly — and **the review children**: the review child's session
   id and the fix child's (if one ran), the model and effort they ran with (effort `inherit` when
   none was passed), the gate exit the fix child recorded, and every permission denial verbatim

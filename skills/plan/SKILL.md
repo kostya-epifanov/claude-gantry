@@ -104,7 +104,7 @@ contract*. Assert that before writing the first one, so the file is excluded fro
 exists rather than after `ship` has already had a chance to sweep it in with `git add -A`:
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md /qa.md
 ```
 
 The leading `/` anchors each pattern to the worktree root, so a repo with its own `docs/task.md` or

@@ -153,7 +153,7 @@ cd "$ROOT" || die "could not enter $ROOT"
 # The four artifacts and the result directory, excluded before the child can
 # write any of them — gantry:ship stages with `git add -A` when nothing is
 # staged, so an unexcluded review.md would be committed into the pull request.
-bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md .claude/artifacts/ >/dev/null \
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md /qa.md .claude/artifacts/ >/dev/null \
   || die "could not assert the artifact exclusions"
 
 OUT_DIR="$ROOT/.claude/artifacts/headless"

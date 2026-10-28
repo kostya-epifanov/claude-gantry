@@ -27,6 +27,10 @@ is driving and how often it stops.
 | Driver | you, typing each phase | this skill | this skill |
 | Phases run | in your session | invoked by the driver | invoked by the driver |
 | Review runs | in your session | **headless child** | **headless child** |
+| QA runs | `/gantry:qa` when you type it | `/gantry:qa --fix`, in the driver's session | `/gantry:qa`, no `--fix`, journaled |
+| No qa agent in the repo | continue | continue, one line in the report | continue, journaled — never a warning |
+| QA environment failed | you decide | continue; scenarios under *Not proven* | continue; scenarios under *Not proven*, journaled |
+| A failing scenario | you decide | the phase triages; stop on `blocked` | the phase triages and defers; `blocked` only on an acceptance criterion observably false |
 | Stops | after every phase | two checkpoints | never |
 | Red gate | you decide | stop and report | fix, capped at 2 attempts |
 | Open fork | `implement` warns; you decide | **AskUserQuestion**, after plan and after grill | **stop**, journal `escalation`, `blocked` |
@@ -39,6 +43,7 @@ Semi-auto has no driver skill — it *is* the phase skills, typed in order:
 
 ```
 /gantry:worktree → /gantry:plan → /gantry:plan-grill → /gantry:implement → /gantry:review --fix
+                 → /gantry:qa (runs the e2e scenarios, when the repo has a qa agent)
                  → /gantry:handover (only if something was deferred) → /gantry:ship
 ```
 
@@ -102,11 +107,18 @@ that a tool boundary means something:
 | grill | `gantry-critic`, **always, in every mode** | reading `task.md` and `plan.md` cold and returning findings | `.claude/agents/critic.md` |
 | implement | — | the phase writes the code; the gate is a script | — |
 | review | `gantry-reviewer`, when `/code-review` is unavailable — inside a **headless child session**, not the driver's | reading a diff it did not write | `.claude/agents/reviewer.md` |
+| qa | the repo's `qa` agent, **only if the repo defines one** — gantry ships no default | driving the built app through the task's e2e scenarios | `.claude/agents/qa.md` — the one role with no `gantry-` fallback |
 
 **Every agent gantry ships is read-only.** `gantry-explorer` and `gantry-critic` have `Read, Grep,
 Glob`; `gantry-reviewer` adds `Bash` to read git and run checks.
 None can write, however it is prompted — a boundary prose cannot enforce. Writing therefore happens
 in the phase skill, in the caller's own context, where it is visible rather than reported.
+
+**The `qa` role is the exception that proves the rule.** Its agent needs a tool that taps real UI —
+a Maestro or Playwright MCP server — and which one depends on the stack, so a published plugin
+cannot ship it; and a reviewer must never have it. So the repo supplies the whole agent, its
+`tools:` line is the boundary, and the phase records that line in `qa.md`. Absent, `/gantry:qa`
+reports `no-agent` and the chain continues; absence is the normal case and is never a warning.
 
 **Resolution is per role, repo first, independently** — and the *phase* does it, not the driver. A
 repo that has tuned one agent to its codebase overrides that one and inherits the rest. A driver's
@@ -149,6 +161,13 @@ gate. The driver never sees the child's transcript; a human who wants it uses
 
 What the launcher's exit code means, and what a `DENIED:` line does not: `docs/ARCHITECTURE.md`
 § *Headless phases*.
+
+**QA is not headless, and the reason is different from review's.** Its heavy context — screenshots
+and UI trees — already lives in the repo's `qa` sub-agent, and the phase takes back a summary; and
+there is no author bias to shed, because the driver is a different agent by construction. A
+headless `qa` child would also need the launcher to allowlist the repo agent's MCP tools, which
+the launcher cannot know. So both drivers invoke `/gantry:qa` in their own session, after the
+review children have finished.
 
 ### Preconditions for unattended — no blocking prompts
 
@@ -194,9 +213,9 @@ Two, both **AskUserQuestion** so the user can redirect in one step:
 1. **After plan and grill.** Show the plan as grilled, the findings that changed it, and the
    branch and worktree that were created. "Proceed with this plan?" This is also the moment to
    catch a wrong branch name — cheap to recreate now, before any edits.
-2. **After review, before anything outward-facing.** The gate is green and the review is in hand.
-   "Commit, push, and open the PR?" One gate in front of every side effect, since `gantry:ship`
-   won't pause once invoked.
+2. **After review and QA, before anything outward-facing.** The gate is green, the review is in
+   hand, and the QA verdict is on disk. "Commit, push, and open the PR?" One gate in front of
+   every side effect, since `gantry:ship` won't pause once invoked.
 
 No checkpoint between implement and gate — the gate is the check there, and it is automatic. There
 is deliberately no checkpoint after grill on its own: grill's whole job is to make the plan worth

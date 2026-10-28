@@ -52,6 +52,8 @@ Each question has a **kind**, which decides whether `proceed` can answer it.
 | `gantry:plan` step 6 | the question round | `fork` |
 | `gantry:plan-grill` step 3 | a finding only the user can decide | `fork` |
 | `gantry:review` step 4 | an honestly ambiguous finding | `fork` |
+| `gantry:qa` step 6 | an honestly ambiguous scenario failure | `fork` |
+| `gantry:qa` step 6b | keep or remove the flow files the agent wrote | `fork` |
 | `gantry:ship` stage 2 | how to split several unrelated changes | `fork` |
 
 A `checkpoint` is answered by `proceed` or `stop`. It offers no other options. If the branch name

@@ -262,16 +262,16 @@ re-read runs after it.
 
 #### The contract, which the diff does not carry
 
-`task.md`, `plan.md` and `handover.md` are **not committed** (`docs/ARCHITECTURE.md` § *The
-artifact contract*), so unlike in 0.4.x they are not in the diff and a reviewer cannot open them
-from the pull request. **The body is now the only channel they have**, which makes this step
+`task.md`, `plan.md`, `handover.md` and `qa.md` are **not committed** (`docs/ARCHITECTURE.md` §
+*The artifact contract*), so unlike in 0.4.x they are not in the diff and a reviewer cannot open
+them from the pull request. **The body is now the only channel they have**, which makes this step
 load-bearing rather than a nicety: skip it and the reviewer gets a diff with no statement of what
 it was meant to do.
 
 Read what exists at `ROOT` — the detector already reported which do:
 
 ```bash
-bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: lines
+bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: / QA: lines
 ```
 
 - **`TASK:present`** → the body carries a `## What this change is for` heading, and under it
@@ -282,6 +282,16 @@ bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: lines
 - **`HANDOVER:present`** → a `## Deliberately not done` heading carrying `handover.md`'s items, one
   line each with its reason. This is what `/gantry:review` deferred; a reviewer who cannot see it
   re-reports every finding the run already triaged.
+- **`QA:`, whatever its value** → a heading of **exactly** `## Exercised by this run`, fixed for
+  the same reason *Not proven by this run* below is: a reader who knows it exists can tell "the
+  scenarios were run" from "nobody ran them". On `QA:exercised`, quote `qa.md`'s `## Scenarios`
+  lines **verbatim** — each scenario, whether it was `declared` or `derived`, its verdict and the
+  observation — and its `tools:` line, so the reader knows what observed them; if the file ends
+  with an `applied:` line, say that a fix landed after the review. On any other value, one line
+  and no scenarios: `absent` → `/gantry:qa` did not run on this tree; `no-agent` → the repo has no
+  `.claude/agents/qa.md`; `unrunnable` and `no-scenarios` → `qa.md`'s `reason:` line verbatim;
+  `unknown` → `qa.md` exists but its `outcome:` could not be read. Every value but `exercised`
+  also feeds the *Not proven* heading below, when the task declared scenarios.
 - **`PLAN:present`** → not quoted. `plan.md` is how the work got done, not what it promised, and it
   is usually long. Name it as available in the worktree and leave it there.
 - Any of them **absent** → say so in one line under the relevant heading rather than omitting the
@@ -293,17 +303,26 @@ rule that already governs that path's disclosures.
 
 #### What this run did not prove
 
-Both are **disclosures**. Neither withholds the PR, fails the gate, or blocks the push.
+All three are **disclosures**. None withholds the PR, fails the gate, or blocks the push.
 
 **1. Acceptance criteria no gate could check.** Ship's own `detect_state.sh` reads git state and
 never opens `task.md`, so the answer comes from the other detector:
 
 ```bash
-bash "$GANTRY/lib/detect_stage.sh"      # read the HUMAN_ONLY: line
+bash "$GANTRY/lib/detect_stage.sh"      # read the HUMAN_ONLY: and E2E: lines
 ```
 
 On `HUMAN_ONLY:present` the body carries a heading of **exactly** `## Not proven by this run`, and
 under it the entries from `task.md`'s `human_only` block **verbatim**.
+
+**2. Declared e2e scenarios nobody ran.** On `E2E:present` with `QA:` anything but `exercised`,
+the same heading carries the entries of `task.md`'s `e2e.scenarios` block **verbatim** — name,
+goal, steps — with one line in front saying why they were not run: the `reason:` line from `qa.md`
+when there is one, else that `/gantry:qa` did not run. The contract promised these checks and the
+run did not keep them; a reviewer who pulls the branch to tap through the feature is doing what
+this line tells them is still undone. On `QA:exercised` the scenarios are under *Exercised by this
+run* above, verdicts included, and nothing about them goes here — a scenario that ran and
+**failed** is a failure the body reports under that heading, not an unproven claim.
 
 One source of truth for each half: the detector decides **whether** the heading appears, `task.md`
 supplies the **text**. The entries are multi-line and one labeled line per value is the detector's
@@ -319,14 +338,15 @@ only when someone remembers to write it is not a disclosure.
 under it too — a gate that went green over code no check actually covered is the next such signal,
 and it arrives from `/gantry:implement`'s report rather than from anything ship computes. Add what
 the phases reported; do not invent a signal no phase gave you, and do not open a second heading for
-it. A reviewer scans for one heading or none.
+it. A reviewer scans for one heading or none. (*Exercised by this run* is not a second copy of
+this one: it holds what **was** checked, and a reader needs the two kept apart.)
 
 **When `--draft` was passed**, the body also says plainly what draft status does *not* mean:
 **draft means unwatched, not unverified.** Include it whether or not the heading above appeared —
-`--draft` is the condition, not `HUMAN_ONLY:`. Left unsaid, a reviewer reads "draft" as unfinished
-work and takes the gaps as expected rather than as unchecked.
+`--draft` is the condition, not `HUMAN_ONLY:` or `E2E:`. Left unsaid, a reviewer reads "draft" as
+unfinished work and takes the gaps as expected rather than as unchecked.
 
-**2. Whether the plugin's own change was exercised.** Three conditions, all commands:
+**3. Whether the plugin's own change was exercised.** Three conditions, all commands:
 
 1. The repo carries `.claude-plugin/plugin.json` at its root. If not, **the whole check is inert** —
    an ordinary target repo that happens to have a `lib/` directory must not produce a disclosure
@@ -422,7 +442,7 @@ paths cannot verify, and it asks.
 Keep the file out of git, so `git add -A` on a later run can never sweep it into a commit:
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md .claude/artifacts/
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md /qa.md .claude/artifacts/
 ```
 
 Write the final, re-read body with the Write tool to `<ROOT>/.claude/artifacts/pr-body.md`.
@@ -477,8 +497,10 @@ any; and the `GATE_EXIT:` the fix child recorded over those fixes. If no flag wa
 plainly, as a fact about this run rather than an omission. If `gantry:review` rejected the tier, say
 that the commit stands and nothing was pushed. If it blocked the ship, lead with that.
 
-**Both stage 4 disclosures, always — including under `--no-pr`, where the report is the only place
-they can land.** Say whether the `human_only` heading was emitted and why (or why not), and what
+**All stage 4 disclosures, always — including under `--no-pr`, where the report is the only place
+they can land.** Say whether the *Not proven* heading was emitted and why (or why not) — the
+`human_only` entries, the e2e scenarios nobody ran, or both — what *Exercised by this run* carried
+(the `QA:` value, and the verdicts on `exercised`), and what
 the executing-plugin check concluded: the version that ran, that the check was inert because the
 repo is not a plugin, that it was suppressed because the plugin root and the repo are the same
 tree, or that the version could not be determined. The driver journals this from what you report,

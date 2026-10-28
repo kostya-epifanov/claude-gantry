@@ -61,7 +61,20 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 # closer to the ceiling and each raise should be a visible line in a diff rather
 # than a comfortable cushion. At this tree's ~2.94 characters per token it stands
 # for roughly ~2,240 tokens.
-CEILING=6600
+#
+# Raised from 6,600 to 7,150 when `qa` was added. The skill's own description is
+# 551 characters, which alone clears the old ceiling by 200; the other eight were
+# second-order — both driver descriptions and the manifest name the chain in
+# prose, so one new phase grew each by four. Measured on this tree, 6,809
+# characters across 17 components; 7,150 is that plus about 5%, the same thin
+# margin as the last raise and for the same reason. Fresh reading, for the
+# token figure the docs quote:
+#
+#     claude --plugin-dir . plugin details gantry
+#     Always-on: ~2,332 tok   (qa ~190 of it)
+#
+# ~2.92 characters per token here, so 7,150 stands for roughly ~2,450 tokens.
+CEILING=7150
 
 # Extract the value of a single-line `description:` field from a frontmatter
 # block. Every skill and agent in this repo uses the one-line form, and

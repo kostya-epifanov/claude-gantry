@@ -147,6 +147,9 @@ about the thing it exists to record.)
 
 ### 3. Verify every finding before it counts as one
 
+Steps 3, 4 and 6 are also the triage `gantry:qa` applies to a scenario that failed — it invokes
+them by reference rather than carrying a copy, so a change here changes both phases.
+
 **Check each finding against the file it names, before it is reported and before it is fixed.**
 Reviewers, including good ones, report things that are not true — a defect in code the diff does
 not contain, a call site that does not exist, a rule this repo does not hold.
@@ -194,7 +197,7 @@ a diff that has since moved. Keep it out of git first; the launcher has already 
 a headless child, and a hand-typed run asserts it now:
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md /qa.md
 bash "$GANTRY/lib/diff_fingerprint.sh" <BASE>
 ```
 

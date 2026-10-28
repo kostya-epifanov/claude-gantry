@@ -27,6 +27,7 @@ All live at the **root of the task's worktree**.
 | `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | **no** — same exclusion; named in the PR body, not quoted |
 | `handover.md` | `gantry:handover`, when review defers something | **no** — same exclusion; ship quotes it into the PR body |
 | `review.md` | `gantry:review` in its headless child — the findings in scope to fix, tied to the diff by a fingerprint | **no** — same exclusion; read by the fix child, never quoted |
+| `qa.md` | `gantry:qa` — the outcome and one verdict per e2e scenario, with the evidence paths | **no** — same exclusion; ship quotes it under *Exercised by this run* |
 | `journal.jsonl` | the orchestrator, append-only | **no** — a run artifact; same exclusion |
 | gate logs | the gate script / the readiness hook | **no** — same exclusion |
 
@@ -54,6 +55,7 @@ pair of eyes inside it.
 | grill | `/gantry:plan-grill` | **critic** (Read/Grep/Glob, Opus), **always** | findings by severity + the plan path |
 | implement | `/gantry:implement` | — | a change summary + the gate's exit code |
 | review | `/gantry:review --headless`, then `/gantry:review --fix --headless`, each in a **headless child** launched by `lib/run_phase_headless.sh` | **reviewer** (Read/Grep/Glob/Bash, Opus), when `/code-review` is unavailable — dispatched by the child | `review.md`, what was fixed, what was deferred, the child session ids |
+| qa | `/gantry:qa` (no `--fix` here) | the **repo's `qa` agent**, only if `.claude/agents/qa.md` exists — its `tools:` line is the boundary; gantry ships none | `qa.md`: the outcome, one verdict per scenario, the evidence paths, any flow files |
 | gate | *(script)* | — | an exit code |
 
 A phase dispatches with the **Agent** tool and a self-contained prompt: the worktree path, which
@@ -109,6 +111,10 @@ Resolution is **per role, repo first**, and the *phase* does it: if `$ROOT/.clau
 exists it dispatches `<role>`, otherwise `gantry-<role>`. A repo that has tuned one agent to its
 codebase overrides that one and inherits the rest. Say what each role will resolve to before
 stage 1, and check it at the end against what the phases reported actually dispatching.
+
+The `qa` role has **no `gantry-qa` to fall back to**, on purpose: its agent needs the tool that
+drives that repo's UI, which a published plugin cannot pick. `.claude/agents/qa.md` absent means
+`/gantry:qa` reports `no-agent` and dispatches nothing — the normal case, and never a warning.
 
 If the files exist but a dispatch fails because the agent type is unknown, that is a
 **discoverability** problem, not a reason to improvise: repo-level agents are picked up when the
