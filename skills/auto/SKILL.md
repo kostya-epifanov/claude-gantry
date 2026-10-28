@@ -1,7 +1,7 @@
 ---
 name: auto
 description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, critique, grill, implement, review, ship) by invoking each phase skill in turn. Supervised: it settles the approach with you in conversation, then pauses once before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
-argument-hint: "[task] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--lead <session>]"
+argument-hint: "[task] [--task <id>] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--lead <session>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion, SendMessage
 ---
 
@@ -44,9 +44,12 @@ hardcoding a path.
 
 ## Stage 0 — Arguments
 
-`$ARGUMENTS` is one string; there is no parser, so read it yourself. Recognise `--no-pr`,
-`--branch <name>`, `--here` (alias `--on-current`), `--base <branch>`, and `--lead <session>`; strip
-them; what remains is the task. `--here` and `--branch` are mutually exclusive — `--here` wins. If
+`$ARGUMENTS` is one string; read it yourself. Recognise `--no-pr`, `--branch <name>`,
+`--task <id>`, `--here` (alias `--on-current`), `--base <branch>`, and `--lead <session>`; strip
+them; what remains is the task. The tracker id and the `--branch` value are not read by eye: write
+the whole string to a file and run `lib/task_id.sh` on it, as `references/orchestration.md`
+§ *Deriving the branch name* describes — its `TEXT:` line is the task with those two removed. On
+its exit `2` (a `--task` or `--branch` with a missing or bad value), ask. `--here` and `--branch` are mutually exclusive — `--here` wins. If
 no task text remains, ask what the task is. A `--lead` with no session name after it is also a
 question, and it goes to the owner: there is no lead to ask yet.
 
@@ -59,7 +62,9 @@ question's kind. Nothing else about the run changes.
 
 ## Stage 1 — Worktree and branch
 
-Derive a branch name from the task (or take `--branch`), then **invoke `gantry:worktree`** with it.
+Name the branch by `references/orchestration.md` § *Deriving the branch name* — `--branch` verbatim,
+else `<type>/<ID>-<slug>` when `lib/task_id.sh` found a tracker id, else `<type>/<slug>` exactly as
+before — then **invoke `gantry:worktree`** with it.
 Let worktree own branch validation, the parent fetch, and entering the worktree — don't reimplement
 any of it. Under `--lead`, tell it the run is under `--lead <session>`, so that its parent question
 goes to the lead. `task.md` does not exist yet to say so.
@@ -69,8 +74,9 @@ you are on the repo's mainline (`origin/HEAD`); `develop` is a valid `--here` ta
 
 ## Stage 2 — Plan
 
-**Invoke `/gantry:plan`** with the task, and with `--lead <session>` when the run has one, so plan's
-own questions go to the lead from its first step.
+**Invoke `/gantry:plan`** with the task, with `--task <id>` when `lib/task_id.sh` found a tracker
+id (so `task.md`'s `id:` is the same id as the branch), and with `--lead <session>` when the run
+has one, so plan's own questions go to the lead from its first step.
 
 It writes `task.md` and `plan.md` at the worktree root, and decides for itself whether the surface
 needs the explorer. Read both files back from disk before moving on — a plan you remember writing

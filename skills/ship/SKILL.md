@@ -213,6 +213,15 @@ never wrote either fails or, worse, sends a body some earlier run left behind.
 Compose from the branch's commits rather than a bare `--fill`. Title = the change in one line;
 body = a short what/why, bulleting the commits when there are several.
 
+**The tracker id goes first.** When the detector says `TASK:present` — never on `inherited`, whose
+`task.md` is a previous task's — run `bash "$GANTRY/lib/task_id.sh" --task-file task.md`. If its
+`ID:` line is not `-`, the title is `<ID>: <the change in one line>` (`BASE-71: integrate updates
+the docs`), and the first line under `## What this change is for` is `Tracker: <ID>`, followed by a
+blank line. That is what lets Linear's GitHub integration, and its equivalents, link the PR to the
+issue. Nothing else in the body changes, and on `ID:-` — a date-slug id, or no id line — neither
+does the title. Exit `2` here means the file could not be read — run it from the worktree root,
+where the detector found `task.md` — and is not a reason to invent a prefix.
+
 **Do not hard-wrap the body.** GitHub renders a pull request body in *comment* mode, where a single
 newline inside a paragraph becomes a `<br>` — so a body wrapped at a column, the way this and most
 repositories wrap their markdown files, arrives as a ragged column broken mid-sentence. Write each
@@ -245,7 +254,8 @@ bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: lines
 ```
 
 - **`TASK:present`** → the body carries a `## What this change is for` heading, and under it
-  `task.md`'s **Goal** and **Acceptance criteria** — quoted, not re-summarised. A summary written
+  the `Tracker: <ID>` line when stage 4 found a tracker id, then `task.md`'s **Goal** and
+  **Acceptance criteria** — quoted, not re-summarised. A summary written
   here is a second source of truth that can drift from the contract the work was actually done
   against, which is the entire failure this heading exists to prevent. On `TASK:inherited` the file
   is the *previous* task's contract: do **not** quote it, and say the branch shipped without one.

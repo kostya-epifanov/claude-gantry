@@ -1,7 +1,7 @@
 ---
 name: auto-unattended
 description: Runs a task from description to draft pull request with no human in the loop — creates a worktree, drives the gantry chain (plan, critique, implement, review, ship) by invoking each phase skill in turn, keeps a journal.jsonl trail, and treats the repo's checks as the only blocker. Refuses to push if no checks were found. Built for headless use on a build box or in CI. Use when the user types "/gantry:auto-unattended" with a task, or asks to run something unattended, autonomously, or without supervision.
-argument-hint: "[task] [--no-pr] [--branch <name>] [--here] [--base <branch>]"
+argument-hint: "[task] [--task <id>] [--no-pr] [--branch <name>] [--here] [--base <branch>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent
 ---
 
@@ -48,9 +48,13 @@ hardcoding a path.
 
 ## Stage 0 — Arguments and roster preflight
 
-`$ARGUMENTS` is one string; read it yourself. Recognise `--no-pr`, `--branch <name>`, `--here`
-(alias `--on-current`), `--base <branch>`; strip them; the remainder is the task. **If no task text
-remains, stop and report** — there is nobody to ask.
+`$ARGUMENTS` is one string; read it yourself. Recognise `--no-pr`, `--branch <name>`,
+`--task <id>`, `--here` (alias `--on-current`), `--base <branch>`; strip them; the remainder is the
+task. The tracker id and the `--branch` value are not read by eye: write the whole string to a file
+and run `lib/task_id.sh` on it, as `$GANTRY/skills/auto/references/orchestration.md` § *Deriving
+the branch name* describes — its `TEXT:` line is the task with those two removed. **If no task text
+remains, stop and report** — there is nobody to ask. Exit `2` from the parser (a `--task` or
+`--branch` with a missing or bad value) is the same stop: report it, do not guess an id.
 
 **`--lead` is not accepted here — stop and report.** It belongs to `gantry:auto`, where there are
 questions to route to a lead; this skill asks none. Left unrecognised, `--lead <session>` would
@@ -82,7 +86,9 @@ needs a restart. Stop and report it — do not fall back to doing the work inlin
 
 ## Stage 1 — Worktree and branch
 
-Derive a branch name from the task (or take `--branch`), then **invoke `gantry:worktree`**.
+Name the branch by `orchestration.md` § *Deriving the branch name* — `--branch` verbatim, else
+`<type>/<ID>-<slug>` when `lib/task_id.sh` found a tracker id, else `<type>/<slug>` exactly as
+before — then **invoke `gantry:worktree`**.
 
 Start the run **from the base branch** so worktree doesn't stop to confirm the parent — a prompt
 here hangs a headless run. Under `--here`, skip this and run on the current branch, stopping first
@@ -103,14 +109,16 @@ double-appended entries were observed. The script locks, matches whole lines, an
 duplicates an earlier writer left, so it is safe to run from any number of lanes at once.
 
 `--task` is the `id` from `task.md`. On this first line the task contract does not exist yet, so
-use the id you are about to give it. Every command in this file is written flat — no substitution,
+use the id you are about to give it: the parser's `ID:` when it is not `-`, otherwise the
+date-slug id `gantry:plan` will write. Every command in this file is written flat — no substitution,
 no heredoc, no pipe into a loop — because a worktree-isolated session refuses anything else; see
 `references/journal.md` for what that refusal cost before it was fixed.
 
 ## Stage 2 — Plan
 
-**Invoke `/gantry:plan`** with the task. It writes `task.md` and `plan.md`, and dispatches the
-explorer itself when the surface warrants it.
+**Invoke `/gantry:plan`** with the task — and with `--task <id>` when the parser found a tracker
+id, so `task.md`'s `id:` is the same id as the branch and the journal. It writes `task.md` and
+`plan.md`, and dispatches the explorer itself when the surface warrants it.
 
 Set `task.md`'s `mode:` to `unattended` — that is how `implement` and `review` learn to run the gate
 `--strict` without being told. **Never clobber a task that is in flight**: under `--here`,

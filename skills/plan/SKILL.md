@@ -1,7 +1,7 @@
 ---
 name: plan
 description: Write the task contract and the implementation plan — task.md and plan.md at the worktree root — asking whatever needs asking before any code is written. Use when the user types "/gantry:plan", or asks to plan a task, write a plan, or work out an approach before implementing.
-argument-hint: [task] [--lead <session>]
+argument-hint: [task] [--task <id>] [--lead <session>]
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Agent, AskUserQuestion, SendMessage
 ---
 
@@ -35,6 +35,9 @@ current data, which surface the change belongs on.
 
 Do **not** ask about things the repo answers. Read first, then ask about what reading cannot
 settle. One round of questions covering several forks beats a slow drip of one at a time.
+
+**If you were invoked with `--task <id>`** (a driver passes it through; strip it from the task), that
+is the tracker id this run carries, and it is the `id` you write in step 2.
 
 **If you were invoked with `--lead <session>`** (`gantry:auto` passes it through; strip it from the
 task), every question this skill asks goes to that lead instead, as a `fork`, following
@@ -129,8 +132,13 @@ Then start from the template, in this order:
 
 Fill the frontmatter (`id`, `title`, `project`, `branch`, `mode`, `status: planning`, and
 `lead: <session>` when you were given one) and these
-sections **from the task and the conversation, before studying code** — this is the task's intent,
-and it must not be shaped by what the code turns out to make convenient:
+sections **from the task and the conversation, before studying code**. The `id` is the tracker id
+when the run has one — `--task <id>` from a driver, or, typed by hand, what `lib/task_id.sh` reports
+when you write the task text to a file and run it with `--args-file` (an id at the start of the
+text, or a tracker URL in it) — and `YYYY-MM-DD-<slug>` otherwise. It is what `journal_append.sh
+--task` records and what `gantry:ship` puts at the front of the PR title, so a tracker id here is
+how the PR reaches the issue. On a revise, keep the existing one. These sections are the task's
+intent, and they must not be shaped by what the code turns out to make convenient:
 
 - **Context & goal** — why this exists and what it is, in a paragraph or two. Enough that someone
   cold knows the problem, not just the instruction.

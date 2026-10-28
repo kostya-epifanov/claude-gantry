@@ -63,12 +63,15 @@ and the name says what you are getting.
 ## Arguments and flags
 
 `$ARGUMENTS` is one string: the task description with optional flags mixed in. There is no flag
-parser — read it yourself. Strip the recognised flags out; what remains, cleaned up, is the task.
+parser for the flags themselves — read them yourself. The two values that have to be exact, the
+tracker id and an explicit `--branch`, come from `lib/task_id.sh` (see *Deriving the branch name*
+below). Strip the recognised flags out; what remains, cleaned up, is the task.
 
 | Flag | Effect |
 |---|---|
 | `--no-pr` | End after push; don't open a PR. Passed through to `gantry:ship`. |
 | `--branch <name>` | Use this exact branch name instead of deriving one from the task. |
+| `--task <id>` | The tracker id for this run (`BASE-71`, `GH-71`, a Jira key). Wins over an id found in the task text or a tracker URL. Passed through to `gantry:plan`. |
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. Refuses on the repo default branch or a detached HEAD. |
 | `--base <branch>` | Override the PR base branch. Passed through to `gantry:ship` (and its detector). |
 | `--lead <session>` | **`gantry:auto` only.** Every question the run would ask in a dialog goes to that lead session by `SendMessage`, and only a narrow reply vocabulary is accepted. Protocol: `references/lead.md`. `gantry:auto-unattended` refuses the flag. |
@@ -78,10 +81,58 @@ task is — except under `gantry:auto-unattended`, where there is nobody to ask:
 
 ### Deriving the branch name
 
-When `--branch` isn't given, derive one from the task: a short kebab-case slug, prefixed by type
-when the task makes it obvious — `feat/` for new capability, `fix/` for a bug, else no prefix.
-"add a dark-mode toggle" → `feat/dark-mode-toggle`. Keep it under ~40 chars. `gantry:worktree`
-validates it and owns the branch and parent logic from there.
+The driver reads its flags as prose, but the two values that have to be exact — a tracker id and
+an explicit `--branch` — come from a script. First exclude the artifacts directory, then write the
+**whole argument string, verbatim**, to a file of your own under it with the Write tool — never by
+echoing it on a command line, since a task description may carry quotes, backticks or `$(`, which a
+worktree-isolated session refuses and a shell might expand — and run the parser on it:
+
+```bash
+bash "$GANTRY/lib/ensure_excluded.sh" .claude/artifacts/
+bash "$GANTRY/lib/task_id.sh" --args-file .claude/artifacts/args-<something unique to this run>.txt
+```
+
+Name the file per run — the slug you are about to derive, or a timestamp — because several lanes
+can start from the same checkout at once, and a shared `args.txt` would hand one lane another's id.
+
+It prints four lines — `ID:`, `SOURCE:`, `BRANCH:`, `TEXT:` — and the header of `lib/task_id.sh`
+is the contract. The id comes from, in order: `--task <id>`; an id at the **start** of the task
+text (`BASE-71 integrate should update docs`, the drivers' own flags skipped); a tracker URL in the
+text (a GitHub issue becomes `GH-<n>`, Linear and Jira links give their key); and, on a re-run
+inside a lane, `task.md`'s `id:` — pass `--task-file task.md` for that, under `--here`, and **only
+when the detector says `TASK:present`**: an `inherited` file is the previous task's contract, and
+its id would title the new PR after the wrong issue. A tracker id is `[A-Z][A-Z0-9_]*-[0-9]+`, kept
+exactly as written. `TEXT:` is the string with `--task`, `--branch` and the leading id removed, and
+is what you pass on as the task; every other flag is still in it for you to read.
+
+**Value-taking flags go before the task.** `--task` and `--branch` are read as flags only in the
+run of flags ahead of the task's first word; from that word on every token is text, so a task
+that *mentions* `--branch` or `--task` in prose keeps its words and names nothing. A `--task` or
+`--branch` you meant as a flag but typed after the text is still visible in `TEXT:` — move it.
+
+Exit `2` means a leading `--task` or `--branch` that is repeated or has a missing or bad value:
+`gantry:auto` asks, and `gantry:auto-unattended` stops and reports.
+
+Then the name:
+
+- **`BRANCH:` is not `-`** → use it verbatim. The rule below does not apply to an explicit name.
+- Otherwise derive `<type>` and `<slug>` from `TEXT:` as before: a short kebab-case slug, prefixed
+  by type when the task makes it obvious — `feat/` for new capability, `fix/` for a bug, else no
+  prefix. "add a dark-mode toggle" → `feat/dark-mode-toggle`.
+- **`ID:` is not `-`** → the name is `<type>/<ID>-<slug>` (`<ID>-<slug>` with no type):
+  "BASE-71 integrate should update docs" → `feat/BASE-71-integrate-docs`. Keep the whole name under
+  ~48 characters by shortening the slug, never the id, and never over the 64 that
+  `gantry:worktree` enforces.
+- **`ID:` is `-`** → exactly the name you would have derived before: `<type>/<slug>`, under ~40
+  characters.
+
+`gantry:worktree` validates the result and owns the branch and parent logic from there. The
+worktree path follows the branch, as always: `.claude/worktrees/feat/BASE-71-integrate-docs`.
+
+`ID:` is also the run's task id. Pass it to `/gantry:plan` as `--task <id>`, the same way `--lead`
+is passed, so `task.md`'s `id:` is the tracker id and `journal_append.sh --task`, the readiness
+hook and the PR title all see the same id as the branch. Under `--here` there is no name to derive,
+but the id still goes to plan. With no id, plan writes its date-slug id as before.
 
 ## Invoking a phase, and where delegation happens
 
