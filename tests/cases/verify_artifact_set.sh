@@ -73,6 +73,68 @@ run_verify "$repo"
 assert_not_contains "$VERIFY_OUT" "$FAIL_LINE" "a call naming no root artifact passes"
 assert_contains "$VERIFY_OUT" 'ok    every call names all or none' "and the check reports ok"
 
+# --- the array and the exclusions are the same contract, twice --------------
+#
+# lib/worktree_artifacts.sh's ROOT_ARTIFACTS decides what the prune archive
+# copies out of a worktree before destroying it; the `ensure_excluded.sh` calls
+# decide what stays out of git. Drift either way is silent: a name excluded but
+# not archived is an artifact `git worktree remove` deletes for good, and a name
+# archived but not excluded is one `git add -A` commits into the pull request.
+#
+# The fixture's skills/one names all five, so the exclusion side of the
+# comparison is fixed and the array is what moves.
+cat > "$repo/skills/one/SKILL.md" <<'EOF'
+# one
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md /qa.md
+EOF
+rm -f "$repo/skills/two/SKILL.md"
+mkdir -p "$repo/lib"
+cat > "$repo/lib/worktree_artifacts.sh" <<'EOF'
+#!/usr/bin/env bash
+ROOT_ARTIFACTS=(task.md plan.md handover.md review.md qa.md)
+RUN_ARTIFACTS=(journal.jsonl .claude/artifacts/)
+echo "${ROOT_ARTIFACTS[0]} ${RUN_ARTIFACTS[0]}"
+EOF
+run_verify "$repo"
+assert_contains "$VERIFY_OUT" 'ok    /handover.md /plan.md /qa.md /review.md /task.md' \
+  "an array that matches the exclusions passes, and the check prints the set"
+
+# A sixth artifact added to the array alone — the archive would copy a file
+# nothing keeps out of git.
+cat > "$repo/lib/worktree_artifacts.sh" <<'EOF'
+#!/usr/bin/env bash
+ROOT_ARTIFACTS=(task.md plan.md handover.md review.md qa.md notes.md)
+RUN_ARTIFACTS=(journal.jsonl .claude/artifacts/)
+echo "${ROOT_ARTIFACTS[0]} ${RUN_ARTIFACTS[0]}"
+EOF
+run_verify "$repo"
+assert_contains "$VERIFY_OUT" 'FAIL  ROOT_ARTIFACTS and the ensure_excluded.sh arguments have diverged' \
+  "a name in the array that no call excludes is a red check"
+assert_contains "$VERIFY_OUT" '/notes.md' "and the diff names it"
+
+# The other direction: a name excluded but missing from the array is the
+# artifact a prune would delete without archiving.
+cat > "$repo/skills/one/SKILL.md" <<'EOF'
+# one
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md /qa.md /notes.md /extra.md
+EOF
+cat > "$repo/lib/worktree_artifacts.sh" <<'EOF'
+#!/usr/bin/env bash
+ROOT_ARTIFACTS=(task.md plan.md handover.md review.md qa.md notes.md)
+RUN_ARTIFACTS=(journal.jsonl .claude/artifacts/)
+echo "${ROOT_ARTIFACTS[0]} ${RUN_ARTIFACTS[0]}"
+EOF
+run_verify "$repo"
+assert_contains "$VERIFY_OUT" 'FAIL  ROOT_ARTIFACTS and the ensure_excluded.sh arguments have diverged' \
+  "an excluded name missing from the array is a red check too"
+assert_contains "$VERIFY_OUT" '/extra.md' "and the diff names that one"
+
+# An unreadable array is reported as unreadable, never as agreement.
+printf '#!/usr/bin/env bash\necho nothing here\n' > "$repo/lib/worktree_artifacts.sh"
+run_verify "$repo"
+assert_contains "$VERIFY_OUT" 'FAIL  could not read ROOT_ARTIFACTS' \
+  "a file with no ROOT_ARTIFACTS array fails rather than passing vacuously"
+
 # review.md and qa.md tracked at the root are red, like the other three.
 printf '# Review\n' > "$repo/review.md"
 printf '# QA\n' > "$repo/qa.md"

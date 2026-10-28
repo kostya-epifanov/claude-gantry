@@ -215,8 +215,13 @@ bash "$GANTRY/skills/prune-worktrees/scripts/detect_candidates.sh"
 ```
 
 Runs from anywhere in the repo (it resolves `$MAIN_ROOT` itself). Parse the `FETCH:` line and
-the pipe-delimited `path|branch|status|days_idle|merged_into|head_sha` rows — the same script
-`gantry:prune-worktrees` uses, so the two never disagree about what "merged" means.
+the pipe-delimited `path|branch|status|days_idle|merged_into|head_sha|artifacts` rows — the same
+script `gantry:prune-worktrees` uses, so the two never disagree about what "merged" means.
+
+The last field is what that worktree is holding: chain artifacts comma-separated, `-` for none,
+`?` when the worktree could not be read. It changes no bucket — `gantry:prune-worktrees` archives
+them before removing anything, and this skill removes nothing at all — but it is what the report
+below names, so an operator reading "prunable" knows whether a handover is riding on it.
 
 **The double fetch is deliberate.** Stage 2 fetched because the checkout and fast-forward depend
 on fresh refs; this script fetches again itself. Removing Stage 2's fetch to save the round trip
@@ -239,13 +244,17 @@ Split the `candidate` rows into three buckets:
 
 1. **Merged into `<base>`** (the base resolved in Stage 3, present in `merged_into` — only
    possible when `<base>` is `develop`, `master`, or `main`, per the caveat above) — these are the
-   ones this sync just made dead. Lead the report with them.
+   ones this sync just made dead. Lead the report with them. **Each line names that row's
+   artifacts** (`none` for `-`, `unknown` for `?`).
 2. **Merged into another branch, not `<base>`** — `merged_into` is non-`-` but does not contain
    `<base>` (e.g. `merged_into=develop` while `$BASE=master`). This is still a `candidate` row
    that `gantry:prune-worktrees` will offer to remove in Stage 7, so it must be shown here too — one
-   line per row (or a count plus the branch names) rather than being dropped.
-3. **Stale only** — `merged_into` is `-` and `days_idle >= 7`. Pre-existing; one line with a
-   count.
+   line per row (or a count plus the branch names) rather than being dropped. Same artifacts note
+   per line.
+3. **Stale only** — `merged_into` is `-` and `days_idle >= 7`. Pre-existing; **keep it to one line
+   with a count**, plus how many of those carry artifacts. Expanding this bucket into a list is
+   what the one-line shape exists to avoid; the count is enough to tell the operator whether
+   anything is riding on it.
 
 Every `candidate` row lands in exactly one of the three buckets above — that is what keeps
 Stage 7's handoff from ever offering to remove something this report never showed the operator.
@@ -287,5 +296,8 @@ Zero candidates → one line in the report, no invocation.
 - What was actually pruned (from Stage 7's handoff), or "no removals — zero candidates".
 - Any warnings: **a failed fetch** — this can only be Stage 6's `detect_candidates.sh` fetch, since
   an unrecoverable Stage 2 fetch failure stops the whole run before this Report is ever reached —
-  plus the base living in another worktree, or a dirty non-main worktree that `gantry:prune-worktrees`
-  will skip.
+  plus the base living in another worktree, a dirty non-main worktree that `gantry:prune-worktrees`
+  will skip, and **how many candidates carry chain artifacts** (and how many are `?`, if any).
+  `gantry:prune-worktrees` archives them before removing anything, so this is information rather
+  than an obstacle — but an operator who approves a prune without having seen it is the failure
+  this line exists to prevent.
