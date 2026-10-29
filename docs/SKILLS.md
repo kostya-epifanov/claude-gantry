@@ -638,20 +638,20 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 | sync | ~220 |
 | worktree | ~70 |
 | preserve | ~190 |
-| prune-worktrees | ~120 |
+| prune-worktrees | ~130 |
 | the three agents | ~240 combined |
-| **total always-on** | **~2,438** |
+| **total always-on** | **~2,456** |
 
 **These are measured, not derived** — `claude --plugin-dir . plugin details gantry`, against this
 tree (0.7.0, where splitting `plan-grill` into `plan-critique` and `grill` took the total from
-~2,124 to ~2,230, and adding `qa` took it to ~2,438; v0.5.1 measured ~2,024 before `integrate`). v0.2 published a figure scaled from
+~2,124 to ~2,230, and adding `qa` took it to ~2,456; v0.5.1 measured ~2,024 before `integrate`). v0.2 published a figure scaled from
 v0.1's reading, which is exactly the kind of claim this project argues does not belong in prose; the
 number is now read from the tool and, more to the point, **enforced**:
 `scripts/context_budget.sh` runs in `scripts/verify.sh` and fails the build when the descriptions
 outgrow a declared ceiling. Adding `integrate` landed exactly on the old ceiling of 6,250
 **characters** — the unit that check counts — so it was raised to 6,600, that measurement plus about
-5%, in the same commit as the skill; adding `qa` cleared that by 200 and raised it again to 7,150
-on the same rule. A ceiling with no headroom does not hold the cost down; it just
+5%, in the same commit as the skill; the 0.7.0 split of `plan-grill` into two skills raised it to 6,950, and
+adding `qa` and #33's longer `prune-worktrees` description to 7,600, each on the same rule. A ceiling with no headroom does not hold the cost down; it just
 means the next edit trims whichever description is easiest rather than whichever is least useful.
 The token figures in the table are a separate reading, from the CLI, and the ceiling is not derived
 from them.

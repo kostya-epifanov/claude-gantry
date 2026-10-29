@@ -203,7 +203,7 @@ files? See the [0.5.0 changelog entry](CHANGELOG.md#050).
 
 ## Context cost
 
-Skill descriptions sit in every session's context. gantry's come to about **2,438 always-on
+Skill descriptions sit in every session's context. gantry's come to about **2,456 always-on
 tokens** for fifteen skills and three agents. Check it yourself, and trust that over this figure:
 
 ```

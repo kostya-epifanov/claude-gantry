@@ -172,9 +172,9 @@ is enforced from then on by a script.
 - The task template's sample e2e scenario is **commented out**, like `human_only`'s placeholder: a
   live one would have put a scenario called "scenario name" under *Not proven* on every pull
   request now that something reads the block.
-- `scripts/context_budget.sh` ceiling 6,950 → 7,550 characters. On its own branch qa measured
+- `scripts/context_budget.sh` ceiling 6,950 → 7,600 characters. On its own branch qa measured
   6,809 against 7,150 (its description is 551 of it); combined with the `plan-grill` split above,
-  the 0.7.0 tree measures 7,171 across 18 components, and always-on reads ~2,438 tokens, qa ~180
+  the 0.7.0 tree measures 7,227 across 18 components, and always-on reads ~2,456 tokens, qa ~180
   of it.
 - `lead.md` gains `qa`'s two questions (an ambiguous failure, the flow files), both `fork`.
 
