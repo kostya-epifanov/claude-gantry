@@ -201,4 +201,45 @@ assert_rc 2 "$?" "a missing body file is exit 2"
 bash "$STATE" "$W/nope.md" "$W/handover.md" >/dev/null 2>&1
 assert_rc 2 "$?" "a state read of a missing body file is exit 2, not a quiet STALE"
 
+# --- the same question, asked of qa.md --------------------------------------
+# /gantry:qa re-run after the PR opened left a body saying "no qa agent" over
+# scenarios that had since passed. --section qa reads the Exercised section.
+
+printf 'outcome: exercised\n' >"$W/qa.md"
+QA_MARKER="$(bash "$STATE" --section qa --marker "$W/qa.md")"
+case "$QA_MARKER" in
+  '<!-- gantry:qa sha256='*' -->') _pass "--section qa --marker prints a qa marker, not a handover one" ;;
+  *)                               _fail "unexpected qa marker: $QA_MARKER" ;;
+esac
+
+{
+  printf '## Exercised by this run\n\n`/gantry:qa` ran and found no qa agent.\n\n'
+  printf '## Not proven by this run\n\nThe human-only checks.\n'
+} >"$W/qa-stale-body.md"
+assert_eq "$(bash "$STATE" --section qa "$W/qa-stale-body.md" "$W/qa.md" 2>/dev/null)" STALE \
+  "an Exercised section with no qa marker is STALE"
+
+{
+  printf '## Exercised by this run\n\n%s\n\n- a scenario — pass.\n\n' "$QA_MARKER"
+  printf '## Deliberately not done\n\n%s\n\n- a finding\n' "$MARKER"
+} >"$W/both-body.md"
+assert_eq "$(bash "$STATE" --section qa "$W/both-body.md" "$W/qa.md" 2>/dev/null)" CURRENT \
+  "a matching qa marker is CURRENT"
+assert_eq "$(state_of "$W/both-body.md" "$W/handover.md")" CURRENT \
+  "and the handover marker beside it is still read as the handover's"
+
+printf 'outcome: no-agent\n' >"$W/qa.md"
+assert_eq "$(bash "$STATE" --section qa "$W/both-body.md" "$W/qa.md" 2>/dev/null)" STALE \
+  "a changed qa.md makes the Exercised section STALE"
+
+printf '# Title\n\nNo exercised section.\n' >"$W/qa-missing-body.md"
+assert_eq "$(bash "$STATE" --section qa "$W/qa-missing-body.md" "$W/qa.md" 2>/dev/null)" MISSING \
+  "no Exercised heading and no qa marker is MISSING"
+
+assert_eq "$(bash "$STATE" --section qa "$W/both-body.md" "$W/no-such-qa.md" 2>/dev/null)" NO-QA \
+  "no qa.md at all is NO-QA"
+
+bash "$STATE" --section review "$W/both-body.md" "$W/qa.md" >/dev/null 2>&1
+assert_rc 2 "$?" "an unknown --section is a usage error"
+
 finish

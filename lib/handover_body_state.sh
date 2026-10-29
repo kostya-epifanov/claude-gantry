@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # handover_body_state.sh — is this pull request body carrying the current
 # handover?
-# Run with: bash handover_body_state.sh <body-file> <handover-file>
-#       or: bash handover_body_state.sh --marker <handover-file>
+# Run with: bash handover_body_state.sh [--section qa] <body-file> <handover-file>
+#       or: bash handover_body_state.sh [--section qa] --marker <handover-file>
 #
 # WHY THIS EXISTS. `gantry:ship` composes the PR body once, when it CREATES the
 # pull request. A `handover.md` written after that — which is the usual order,
@@ -39,8 +39,16 @@
 # `--marker <handover-file>` prints the marker line for ship to embed, so the
 # digest has exactly one definition rather than one per call site.
 #
-# stdout: one word — CURRENT | STALE | MISSING | NO-HANDOVER — or, under
-# --marker, the marker line.
+# `--section qa` asks the same question of `qa.md` and the `## Exercised by this
+# run` section, with its own marker (`<!-- gantry:qa sha256=… -->`). The case is
+# the same shape: `/gantry:qa` re-run after the pull request opened — a repo
+# that opted in late, or a `--fix` pass — leaves a body that still reports the
+# old outcome, typically "no qa agent" over scenarios that have since passed.
+# With no qa.md the answer is NO-QA. The section defaults to `handover`, so
+# every existing call keeps its meaning.
+#
+# stdout: one word — CURRENT | STALE | MISSING | NO-HANDOVER (NO-QA under
+# --section qa) — or, under --marker, the marker line.
 # Exit codes: 0 = answered · 2 = usage, or no SHA-256 tool on PATH.
 set -uo pipefail
 
@@ -51,6 +59,18 @@ die() { printf 'handover_body_state: %s\n' "$1" >&2; exit 2; }
 # heading is fixed.
 HEADING='## Deliberately not done'
 MARKER_PREFIX='<!-- gantry:handover sha256='
+ABSENT_WORD='NO-HANDOVER'
+
+if [ "${1:-}" = "--section" ]; then
+  case "${2:-}" in
+    handover) ;;
+    qa) HEADING='## Exercised by this run'
+        MARKER_PREFIX='<!-- gantry:qa sha256='
+        ABSENT_WORD='NO-QA' ;;
+    *)  die "--section takes handover or qa" ;;
+  esac
+  shift 2
+fi
 
 # Portability: GNU coreutils has sha256sum, macOS has shasum, and openssl is
 # the fallback where neither is. Resolved HERE, at the top level, so a machine
@@ -88,7 +108,7 @@ BODY_FILE="$1"
 HANDOVER_FILE="$2"
 
 if [ ! -f "$HANDOVER_FILE" ]; then
-  echo "NO-HANDOVER"
+  echo "$ABSENT_WORD"
   exit 0
 fi
 

@@ -231,7 +231,7 @@ If the push is rejected because the remote moved, stop and report it — let the
 and this stage's only fenced commands are `gh pr create`, which fails outright against one:
 
 - **`PR:none`** → compose and create, as the rest of this stage describes.
-- **anything else** (a PR already exists) → skip straight to *Refresh the handover section* below,
+- **anything else** (a PR already exists) → skip straight to *Refresh the handover and QA sections* below,
   then continue to stage 5. Nothing here is composed or created.
 
 That second route is not hypothetical. `detect_state.sh` routes a dirty tree to `commit` and an
@@ -338,7 +338,13 @@ bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: / QA: lines
   and no scenarios: `absent` → `/gantry:qa` did not run on this tree; `no-agent` → the repo has no
   `.claude/agents/qa.md`; `unrunnable` and `no-scenarios` → `qa.md`'s `reason:` line verbatim;
   `unknown` → `qa.md` exists but its `outcome:` could not be read. Every value but `exercised`
-  also feeds the *Not proven* heading below, when the task declared scenarios.
+  also feeds the *Not proven* heading below, when the task declared scenarios. When `qa.md`
+  exists, **put its marker line under the heading**, as for the handover, so a later `/gantry:qa`
+  run is noticed by the refresh below:
+
+  ```bash
+  bash "$GANTRY/lib/handover_body_state.sh" --section qa --marker qa.md
+  ```
 - **`PLAN:present`** → not quoted. `plan.md` is how the work got done, not what it promised, and it
   is usually long. Name it as available in the worktree and leave it there.
 - Any of them **absent** → say so in one line under the relevant heading rather than omitting the
@@ -517,7 +523,7 @@ If `gh pr create` failed, leave the file where it is: it is excluded from git, s
 commit, and the next run composes the body afresh and overwrites it — it is never reused as it
 stands, because the branch it described may have moved.
 
-#### Refresh the handover section of an existing body
+#### Refresh the handover and QA sections of an existing body
 
 **Entered from two places**: stage 4's branch above, when a PR already exists, and stage 5 before
 its status read. Not a step inside either — a refresh that lived only on the fully-shipped path
@@ -526,10 +532,12 @@ would never run after "write the handover, commit once more, ship", which is the
 **Why it exists.** The body is composed once, at `gh pr create`. `handover.md` is usually written
 *after* that, because `/gantry:review` is what produces one — and the body then still says no
 handover exists while the file holds verified findings. The worktree holding the only copy is one
-merge away from being pruned.
+merge away from being pruned. `qa.md` goes stale the same way: `/gantry:qa` re-run after the PR
+opened — a repo that opted in late, a `--fix` pass — leaves a body reporting the old outcome,
+typically "no qa agent" over scenarios that have since passed.
 
-**What it may rewrite.** Only the `## Deliberately not done` section, and only when it is out of
-date. Every other byte of the body is left alone: a wholesale recompose would overwrite hand-edits
+**What it may rewrite.** Only the `## Deliberately not done` and `## Exercised by this run`
+sections, each only when it is out of date. Every other byte of the body is left alone: a wholesale recompose would overwrite hand-edits
 made on GitHub after the PR opened. Skip the whole sub-stage when `--no-pr` was given — there is no
 PR to refresh — and when `GH` was `missing` or `unauth`.
 
@@ -565,34 +573,67 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    destroying the contract, the scope and the human-only checks. Writing to `.tmp` and promoting it
    only on success makes a failed fetch an **absent** file, which step 3 rejects instead.
 
-3. Ask whether it needs refreshing:
+3. Ask whether each section needs refreshing — two questions, one per section:
 
    ```bash
    bash "$GANTRY/lib/handover_body_state.sh" .claude/artifacts/pr-body-live.md handover.md
    ```
 
-   - **`CURRENT`** → the body already carries this handover. **Make no edit.** Report it and skip
-     to the end of the sub-stage.
-   - **`NO-HANDOVER`** → there is no `handover.md`. Nothing to refresh; report it and skip.
-   - **`STALE`** or **`MISSING`** → continue. `MISSING` means the body has no handover section at
-     all, which is the PR-opened-before-the-review case.
-   - **Exit 2** (no one-word answer) → the state could not be read: step 2's fetch failed and left
-     no file, or there is no SHA-256 tool on `PATH`. **Edit nothing.** Report that the body could
-     not be checked and leave the pull request as it is.
+   ```bash
+   bash "$GANTRY/lib/handover_body_state.sh" --section qa .claude/artifacts/pr-body-live.md qa.md
+   ```
 
-4. Compose the section — the `## Deliberately not done` heading, the marker line from
-   `handover_body_state.sh --marker`, and `handover.md`'s items one line each with its reason,
-   exactly as the contract step describes. Write it with the Write tool to
-   `<ROOT>/.claude/artifacts/handover-section.md`, then splice:
+   Each answers for its own section:
+
+   - **`CURRENT`** → the body already carries this file. Leave that section alone.
+   - **`NO-HANDOVER`** / **`NO-QA`** → there is no such file. Nothing to refresh in that section.
+   - **`STALE`** or **`MISSING`** → that section is refreshed in step 4. `MISSING` means the body
+     has no such section at all — for the handover, the PR-opened-before-the-review case.
+   - **Exit 2** (no one-word answer) → the state could not be read: step 2's fetch failed and left
+     no file, or there is no SHA-256 tool on `PATH`. **Edit nothing**, in either section. Report
+     that the body could not be checked and leave the pull request as it is.
+
+   Neither `STALE` nor `MISSING` → **make no edit.** Report that the body is current and skip to
+   the end of the sub-stage.
+
+4. Compose each stale section and write it with the Write tool:
+
+   - **handover** → the `## Deliberately not done` heading, the marker line from
+     `handover_body_state.sh --marker handover.md`, and `handover.md`'s items one line each with
+     its reason, exactly as the contract step describes — to
+     `<ROOT>/.claude/artifacts/handover-section.md`.
+   - **QA** → the `## Exercised by this run` heading, the marker line from
+     `handover_body_state.sh --section qa --marker qa.md`, and the content the contract step's
+     `QA:` rule gives for `qa.md` as it now stands — to `<ROOT>/.claude/artifacts/qa-section.md`.
+
+   Then splice. One stale section goes straight from the fetched body to `pr-body.md`:
 
    ```bash
    bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-live.md .claude/artifacts/handover-section.md "Deliberately not done" > .claude/artifacts/pr-body.md
    ```
 
-   The splice replaces that one section, or inserts it before `## Not proven by this run` when the
-   body has no handover section yet. **A non-zero exit means the heading is ambiguous** — it appears
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-live.md .claude/artifacts/qa-section.md "Exercised by this run" > .claude/artifacts/pr-body.md
+   ```
+
+   Both stale → chain them, so the fetched original stays untouched:
+
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-live.md .claude/artifacts/handover-section.md "Deliberately not done" > .claude/artifacts/pr-body-handover.md
+   ```
+
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-handover.md .claude/artifacts/qa-section.md "Exercised by this run" > .claude/artifacts/pr-body.md
+   ```
+
+   Each splice replaces its one section, or inserts it before `## Not proven by this run` when the
+   body has no such section yet. **A non-zero exit means the heading is ambiguous** — it appears
    more than once — and nothing was written. Do not hand-edit around it: report that the body needs
    a human, and leave the pull request as it is.
+
+   **`## Not proven by this run` is not refreshed.** When QA has moved to `exercised` and the task
+   declared scenarios, that section may still list them as not run. Say so in the report, naming
+   the line, so a human deletes it; rewriting a third section on a guess is how hand-edits get lost.
 
 5. Check it, send it, clean up — three blocks, because each gates the next. The body goes as a
    **file inside the checkout**, for the reasons *Open it* gives:
@@ -601,8 +642,8 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    bash "$GANTRY/scripts/check_pr_body.sh" .claude/artifacts/pr-body.md
    ```
 
-   Fix what the check names **in the file** and run it again until it passes. Only the handover
-   section is this run's prose; if the check flags lines elsewhere in the body, they came back from
+   Fix what the check names **in the file** and run it again until it passes. Only the refreshed
+   sections are this run's prose; if the check flags lines elsewhere in the body, they came back from
    GitHub that way — fix them too rather than reverting, since `gh pr edit` sends the whole file.
    Then send it:
 
@@ -611,23 +652,23 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    ```
 
    ```bash
-   rm -f .claude/artifacts/pr-body.md .claude/artifacts/pr-body-live.md .claude/artifacts/handover-section.md
+   rm -f .claude/artifacts/pr-body.md .claude/artifacts/pr-body-live.md .claude/artifacts/pr-body-handover.md .claude/artifacts/handover-section.md .claude/artifacts/qa-section.md
    ```
 
    **Clean up only after the edit succeeded** — the same rule the create path states for
-   `pr-body.md`. If `gh pr edit` failed, leave all three files where they are: they are excluded
+   `pr-body.md`. If `gh pr edit` failed, leave the files where they are: they are excluded
    from git so they cannot reach a commit, the fetched original is the only copy of what the body
    said before, and `gh pr edit --body-file .claude/artifacts/pr-body.md` is what a human reruns by
    hand. Report the path rather than deleting the work.
 
-6. Report that the body was refreshed and which items were added, or that it was already current
-   and nothing was edited.
+6. Report which sections were refreshed and what each now says, or that the body was already
+   current and nothing was edited.
 
 ### 5. Done — report and wait
 
 The branch is fully shipped: PR open, nothing left to push.
 
-**First, run *Refresh the handover section* above — unless stage 4 already routed you through it on
+**First, run *Refresh the handover and QA sections* above — unless stage 4 already routed you through it on
 the way here**, in which case it has just run and a second pass would only spend another
 `gh pr view` and repeat its report. Then come back here. A handover written after the PR opened
 reaches nobody otherwise, and this is the stage a run lands on once there is nothing left to commit
