@@ -94,8 +94,8 @@ head2 "skills that follow the lead protocol may use its tools"
 # (skills/auto/references/lead.md). A skill's allowed-tools RESTRICTS what is
 # permitted while it runs, so a skill that points at the protocol but omits
 # either tool cannot follow it — and the failure appears only mid-run, inside
-# that one phase, with a lead waiting. plan-grill shipped without Write for
-# exactly this reason until a critique caught it. `claude plugin validate` is
+# that one phase, with a lead waiting. The critique phase shipped without Write
+# for exactly this reason until a critique caught it. `claude plugin validate` is
 # skipped where the CLI is absent (CI), so this is the check that holds there.
 #
 # A skill with no allowed-tools line is unrestricted and passes.
@@ -165,8 +165,9 @@ out="$(repo_files -z -- ':!task.md' ':!plan.md' ':!CHANGELOG.md' ':!scripts/veri
 
 head2 "the run's own artifacts are not tracked"
 # Since 0.5.0 task.md, plan.md and handover.md are the chain's working state and
-# are never committed — see docs/ARCHITECTURE.md § "The artifact contract". This
-# repo is a target repo of itself, so the rule has to hold here first.
+# are never committed — see docs/ARCHITECTURE.md § "The artifact contract" —
+# and review.md and qa.md joined them in 0.7.0. This repo is a target repo of
+# itself, so the rule has to hold here first.
 #
 # Tracked is the thing to test, not ignored. A .gitignore entry does nothing to a
 # file git already tracks, which is exactly how these three sat in this repo's
@@ -176,13 +177,103 @@ head2 "the run's own artifacts are not tracked"
 # Anchored to the root: a repo's own docs/task.md or a fixture under tests/ is
 # somebody else's file and none of this check's business.
 tracked_artifacts=''
-for a in task.md plan.md handover.md; do
+for a in task.md plan.md handover.md review.md qa.md; do
   if git ls-files --error-unmatch "$a" >/dev/null 2>&1; then
     tracked_artifacts="$tracked_artifacts $a"
   fi
 done
 [ -z "$tracked_artifacts" ] && ok "none tracked" \
   || bad "committed at the repo root:$tracked_artifacts — remove them from the index"
+
+head2 "the artifact set is five names wherever it is asserted"
+# review.md and qa.md joined the artifact contract in 0.7.0, and the contract is
+# asserted by `ensure_excluded.sh` calls spread across the skills. A call that
+# names /task.md and not /review.md or /qa.md is the next artifact drifting in
+# one call site at a time — and the cost is a run that commits that file
+# through `git add -A`. Same shape as the frontmatter-parser diff above: a
+# convention made a check.
+#
+# Only calls that name one of the three are judged, and such a call must name
+# all three. The journal/artifacts-only shape (`ensure_excluded.sh journal.jsonl
+# .claude/artifacts/`) names no root artifact and is not this check's business.
+# `-H` so a single matching file still prints its name.
+out="$(repo_files -z 'skills/*' | xargs -0 grep -HnE 'ensure_excluded\.sh' 2>/dev/null \
+  | awk '(/\/task\.md/ || /\/review\.md/ || /\/qa\.md/) && !(/\/task\.md/ && /\/review\.md/ && /\/qa\.md/)')"
+[ -z "$out" ] && ok "every call names all or none" \
+  || { bad "an ensure_excluded.sh call names some root artifacts and not the others"; printf '%s\n' "$out"; }
+
+head2 "the artifact array and the exclusions name the same set"
+# Two independent statements of the same contract, which must agree:
+#
+#   lib/worktree_artifacts.sh's ROOT_ARTIFACTS  — what the prune archive copies
+#   the `ensure_excluded.sh` calls under skills/ — what stays out of git
+#
+# Drift either way is silent and costly. A name excluded but not in the array is
+# an artifact `git worktree remove` deletes without archiving — the failure this
+# release exists to close. A name in the array but not excluded is an artifact
+# `git add -A` commits into the user's pull request. Two sources compared
+# against each other, so there is no third list here to maintain.
+#
+# Only the root-anchored `/<name>.md` arguments are compared. The
+# journal/artifacts-only call shape names none of them and is not this check's
+# business, exactly as in the check above.
+arr="$(sed -n 's/^ROOT_ARTIFACTS=(\([^)]*\)).*/\1/p' lib/worktree_artifacts.sh \
+  | tr ' ' '\n' | sed -e '/^$/d' -e 's#^#/#' | LC_ALL=C sort -u)"
+exc="$(repo_files -z 'skills/*' | xargs -0 grep -hE 'ensure_excluded\.sh' 2>/dev/null \
+  | grep -oE '[[:space:]]/[A-Za-z0-9_.-]+\.md' | sed 's/^[[:space:]]*//' | LC_ALL=C sort -u)"
+if [ -z "$arr" ]; then
+  bad "could not read ROOT_ARTIFACTS from lib/worktree_artifacts.sh"
+elif [ -z "$exc" ]; then
+  bad "found no root-anchored ensure_excluded.sh arguments under skills/"
+elif [ "$arr" = "$exc" ]; then
+  ok "$(printf '%s' "$arr" | tr '\n' ' ')"
+else
+  bad "ROOT_ARTIFACTS and the ensure_excluded.sh arguments have diverged"
+  diff <(printf '%s\n' "$arr") <(printf '%s\n' "$exc") || true
+fi
+
+head2 "prune archives before it removes"
+# The ordering IS the guarantee: copying the artifacts out after `git worktree
+# remove` has run recovers nothing. It is prose in a SKILL.md, so it is checked
+# as prose — the archive command must appear before the removal command.
+#
+# FENCED LINES ONLY, like tests/cases/pr_body_file_in_tree.sh. The skill's prose
+# names `git worktree remove` early, where it explains why an excluded artifact
+# is one git will silently delete; judging that mention would forbid the file
+# from explaining itself. What has to be ordered is the COMMANDS.
+fenced_line() {  # fenced_line <file> <extended-regex> — first matching fenced line number
+  awk -v re="$2" '
+    /^[[:space:]]*(```|~~~)/ { infence = !infence; next }
+    infence && $0 ~ re { print NR; exit }
+  ' "$1"
+}
+arch_line="$(fenced_line skills/prune-worktrees/SKILL.md 'archive_artifacts[.]sh')"
+rm_line="$(fenced_line skills/prune-worktrees/SKILL.md 'worktree remove')"
+if [ -z "$arch_line" ]; then
+  bad "skills/prune-worktrees/SKILL.md runs no archive_artifacts.sh command"
+elif [ -z "$rm_line" ]; then
+  bad "skills/prune-worktrees/SKILL.md runs no git worktree remove command"
+elif [ "$arch_line" -lt "$rm_line" ]; then
+  ok "archive_artifacts.sh (line $arch_line) runs before worktree remove (line $rm_line)"
+else
+  bad "skills/prune-worktrees/SKILL.md runs worktree remove (line $rm_line) before archive_artifacts.sh (line $arch_line)"
+fi
+
+head2 "the documented row format matches the emitted one"
+# detect_candidates.sh's row is parsed POSITIONALLY by two SKILL.md files, so a
+# field added to the script and not to the prose is a consumer reading the wrong
+# column. The literal string is asserted in all three places. In
+# detect_candidates.sh it is the header comment that documents the `echo`; that
+# the echo itself still carries seven fields is asserted by
+# tests/cases/prune_candidates_artifacts.sh, which counts them in the source and
+# in every emitted row.
+ROW='path|branch|status|days_idle|merged_into|head_sha|artifacts'
+rowfail=0
+for f in skills/prune-worktrees/SKILL.md skills/sync/SKILL.md \
+         skills/prune-worktrees/scripts/detect_candidates.sh; do
+  grep -qF "$ROW" "$f" 2>/dev/null || { bad "$f does not carry the row format"; rowfail=1; }
+done
+[ "$rowfail" -eq 0 ] && ok "all three name $ROW"
 
 head2 "relative links resolve"
 # NB: `grep` exiting 1 on "no matches" is normal here, and under `set -o pipefail`

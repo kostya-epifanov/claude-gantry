@@ -8,10 +8,21 @@
 # stdout:
 #   FETCH:ok            or   FETCH:failed
 #   one line per worktree, pipe-delimited:
-#     path|branch|status|days_idle|merged_into|head_sha
+#     path|branch|status|days_idle|merged_into|head_sha|artifacts
 #   status:      main | current | bare | locked | dirty | candidate | keep
 #   merged_into: comma-separated base names (develop,master,main) or -
+#   artifacts:   comma-separated chain artifacts the worktree holds, `-` for
+#                none, `?` when the worktree could not be read
+#
+# WHY `artifacts` IS NOT PART OF `status`. The chain's artifacts are excluded
+# from git, and `git status --porcelain` — the call that decides `dirty` below —
+# cannot see an excluded file. That is the whole reason this field exists; it is
+# read from the filesystem by lib/worktree_artifacts.sh instead. It is REPORTED
+# and never classified: every gantry worktree holds artifacts, so folding them
+# into `dirty` would make the prune skill inert.
 set -euo pipefail
+
+LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/lib"
 
 MAIN_ROOT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 CURRENT_WT="$(git rev-parse --show-toplevel)"
@@ -39,9 +50,19 @@ path="" branch="" locked=0 bare=0 headsha=""
 emit() {
   [ -z "$path" ] && return
   if [ "$bare" = "1" ]; then
-    echo "$path|-|bare|-|-|-"
+    echo "$path|-|bare|-|-|-|-"
     return
   fi
+
+  # `|| echo '?'` is load-bearing under `set -e`: a command substitution that
+  # exits non-zero terminates this whole script, so a worktree git still lists
+  # but whose directory is gone would truncate the row stream at that line — and
+  # a caller would bucket a partial candidate list without ever knowing. `?`
+  # (could not be read) is deliberately NOT `-` (holds nothing); flattening the
+  # two is how a truncation becomes invisible.
+  local artifacts
+  artifacts="$(bash "$LIB/worktree_artifacts.sh" "$path" 2>/dev/null || echo '?')"
+  [ -n "$artifacts" ] || artifacts='?'
 
   local status="" ref_for_check="$branch"
   [ -z "$branch" ] && ref_for_check="$headsha"
@@ -72,7 +93,7 @@ emit() {
     fi
   fi
 
-  echo "$path|${branch:--}|$status|$days_idle|$merged_into|${headsha:0:8}"
+  echo "$path|${branch:--}|$status|$days_idle|$merged_into|${headsha:0:8}|$artifacts"
 }
 
 while IFS= read -r line; do

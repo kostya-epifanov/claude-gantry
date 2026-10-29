@@ -1,7 +1,7 @@
 ---
 name: plan
 description: Write the task contract and the implementation plan — task.md and plan.md at the worktree root — asking whatever needs asking before any code is written. Use when the user types "/gantry:plan", or asks to plan a task, write a plan, or work out an approach before implementing.
-argument-hint: [task] [--lead <session>]
+argument-hint: [task] [--task <id>] [--lead <session>]
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Agent, AskUserQuestion, SendMessage
 ---
 
@@ -23,8 +23,8 @@ step 3, and are written in step 4. Knowing what a change touches is what tells y
 touch, so writing the boundary from the task description alone is guessing — and both
 `gantry:review` and `gantry:handover` then read that guess as a contract.
 
-This is the first phase of the gantry chain. The next is `/gantry:plan-grill`, which attacks what you
-wrote here.
+This is the first phase of the gantry chain. The next is `/gantry:grill`, which chains a cold
+critique of what you wrote here and then settles the approach with the user.
 
 ## Ask, don't assume
 
@@ -35,6 +35,9 @@ current data, which surface the change belongs on.
 
 Do **not** ask about things the repo answers. Read first, then ask about what reading cannot
 settle. One round of questions covering several forks beats a slow drip of one at a time.
+
+**If you were invoked with `--task <id>`** (a driver passes it through; strip it from the task), that
+is the tracker id this run carries, and it is the `id` you write in step 2.
 
 **If you were invoked with `--lead <session>`** (`gantry:auto` passes it through; strip it from the
 task), every question this skill asks goes to that lead instead, as a `fork`, following
@@ -48,9 +51,12 @@ questions** in `task.md` as an unchecked item and **leave it open**. Do not pick
 reading and continue: an assumption written into a plan looks exactly like a decision, and by the
 time it surfaces the implementation is built on it.
 
-An open fork is a **precondition**, not a note. While one is on the page the plan is not
-dispatchable, and step 7 will not mark it so. The driver decides what happens next — supervised
-puts the forks to the user, unattended stops the run — but neither outcome is yours to pre-empt by
+An open fork is a **precondition**, not a note — but it is no longer *this* phase's precondition.
+Step 7 marks the plan `planned` with forks open, because drafting is what this phase finishes. What
+an open fork blocks is **dispatch**, and two later guards read the forks directly to enforce that:
+`/gantry:grill` will not reach its approval while an entry is unchecked, and `/gantry:implement`
+hard-refuses on `FORKS:open` when a driver dispatched it. Supervised runs settle the fork inside
+grill's rounds; unattended runs stop and escalate. Neither outcome is yours to pre-empt by
 guessing.
 
 ## Steps
@@ -98,23 +104,25 @@ mainline harms nothing.
 
 ### 2. Write `task.md`
 
-**First, keep it out of git.** `task.md`, `plan.md` and `handover.md` are the chain's working
-state, not the change, and they are never committed — see `docs/ARCHITECTURE.md` § *The artifact
+**First, keep it out of git.** `task.md`, `plan.md`, `handover.md` and `review.md` are the chain's
+working state, not the change, and they are never committed — see `docs/ARCHITECTURE.md` § *The artifact
 contract*. Assert that before writing the first one, so the file is excluded from the moment it
 exists rather than after `ship` has already had a chance to sweep it in with `git add -A`:
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md /qa.md
 ```
 
 The leading `/` anchors each pattern to the worktree root, so a repo with its own `docs/task.md` or
-`specs/plan.md` is untouched. It writes to `.git/info/exclude`, which is untracked — **never**
+`specs/plan.md` is untouched. `review.md` is written by `gantry:review`, two phases from now; it is
+asserted here all the same, because `scripts/verify.sh` holds every call that names one of these to
+naming all four. It writes to `.git/info/exclude`, which is untracked — **never**
 `.gitignore`, which would put an edit to a tracked file in the user's pull request. The script is
 idempotent and race-safe, so running it on every plan costs nothing and two lanes doing it at once
 still leave one copy of each line.
 
 One thing it cannot do: a pattern does not untrack a file git already tracks. In a repository that
-ran 0.4.x these three may be **committed on the base branch**, in which case they will still show
+ran 0.4.x the first three may be **committed on the base branch**, in which case they will still show
 as modified rather than ignored. That is the `TASK:inherited` case above; say so, and leave the
 `git rm` to the user.
 
@@ -126,8 +134,13 @@ Then start from the template, in this order:
 
 Fill the frontmatter (`id`, `title`, `project`, `branch`, `mode`, `status: planning`, and
 `lead: <session>` when you were given one) and these
-sections **from the task and the conversation, before studying code** — this is the task's intent,
-and it must not be shaped by what the code turns out to make convenient:
+sections **from the task and the conversation, before studying code**. The `id` is the tracker id
+when the run has one — `--task <id>` from a driver, or, typed by hand, what `lib/task_id.sh` reports
+when you write the task text to a file and run it with `--args-file` (an id at the start of the
+text, or a tracker URL in it) — and `YYYY-MM-DD-<slug>` otherwise. It is what `journal_append.sh
+--task` records and what `gantry:ship` puts at the front of the PR title, so a tracker id here is
+how the PR reaches the issue. On a revise, keep the existing one. These sections are the task's
+intent, and they must not be shaped by what the code turns out to make convenient:
 
 - **Context & goal** — why this exists and what it is, in a paragraph or two. Enough that someone
   cold knows the problem, not just the instruction.
@@ -191,28 +204,50 @@ prose that cannot.
 
 State the test strategy explicitly: what gets a test, what does not, and why.
 
-### 6. Ask what is still open
+### 6. Ask only what you cannot draft without
 
-Put the forks from step 2 and anything code study raised to the user in one **AskUserQuestion**
-round. Fold the answers into both files, then **check each entry off in place** —
-`- [x] <the fork> — <what was decided>`.
+**`/gantry:grill` is the asking moment now, not this step.** Record every fork under *Open
+questions* and leave it open — which was already this skill's behaviour with no human present, and
+is now the default with one. Grill explains the problem, puts the forks to the user in priced
+options, and writes the decisions to disk.
 
-Do not delete a settled fork. A deleted entry is indistinguishable from one that was never raised,
-and the next reader cannot tell a decision from an oversight. The record of what was asked and
-answered is most of what this section is for.
+That leaves this step a narrow job: ask only what blocks *drafting*. If you genuinely cannot write
+a coherent plan without an answer — the task names two systems and you cannot tell which one it
+means — ask, in one **AskUserQuestion** round. Anything you can draft around is a fork, not a
+blocker, and recording it costs a line while asking it costs a round-trip the user did not need to
+spend twice.
+
+When you do settle something, **check each entry off in place** —
+`- [x] <the fork> — <what was decided>`. Do not delete a settled fork. A deleted entry is
+indistinguishable from one that was never raised, and the next reader cannot tell a decision from an
+oversight. The record of what was asked and answered is most of what this section is for.
 
 ### 7. Record the status
 
 Run the detector again and read its **`FORKS:`** line. It, not your recollection, decides whether
 this plan may leave the stage:
 
-- **`FORKS:none`** → set `task.md` frontmatter to `status: planned`. That is what tells
-  `/gantry:plan-grill`, and every later phase, where this task stands — the phases read it from disk,
-  never from the conversation.
-- **`FORKS:open`** → **leave `status: planning`** and report the open forks. `planned` is the
-  assertion that an implementer may be dispatched against this plan, and while a fork is open that
-  assertion is false. This is not a failure of the phase; a plan that correctly identifies a
-  decision nobody has made is the phase working.
+**Set `status: planned` once the draft is complete — whether or not a fork is open.** `planned`
+means *drafted*: these two files say what the task is and how it would be done. It deliberately does
+**not** mean an implementer may be dispatched. The chain now spells that out across three values —
+`planned` drafted, `critiqued` a critic read it, `grilled` a human agreed and the forks are closed —
+and only the last one is an approval.
+
+This is a change from the rule that held through 0.6.x, where an open fork kept the status at
+`planning`. It had to move: step 6 now records forks rather than asking them, so `FORKS:open` is the
+*normal* exit from planning, and `planning` routes to `NEXT:/gantry:plan` — the chain's own signpost
+pointing back at the phase that just finished. What protects dispatch is not this status but
+`/gantry:implement`, which hard-refuses on `FORKS:open` under `mode: auto` or `unattended`, and
+`/gantry:grill`, which will not reach its approval while an entry is unchecked. Two guards that read
+the forks directly, rather than a status standing in for them.
+
+So:
+
+- **`FORKS:none` or `FORKS:open`** → `status: planned`, and **report the open forks either way**. A
+  plan that correctly identifies a decision nobody has made is the phase working, not failing.
+- **Still drafting** — a section you could not write, a question from this step unanswered → leave
+  `status: planning`. That is what `planning` is for now: an unfinished draft, not a finished one
+  with questions attached.
 - **`FORKS:unknown`** → the file has no *Open questions* heading, so nothing can be checked. Warn,
   say the section is missing, and continue.
 
@@ -223,5 +258,6 @@ was dispatched or you read the code yourself, and the **`FORKS:` value with the 
 forks** — listing each one, if any survived. A fork left open is the single most important thing in
 this report: it is what stops the chain, and the reader needs to know what decision is waiting.
 
-End by naming the next command: `/gantry:plan-grill` on `FORKS:none`, or the fork itself on
-`FORKS:open` — there is nothing to grill a plan for until someone decides.
+End by naming the next command: **`/gantry:grill`**, which chains the cold critique itself and then
+puts every open fork to the user. Say how many forks are waiting there, so the reader knows what the
+conversation is for before it starts.

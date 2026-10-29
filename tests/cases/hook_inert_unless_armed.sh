@@ -35,7 +35,7 @@ assert_gate_not_run "$no_gates" "no gate file means the gate never runs"
 other="$(mkrepo other_statuses)"
 write_gates "$other" 1
 
-for status in planning planned grilled implemented reviewed shipped blocked; do
+for status in planning planned critiqued grilled implemented reviewed shipped blocked; do
   write_task "$other" "$status"
   run_hook "$other"
   assert_rc 0 "$HOOK_RC" "status:$status leaves the hook inert"

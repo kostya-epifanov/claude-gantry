@@ -256,12 +256,29 @@ find problems, it re-derives the reasoning that produced the plan and finds it s
 from the authoring context reliably returns "looks good", and returning "looks good" is exactly the
 outcome that makes the step worthless.
 
-So `gantry:plan-grill` **always** dispatches a fresh sub-agent, in every mode, including when a human
-typed the command. The critic gets the file paths and no planning conversation. It knows what the
-next engineer will know, which is the standard the plan actually has to meet.
+So `gantry:plan-critique` **always** dispatches a fresh sub-agent, in every mode, including when a
+human typed the command. The critic gets the file paths and no planning conversation. It knows what
+the next engineer will know, which is the standard the plan actually has to meet.
 
 The cost is one round-trip per task. The thing it buys is that a defect in the plan costs a
 paragraph to fix instead of an implementation.
+
+### Mechanism and interface are different phases
+
+The same argument says something about where the *human* belongs, and 0.7.0 acts on it. A critic
+attacks a plan from inside the plan's own approach: it hunts steps that will fail, missing
+migrations, unfalsifiable criteria. Every one of those lines of attack presupposes the approach is
+the right one. Nobody asks *is this the way to get what the task came for* — the question with the
+most leverage at plan time, and the one question a human can answer and a critic cannot.
+
+That is a different job from the cold read, with an opposite requirement. The critique must have no
+context, or it re-derives the author's reasoning. The conversation must have all of it, or it cannot
+explain the problem well enough to be worth answering. One context cannot be both, so they are two
+phases: `plan-critique` is headless and runs everywhere, `grill` converses and is human-only.
+
+`gantry:auto-unattended` therefore loses the conversation and keeps the critique. Dropping both
+would leave `plan → implement` with nothing in between, and make the first independent read of
+anything happen after the code was written.
 
 ## Handoff goes through disk
 

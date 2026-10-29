@@ -11,6 +11,7 @@ Both drivers point here rather than duplicating it, so the two cannot drift apar
 - The three modes
 - Arguments and flags
 - Invoking a phase, and where delegation happens
+- Headless phases
 - Checkpoints (`gantry:auto` only)
 - Gate resolution
 - Reusing worktree and ship
@@ -18,16 +19,23 @@ Both drivers point here rather than duplicating it, so the two cannot drift apar
 
 ## The three modes
 
-gantry runs the same seven-phase chain three ways. The phases are identical; what differs is who
-is driving and how often it stops.
+gantry runs the same chain three ways. A phase that appears in two of them is the *same* phase, not
+a variant of it — that is the property the whole design rests on. What differs is who drives, how
+often it stops, and one phase: `grill` is human-only, so `gantry:auto-unattended` runs
+`plan-critique` and no grill at all.
 
 | | Semi-auto | `gantry:auto` | `gantry:auto-unattended` |
 |---|---|---|---|
 | Driver | you, typing each phase | this skill | this skill |
 | Phases run | in your session | invoked by the driver | invoked by the driver |
-| Stops | after every phase | two checkpoints | never |
+| Review runs | in your session | **headless child** | **headless child** |
+| QA runs | `/gantry:qa` when you type it | `/gantry:qa --fix`, in the driver's session | `/gantry:qa`, no `--fix`, journaled |
+| No qa agent in the repo | continue | continue, one line in the report | continue, journaled — never a warning |
+| QA environment failed | you decide | continue; scenarios under *Not proven* | continue; scenarios under *Not proven*, journaled |
+| A failing scenario | you decide | the phase triages; stop on `blocked` | the phase triages and defers; `blocked` only on an acceptance criterion observably false |
+| Stops | after every phase | a grill conversation, then one checkpoint | never |
 | Red gate | you decide | stop and report | fix, capped at 2 attempts |
-| Open fork | `implement` warns; you decide | **AskUserQuestion**, after plan and after grill | **stop**, journal `escalation`, `blocked` |
+| Open fork | `implement` warns; you decide | settled inside `grill`, in priced options | **stop**, journal `escalation`, `blocked` |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
 | No gates found | continue, flagged | continue, flagged | **refuse to push** |
 | PR | ready | ready | **draft** |
@@ -36,9 +44,14 @@ is driving and how often it stops.
 Semi-auto has no driver skill — it *is* the phase skills, typed in order:
 
 ```
-/gantry:worktree → /gantry:plan → /gantry:plan-grill → /gantry:implement → /gantry:review --fix
+/gantry:worktree → /gantry:plan → /gantry:grill → /gantry:implement → /gantry:review --fix
+                 → /gantry:qa (runs the e2e scenarios, when the repo has a qa agent)
                  → /gantry:handover (only if something was deferred) → /gantry:ship
 ```
+
+`/gantry:grill` chains `/gantry:plan-critique` itself when the status is `planned`, so typing grill
+by hand runs the cold critique too — which is why the line above names one command where the chain
+has two phases. Type `/gantry:plan-critique` separately only to re-run a critique.
 
 **The gate is a hard blocker in all three.** Unattended removes the human checkpoints; it never
 removes the gate. That is the whole design: model for judgment, script for the guarantee.
@@ -57,25 +70,78 @@ and the name says what you are getting.
 ## Arguments and flags
 
 `$ARGUMENTS` is one string: the task description with optional flags mixed in. There is no flag
-parser — read it yourself. Strip the recognised flags out; what remains, cleaned up, is the task.
+parser for the flags themselves — read them yourself. The two values that have to be exact, the
+tracker id and an explicit `--branch`, come from `lib/task_id.sh` (see *Deriving the branch name*
+below). Strip the recognised flags out; what remains, cleaned up, is the task.
 
 | Flag | Effect |
 |---|---|
 | `--no-pr` | End after push; don't open a PR. Passed through to `gantry:ship`. |
 | `--branch <name>` | Use this exact branch name instead of deriving one from the task. |
+| `--task <id>` | The tracker id for this run (`BASE-71`, `GH-71`, a Jira key). Wins over an id found in the task text or a tracker URL. Passed through to `gantry:plan`. |
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. Refuses on the repo default branch or a detached HEAD. |
 | `--base <branch>` | Override the PR base branch. Passed through to `gantry:ship` (and its detector). |
 | `--lead <session>` | **`gantry:auto` only.** Every question the run would ask in a dialog goes to that lead session by `SendMessage`, and only a narrow reply vocabulary is accepted. Protocol: `references/lead.md`. `gantry:auto-unattended` refuses the flag. |
+| `--review-model <alias>` | The model the review children run on, passed to the launcher as `--model`. Absent, the child inherits the user's default. `sonnet` is a cost-neutral choice for a review. `gantry:ship` takes it too. |
+| `--review-effort <level>` | The effort level for the review children, passed as `--effort`. Absent, neither flag is passed and the child inherits. |
 
 Everything not a flag is the task. If nothing remains after stripping them, stop and ask what the
 task is — except under `gantry:auto-unattended`, where there is nobody to ask: stop and report.
 
 ### Deriving the branch name
 
-When `--branch` isn't given, derive one from the task: a short kebab-case slug, prefixed by type
-when the task makes it obvious — `feat/` for new capability, `fix/` for a bug, else no prefix.
-"add a dark-mode toggle" → `feat/dark-mode-toggle`. Keep it under ~40 chars. `gantry:worktree`
-validates it and owns the branch and parent logic from there.
+The driver reads its flags as prose, but the two values that have to be exact — a tracker id and
+an explicit `--branch` — come from a script. First exclude the artifacts directory, then write the
+**whole argument string, verbatim**, to a file of your own under it with the Write tool — never by
+echoing it on a command line, since a task description may carry quotes, backticks or `$(`, which a
+worktree-isolated session refuses and a shell might expand — and run the parser on it:
+
+```bash
+bash "$GANTRY/lib/ensure_excluded.sh" .claude/artifacts/
+bash "$GANTRY/lib/task_id.sh" --args-file .claude/artifacts/args-<something unique to this run>.txt
+```
+
+Name the file per run — the slug you are about to derive, or a timestamp — because several lanes
+can start from the same checkout at once, and a shared `args.txt` would hand one lane another's id.
+
+It prints four lines — `ID:`, `SOURCE:`, `BRANCH:`, `TEXT:` — and the header of `lib/task_id.sh`
+is the contract. The id comes from, in order: `--task <id>`; an id at the **start** of the task
+text (`BASE-71 integrate should update docs`, the drivers' own flags skipped); a tracker URL in the
+text (a GitHub issue becomes `GH-<n>`, Linear and Jira links give their key); and, on a re-run
+inside a lane, `task.md`'s `id:` — pass `--task-file task.md` for that, under `--here`, and **only
+when the detector says `TASK:present`**: an `inherited` file is the previous task's contract, and
+its id would title the new PR after the wrong issue. A tracker id is `[A-Z][A-Z0-9_]*-[0-9]+`, kept
+exactly as written. `TEXT:` is the string with `--task`, `--branch` and the leading id removed, and
+is what you pass on as the task; every other flag is still in it for you to read.
+
+**Value-taking flags go before the task.** `--task` and `--branch` are read as flags only in the
+run of flags ahead of the task's first word; from that word on every token is text, so a task
+that *mentions* `--branch` or `--task` in prose keeps its words and names nothing. A `--task` or
+`--branch` you meant as a flag but typed after the text is still visible in `TEXT:` — move it.
+
+Exit `2` means a leading `--task` or `--branch` that is repeated or has a missing or bad value:
+`gantry:auto` asks, and `gantry:auto-unattended` stops and reports.
+
+Then the name:
+
+- **`BRANCH:` is not `-`** → use it verbatim. The rule below does not apply to an explicit name.
+- Otherwise derive `<type>` and `<slug>` from `TEXT:` as before: a short kebab-case slug, prefixed
+  by type when the task makes it obvious — `feat/` for new capability, `fix/` for a bug, else no
+  prefix. "add a dark-mode toggle" → `feat/dark-mode-toggle`.
+- **`ID:` is not `-`** → the name is `<type>/<ID>-<slug>` (`<ID>-<slug>` with no type):
+  "BASE-71 integrate should update docs" → `feat/BASE-71-integrate-docs`. Keep the whole name under
+  ~48 characters by shortening the slug, never the id, and never over the 64 that
+  `gantry:worktree` enforces.
+- **`ID:` is `-`** → exactly the name you would have derived before: `<type>/<slug>`, under ~40
+  characters.
+
+`gantry:worktree` validates the result and owns the branch and parent logic from there. The
+worktree path follows the branch, as always: `.claude/worktrees/feat/BASE-71-integrate-docs`.
+
+`ID:` is also the run's task id. Pass it to `/gantry:plan` as `--task <id>`, the same way `--lead`
+is passed, so `task.md`'s `id:` is the tracker id and `journal_append.sh --task`, the readiness
+hook and the PR title all see the same id as the branch. Under `--here` there is no name to derive,
+but the id still goes to plan. With no id, plan writes its date-slug id as before.
 
 ## Invoking a phase, and where delegation happens
 
@@ -95,14 +161,22 @@ that a tool boundary means something:
 | Phase | Dispatches | For what | Repo override |
 |---|---|---|---|
 | plan | `gantry-explorer`, when the surface is unfamiliar or wide | locating files, entry points, patterns → *Affected areas* | `.claude/agents/explorer.md` |
-| grill | `gantry-critic`, **always, in every mode** | reading `task.md` and `plan.md` cold and returning findings | `.claude/agents/critic.md` |
+| critique | `gantry-critic`, **always, in every mode** | reading `task.md` and `plan.md` cold and returning findings | `.claude/agents/critic.md` |
+| grill | — | it converses; the critique it chains is `plan-critique`'s dispatch, never its own | — |
 | implement | — | the phase writes the code; the gate is a script | — |
-| review | `gantry-reviewer`, when `/code-review` is unavailable | reading a diff it did not write | `.claude/agents/reviewer.md` |
+| review | `gantry-reviewer`, when `/code-review` is unavailable — inside a **headless child session**, not the driver's | reading a diff it did not write | `.claude/agents/reviewer.md` |
+| qa | the repo's `qa` agent, **only if the repo defines one** — gantry ships no default | driving the built app through the task's e2e scenarios | `.claude/agents/qa.md` — the one role with no `gantry-` fallback |
 
 **Every agent gantry ships is read-only.** `gantry-explorer` and `gantry-critic` have `Read, Grep,
 Glob`; `gantry-reviewer` adds `Bash` to read git and run checks.
 None can write, however it is prompted — a boundary prose cannot enforce. Writing therefore happens
 in the phase skill, in the caller's own context, where it is visible rather than reported.
+
+**The `qa` role is the exception that proves the rule.** Its agent needs a tool that taps real UI —
+a Maestro or Playwright MCP server — and which one depends on the stack, so a published plugin
+cannot ship it; and a reviewer must never have it. So the repo supplies the whole agent, its
+`tools:` line is the boundary, and the phase records that line in `qa.md`. Absent, `/gantry:qa`
+reports `no-agent` and the chain continues; absence is the normal case and is never a warning.
 
 **Resolution is per role, repo first, independently** — and the *phase* does it, not the driver. A
 repo that has tuned one agent to its codebase overrides that one and inherits the rest. A driver's
@@ -110,7 +184,7 @@ job is to say, at the end, which agents the phases reported actually dispatching
 
 **Why a driver still carries `Agent` in `allowed-tools`.** Not to dispatch phases. A skill's
 frontmatter *restricts* what is permitted while it is active; it does not grant. So a driver must
-permit every tool the phases it invokes need — `Agent` included, or `plan-grill` cannot dispatch
+permit every tool the phases it invokes need — `Agent` included, or `plan-critique` cannot dispatch
 its critic.
 
 If a dispatch fails with an unknown agent type, the repo's roster was added mid-session and needs a
@@ -119,6 +193,39 @@ optional is one you cannot trust to have delegated.
 
 **All handoff is via disk.** Never assume an agent can see your context or another agent's. Give it
 paths and let it read them; take back a summary, not the payload.
+
+## Headless phases
+
+Review is the first phase that does not run in the driver's session at all. By stage 5 the
+driver's context holds the plan, the critique and the whole implementation; in the one `auto` run
+on disk, `/code-review` started at 187k tokens of context and ran inline, so the diff was reviewed
+by the model that wrote it. So both drivers, and `gantry:ship --review`, launch it as a fresh
+`claude -p "/gantry:review --headless …"` child through `lib/run_phase_headless.sh`, wait for the
+completion notification (the launcher runs with `run_in_background`; there is no polling loop),
+and read the results from disk: the launcher's labeled lines, `review.md`, and `task.md`'s status.
+
+The phase skill still carries the procedure. What the launcher owns is the **boundary**, set by the
+harness rather than by prose: the review child runs under `--permission-mode dontAsk` with an
+allowlist of exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`,
+`handover.md` and `task.md` (the relative form resolves against the child's current directory,
+which a `cd` moves; the absolute form holds wherever the shell ended up), `Skill(gantry:handover)`
+(a plugin skill is denied under `dontAsk` without it), and Bash rules for four read-only gantry
+scripts (the gate, the exclusion writer, the stage detector, the diff fingerprint — each in both
+quote forms, because a rule matches the literal command). It can write the chain's artifacts and
+nothing else. The fix step is a **second child**, `gantry:review --fix`
+under `acceptEdits` with the same Bash rules, which applies what `review.md` lists and re-runs the
+gate. The driver never sees the child's transcript; a human who wants it uses
+`claude --resume <session id>`, and the id is in the driver's report and the journal.
+
+What the launcher's exit code means, and what a `DENIED:` line does not: `docs/ARCHITECTURE.md`
+§ *Headless phases*.
+
+**QA is not headless, and the reason is different from review's.** Its heavy context — screenshots
+and UI trees — already lives in the repo's `qa` sub-agent, and the phase takes back a summary; and
+there is no author bias to shed, because the driver is a different agent by construction. A
+headless `qa` child would also need the launcher to allowlist the repo agent's MCP tools, which
+the launcher cannot know. So both drivers invoke `/gantry:qa` in their own session, after the
+review children have finished.
 
 ### Preconditions for unattended — no blocking prompts
 
@@ -130,9 +237,11 @@ would hang the run:
   up front.
 - **`gantry:ship`** pauses to ask how to split when it sees several unrelated changes. Keep the task
   single and coherent so the diff is one change.
-- **`gantry:plan`** asks when a genuine fork would change the work. Under `unattended` it records
-  the fork in *Open questions*, leaves it open, and does **not** mark the plan `planned`. It does
-  not take a reading of its own — see below.
+- **`gantry:plan`** asks only what it cannot draft without, in every mode; everything else it
+  records in *Open questions* and leaves open. It does not take a reading of its own — see below.
+- **`gantry:grill`** is human-only and therefore **not in this chain at all.** Unattended invokes
+  `/gantry:plan-critique` directly. The critique is what survives; the conversation is what this
+  mode gives up.
 
 If a prompt is unavoidable for a given task, that task isn't a fit for unattended — run it
 supervised.
@@ -144,10 +253,12 @@ not avoid the question by answering it conservatively; it **stops**:
 
 - `lib/detect_stage.sh` reports `FORKS:open|none|unknown|absent` from `task.md`'s *Open questions*.
   An unchecked box, or a bare bullet with no box, is open.
-- Both drivers check it **twice** — after plan, and again after grill, because a critique can open
-  a fork that planning never had.
-- **Supervised** puts the open forks to the user in one `AskUserQuestion` round at each point.
-  Planning is the cheap moment: the same fork found at review has an implementation on top of it.
+- `plan` **records** forks rather than asking them, in every mode. `plan-critique` can open one that
+  planning never had, and records it the same way.
+- **Supervised** settles them inside `grill`, as priced options in the rounds. Grill will not reach
+  its terminal question while an entry is unchecked, so a supervised run cannot carry an open fork
+  past it. Planning time is the cheap moment: the same fork found at review has an implementation on
+  top of it.
 - **Unattended** journals an `escalation` event, sets `status: blocked`, hands over, and stops.
 - `gantry:implement` refuses on `FORKS:open` when `mode:` is `auto` or `unattended`, so the
   guarantee holds even if a driver's own check were skipped. Typed by hand it warns instead — a
@@ -157,25 +268,37 @@ The reasoning is the same as the gate's. A conservative reading of a fork is sti
 nobody made, and once it is written into a plan it is indistinguishable from one somebody did. A
 blocked run costs a re-run; a wrong assumption costs the work built on it.
 
-## Checkpoints (`gantry:auto` only)
+## Where `gantry:auto` stops
 
-Two, both **AskUserQuestion** so the user can redirect in one step:
+Two stops, and they are different kinds of thing:
 
-1. **After plan and grill.** Show the plan as grilled, the findings that changed it, and the
-   branch and worktree that were created. "Proceed with this plan?" This is also the moment to
-   catch a wrong branch name — cheap to recreate now, before any edits.
-2. **After review, before anything outward-facing.** The gate is green and the review is in hand.
-   "Commit, push, and open the PR?" One gate in front of every side effect, since `gantry:ship`
-   won't pause once invoked.
+1. **The grill conversation**, which is a phase rather than a checkpoint. `/gantry:grill` explains
+   the problem, settles the open forks in priced options, and its **terminal question is the plan
+   approval**. There is no separate "Proceed with this plan?" dialog: a yes at the end of a
+   conversation is worth more than a yes in front of a wall of text, and the old dialog was the
+   cheapest possible form of input on a plan the user had just been handed. Grill is also the last
+   cheap moment to **catch a wrong branch name** — nothing has been edited yet, so the worktree
+   costs one command to recreate; after `implement` there is a diff to move.
+2. **One `AskUserQuestion` checkpoint, after review and QA, before anything outward-facing.** The
+   gate is green, the review is in hand, and the QA verdict is on disk. "Commit, push, and open the
+   PR?" One gate in front of every side effect, since `gantry:ship` won't pause once invoked.
 
-No checkpoint between implement and gate — the gate is the check there, and it is automatic. There
-is deliberately no checkpoint after grill on its own: grill's whole job is to make the plan worth
-approving, so the approval belongs after it, not either side of it.
+So `gantry:auto` contains exactly one `AskUserQuestion` checkpoint. Everything else it asks, it asks
+through `grill`.
+
+No checkpoint between implement and gate — the gate is the check there, and it is automatic. And no
+checkpoint on either side of grill: its whole job is to make the plan worth approving, so the
+approval belongs at the end of it rather than after it.
+
+**A driver must not write `status: grilled` itself.** Grill leaves `critiqued` precisely when it did
+not converge — a fork still open — and with the fork rounds gone there is no later round to catch
+that. A driver that overwrote the status would be asserting an approval nobody gave; it stops and
+surfaces the fork instead.
 
 ### Lead mode
 
-Under `gantry:auto --lead <session>`, both checkpoints, both fork rounds, and the questions the
-phases ask themselves are put to the lead with `SendMessage` instead of `AskUserQuestion`.
+Under `gantry:auto --lead <session>`, the checkpoint, grill's rounds, and the questions the phases
+ask themselves are put to the lead with `SendMessage` instead of `AskUserQuestion`.
 `references/lead.md` is the whole protocol, and every asking phase points at it: which questions it
 replaces and of which kind, what the message carries, how a reply is classified by
 `lib/lead_reply.sh` rather than read, what a lead may decide and what stays the owner's, and how the

@@ -1,6 +1,6 @@
 # Skills reference
 
-Thirteen skills. Each section: what it does, its arguments, what it **refuses** to do, what it
+Fifteen skills. Each section: what it does, its arguments, what it **refuses** to do, what it
 invokes, and the scripts it owns. For the design argument see [METHOD.md](METHOD.md); for how they
 connect, [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -16,7 +16,12 @@ One chain of phases, three ways to run it.
 |---|---|---|---|
 | Driver | you, typing each phase | the skill | the skill |
 | Phases run | in your session | invoked by the driver | invoked by the driver |
-| Stops | after every phase | two checkpoints | never |
+| `grill` | yours to run | **yes** — it carries the plan approval | **no** — human-only |
+| Review runs | in your session | **headless child** | **headless child** |
+| QA runs | `/gantry:qa` when you type it | `/gantry:qa --fix`, in the driver's session | `/gantry:qa`, no `--fix` |
+| No qa agent / env failed | continue | continue; declared scenarios under *Not proven* | continue, journaled; same disclosure |
+| A failing scenario | you decide | triaged; stop on `blocked` | triaged, deferred; `blocked` only on an acceptance criterion observably false |
+| Stops | after every phase | a grill conversation, then one checkpoint | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
 | No checks found | continue, flagged | continue, flagged | **refuse to ship** (exit 3) |
@@ -37,16 +42,31 @@ branch** (so `worktree` doesn't ask which parent to use) and keep the task singl
 
 ## Shared flags
 
-Both drivers take these flags, parsed from one argument string — there is no flag parser, the
-skill reads them itself and what remains is the task. `--lead` is the exception: `auto` only.
+Both drivers take these flags, parsed from one argument string — the skill reads them itself and
+what remains is the task. The two values that have to be exact, the tracker id and an explicit
+`--branch`, come from `lib/task_id.sh`, which reads the string from a file and takes those two as
+flags only ahead of the task's first word, so a task that mentions them in prose keeps its words.
+`--lead` is the exception: `auto` only.
 
 | Flag | Effect |
 |---|---|
 | `--no-pr` | End after the push; don't open a PR. Passed through to `ship`. |
 | `--branch <name>` | Use this exact branch name instead of deriving one from the task. |
+| `--task <id>` | The tracker id for this run. Wins over an id at the start of the task text or a tracker URL in it. |
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. |
 | `--base <branch>` | Override the PR base branch. Passed through to `ship` and its detector. |
 | `--lead <session>` | **`auto` only.** Put every question to that lead session by message instead of a dialog, accepting only an option label, `proceed`, `stop`, or a file path. `auto-unattended` refuses it. |
+| `--review-model <alias>` | The model the headless review children run on (`--model` to the child). Absent, the child inherits your default. `sonnet` is a cost-neutral choice for a review. `ship --review` takes it too. |
+| `--review-effort <level>` | The effort level for the review children (`--effort` to the child). Absent, the child inherits. `ship --review` takes it too. |
+
+**Naming.** When the task carries a tracker id — from `--task <id>`, an id at the start of the task
+text (`BASE-71 integrate should update docs`), a tracker URL in it (a GitHub issue becomes `GH-<n>`;
+Linear and Jira links give their key), or `task.md`'s `id:` on a re-run, in that order — the derived
+branch and worktree are `<type>/<ID>-<slug>` (`feat/BASE-71-integrate-docs`), `task.md`'s `id:` is
+the tracker id, and `ship` puts `<ID>: ` at the front of the PR title with a `Tracker:` line in the
+body so the tracker links the PR to the issue. With no id, naming is exactly what it was. `--branch`
+wins verbatim either way; `task.md` still gets the id. The rule is written once, in
+`skills/auto/references/orchestration.md` § *Deriving the branch name*.
 
 ---
 
@@ -59,8 +79,10 @@ by hand, and pick it back up. What a phase is told comes in as arguments, like t
 Under `auto --lead`, that includes the lead for `worktree` and `plan`, which run before `task.md`
 exists to record it.
 
-**A phase that asks, asks the lead when there is one.** `worktree`, `plan`, `plan-grill`, `review`
-and `ship` each have a question they can put to you. When `task.md` names a `lead:` (or, for
+**A phase that asks, asks the lead when there is one.** `worktree`, `plan`, `grill`, `review`,
+`qa` and `ship` each have a question they can put to you — `grill` most of all, since it is the
+chain's one asking moment. `plan-critique` is absent from this list on purpose: it is headless and
+asks nothing on any path. When `task.md` names a `lead:` (or, for
 `worktree` and `plan`, when the driver passed `--lead`), that question goes to the lead by
 `SendMessage` and the reply goes through `lib/lead_reply.sh`, following `auto`'s
 `references/lead.md`. Typed by hand with no lead recorded, they ask you as always.
@@ -68,7 +90,7 @@ and `ship` each have a question they can put to you. When `task.md` names a `lea
 **The chain has three hard refusals about its own state, all `implement`'s:** it refuses to start
 without a `plan.md`, it refuses to start while `task.md`'s *Open questions* still holds an
 undecided fork **and a driver dispatched it**, and it refuses to move past a non-zero gate. The
-other refusals below are narrower — `plan-grill` has nothing to critique without a `plan.md`, and
+other refusals below are narrower — `plan-critique` has nothing to critique without a `plan.md`, and
 `review` rejects an invalid `--tier` — and concern what a phase was asked, not where the chain
 stands. Everything else warns and proceeds, naming what was missing. Since you may iterate by hand
 between phases, a stale or absent artifact is a normal state rather than an error — which is
@@ -102,21 +124,50 @@ when it isn't, and says which it did.
 - **Invokes:** the explorer, conditionally.
 - **Templates:** the repo's `docs/templates/task.md` if it has one, else `templates/task.md`.
 
-## `/gantry:plan-grill` — attack the plan
+## `/gantry:plan-critique` — attack the plan
 
-`/gantry:plan-grill`
+`/gantry:plan-critique`
 
 Hunts unstated assumptions, unfalsifiable acceptance criteria, steps that will fail on contact with
-the code, missing work, and scope drift. Revises `plan.md` and records what changed.
+the code, missing work, and scope drift. Revises `plan.md`, records the pass under `## Critique`,
+and sets `status: critiqued`.
 
 **It always dispatches a fresh critic sub-agent, in every mode — including when you type it
 yourself.** A context that just wrote the plan already believes its assumptions and has already
 dismissed the alternatives; self-critique from there is theatre. The critic is given the file paths
 and no planning conversation, on purpose.
 
-- **Refuses:** to invent a plan in order to critique it — no `plan.md` means nothing to grill.
+**It is headless**, with no `AskUserQuestion` on any path, which is what keeps it available to
+`auto-unattended`. A finding that turns on someone else's decision is *recorded* as an open fork
+rather than resolved, and `grill` is where those close.
+
+- **Refuses:** to invent a plan in order to critique it — no `plan.md` means nothing to critique.
 - **Invokes:** `gantry-critic`; `gantry:handover` if the task itself turns out to be wrong.
 - **Honest about its limits:** a critique that found nothing is reported as such rather than padded.
+
+## `/gantry:grill` — settle the approach
+
+`/gantry:grill [--rounds N]`
+
+The chain's one asking moment. Explains the problem — what the task is for, the approach the plan
+takes, which findings bear on it — then asks in up to `--rounds N` rounds (default **3**, or **1**
+under `--lead`), folds the decisions into `task.md`'s `## Decisions`, and closes with a terminal
+question that **is** the plan approval.
+
+Every question leads with a recommendation and every option is priced by **what it costs**, the
+recommended one included. A round only happens if it would change the plan, and a reply meaning
+"go with your recommendation" ends the dialogue in one step — each remaining fork then recorded as
+*decided by recommendation, unconfirmed*.
+
+**It never critiques inline.** On `status: planned` it invokes `/gantry:plan-critique` first, so
+typing it by hand does the whole thing; the cold read always comes from a dispatched agent, because
+a context that converses about a plan is not the context that can attack it.
+
+- **Refuses:** to grill a draft (`status: planning`) or a missing plan; to reach its approval while
+  a fork is still open — it leaves `critiqued` and reports instead.
+- **Invokes:** `/gantry:plan-critique` when the critique has not run; `gantry:handover` if the task
+  itself turns out to be wrong.
+- **Not in `auto-unattended`:** it is human-only. That mode runs the critique and no grill.
 
 ## `/gantry:implement` — carry it out, and prove it
 
@@ -138,7 +189,7 @@ This phase owns the gate loop, because "implemented" and "passes the checks" are
 
 ## `/gantry:review` — independent read, then act
 
-`/gantry:review [--tier <medium|high|xhigh|max>] [--fix]`
+`/gantry:review [--tier <medium|high|xhigh|max>] [--fix] [--headless]`
 
 Three **sources**, and it **always names which one ran**: `/code-review`, then a `gantry-reviewer`
 sub-agent, then self-review — the last being materially weaker, which is exactly why hiding it
@@ -158,15 +209,98 @@ absorb what review turned up is how a focused diff becomes an unreviewable one.
 
 **Read-only without `--fix`**, where read-only means the code under review. It still writes
 `task.md`'s status — always, because that is what `detect_stage.sh` reads to move the chain on —
-and `handover.md` when something was deferred.
+`review.md`, always, and `handover.md` when something was deferred.
+
+**`review.md` is the findings file**, written at the worktree root on every review: the branch,
+the base, a fingerprint of the diff from `lib/diff_fingerprint.sh`, the source that ran, the tier,
+the two tallies, and the address-now findings (file, line, what is wrong, the failure) — or
+`None.`, so the fix step can tell "reviewed, nothing to apply" from "never reviewed".
+`lib/detect_stage.sh` reports it as `REVIEW:absent|pending|applied|clean`, and a `reviewed` task
+whose file is still `pending` stays at the fix step rather than moving to ship.
+
+**`--fix` is stage-aware.** With `REVIEW:pending` and `status: reviewed` it is **apply mode**: it
+checks the file's branch and fingerprint against the tree, applies the listed findings without
+reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit>` to the file. A
+fingerprint that no longer matches is a refusal — the file describes a different diff — and so is a
+`pending` file under any other status, which means the review that wrote it did not finish. With
+`REVIEW:absent` it reviews and then fixes, as before.
+
+**`--headless`** is what the drivers' launcher passes: a finding whose triage is honestly
+ambiguous is deferred rather than asked about, whatever `mode:` says — a print-mode child cannot
+wait for a reply.
 
 Gets the diff with `git diff <base>` plus `git status --short`, because the tree is normally
 uncommitted at this point and a three-dot range would come back empty.
 
 - **Refuses:** to expand scope in order to fix a finding; to pass `--fix` through to
-  `/code-review`; an out-of-set `--tier`, without falling back to `high`.
+  `/code-review`; an out-of-set `--tier`, without falling back to `high`; to apply a `review.md`
+  whose branch or fingerprint no longer matches the tree; to review a tree whose status is still
+  `implementing`.
 - **Invokes:** `gantry:handover` for everything deferred, with or without `--fix`.
-- **Scripts:** `lib/run_gates.sh`, after any fix it makes.
+- **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`.
+- **Shared:** its verify, triage and hand-over steps (3, 4 and 6) are the ones `qa` applies to a
+  failing scenario, by reference — one procedure, two phases.
+
+## `/gantry:qa` — run the product, not the diff
+
+`/gantry:qa [--fix]`
+
+Runs the task's e2e scenarios against the **built app** and records, per scenario, `pass`, `fail`
+or `could-not-reach` with a concrete observation and the evidence it saved. The gate proves the
+tree with an exit code and `review` reads the diff; neither taps through the feature, and until
+this phase that was the slowest step still left to a human reviewer.
+
+**The repo supplies the driver and the environment; gantry supplies the contract.** Two files,
+both repo-owned, both opt-in:
+
+- `.claude/agents/qa.md` — the agent that drives the app. Its `tools:` line carries whatever drives
+  that stack (the Maestro MCP tools, the Playwright MCP tools) and **is the boundary**; the phase
+  records that line in `qa.md`. **gantry ships no `gantry-qa`**: a default would have to pick a
+  stack, which a published plugin cannot do, and a reviewer must never hold a tool that taps real
+  UI. Absent, the phase reports `no-agent` and the chain continues — the normal case, never a
+  warning, the same stance as the `gantry-profile` contract.
+- `.claude/qa-env.sh` — build, boot, install, log in: the deterministic half, with the gate's
+  exit-code shape. `0` the app is up · `1`+ setup failed · `2` the script could not run. Non-zero is
+  **`unrunnable`**, which is never a failed QA: "the feature does not work" and "nobody could check"
+  are different lines in the PR body. An agent file with no env script beside it is a configuration
+  error the phase names and treats as `unrunnable`.
+
+Scenarios come from `task.md`'s `e2e.scenarios` block (`declared`); when the block is empty the
+phase derives two to four from the acceptance criteria the diff touches (`derived`), and `qa.md`
+says which each was. Nothing to derive is `no-scenarios`, decided **before** anything is booted.
+
+**Reported, never enforced.** The verdict blocks nothing on its own, in any mode. A failing
+scenario goes through `review`'s own verify/triage/hand-over steps, by reference; with `--fix` an
+in-scope failure is repaired, the gate re-runs, and the failed scenarios are re-run once against
+the rebuilt app. The one `blocked`: a verified failure that falsifies a stated acceptance criterion
+and was not repaired — a fact about the task, not an enforcement of the verdict.
+
+**The loop.** When the agent reproduced a scenario as a flow file in the repo's own format, the
+phase asks whether to keep it (supervised) or keeps it and writes a `handover.md` item (unattended).
+Once `.claude/gates.sh` runs it, that scenario is enforced from the next task on, by the hook, with
+no model in the loop — the exploratory pass is the expensive step, and what it leaves behind is the
+cheap one.
+
+**`qa.md`** is the fifth artifact: written at the worktree root on every run that got past the
+stage check, whatever the outcome, so that "qa ran and found no agent" and "qa never ran" are
+different facts on disk. `lib/detect_stage.sh` reports its `outcome:` as
+`QA:absent|exercised|unrunnable|no-agent|no-scenarios|unknown`, the task's block as
+`E2E:present|none|absent`, and the two opt-ins as `QA_ROLE:` and `QA_ENV:`. `ship` quotes the file
+under a fixed `## Exercised by this run` heading, and puts declared scenarios that were not run
+under `## Not proven by this run`.
+
+It runs in the caller's session, not a headless child: the screenshots and UI trees are the
+sub-agent's context, and there is no author bias to shed.
+
+- **Refuses:** to run on `status: implementing` (no proven tree to build from); to drive the app
+  itself when the repo's agent cannot be dispatched; to fix anything without `--fix`; to fix
+  anything *Out of scope* with it.
+- **Invokes:** the repo's `qa` agent; `gantry:handover` for what it deferred.
+- **Scripts:** `lib/run_gates.sh`, after any fix it makes **and over any flow file it keeps** —
+  ship runs no gate, so a kept flow is otherwise pushed unchecked; one still red after two attempts
+  is parked under `.claude/artifacts/qa/<task-id>/flows/` and handed over. The repo's
+  `.claude/qa-env.sh`.
+- **Starters:** `examples/agents/qa.md`, `examples/qa-env.sh`.
 
 ## `/gantry:handover` — what this change left
 
@@ -199,12 +333,20 @@ grilled, and before anything outward-facing. Opens a **ready-for-review** PR.
 what stops the three ways of running from becoming three subtly different pipelines. It dispatches
 no sub-agents of its own; each phase delegates its own sub-job.
 
+**The review runs in a fresh headless child session**, not in the driver's — `claude -p
+"/gantry:review --headless"` launched through `lib/run_phase_headless.sh`, with a tool boundary the
+harness enforces (it can write only the chain's artifacts), then a second child for the fix step.
+The driver's own context is the author's by then, and the reviewer must not inherit it. The report
+carries both children's session ids, the model and effort they ran with, the gate exit the fix
+child recorded, and any permission denials. `docs/ARCHITECTURE.md` § *Headless phases*.
+
 - **Refuses:** to proceed past a non-zero gate; to run `--here` on the default branch or a
-  detached HEAD.
-- **Invokes:** `gantry:worktree`, the four phase skills, `gantry:ship`.
+  detached HEAD; to carry on when a review child failed.
+- **Invokes:** `gantry:worktree`, `plan`, `plan-critique`, `grill`, `implement` and `qa --fix` in
+  its session; `review` and its fix step as headless children; `gantry:ship`.
 - **Detail:** `references/orchestration.md`, shared with `auto-unattended`.
-- **`--lead <session>`:** a lane a lead session steers. Every question — the two checkpoints, the
-  fork rounds, and the ones `worktree`, `plan`, `plan-grill`, `review` and `ship` ask — goes to the
+- **`--lead <session>`:** a lane a lead session steers. Every question — the checkpoint, `grill`'s
+  rounds, and the ones `worktree`, `plan`, `review` and `ship` ask — goes to the
   lead by `SendMessage`. A reply is not read but classified by `lib/lead_reply.sh`: an option label,
   `stop`, `proceed` at a checkpoint, or a file inside the worktree (read as data, then asked again);
   anything else is rejected and re-asked. A lead can direct the run as far as an open PR; merge and
@@ -225,7 +367,11 @@ missing roster.
 
 Its report is written for someone who was not there, because nobody was: every assumption `plan` had
 to make without being able to ask, which agents the phases actually dispatched, which review tier
-ran, the gate's exit code on every run, and whether the hook's firing conditions were met.
+ran, the gate's exit code on every run, and whether the hook's firing conditions were met. The
+review runs as headless children, the same way `auto`'s does, and the journal's `phase` events
+carry their session ids; a child that fails sets `status: blocked` with the launcher's reason in
+the journal. `qa` runs without `--fix` — a UI-driven fix nobody watched is the wrong kind of
+autonomy — and a failing scenario is deferred into the draft PR's body rather than repaired.
 
 - **Refuses:** to push when no checks were found; to proceed on a plan that failed its critique;
   to fall back to inline work when a dispatch fails; `--lead`, which has no questions to route here.
@@ -240,7 +386,7 @@ ran, the gate's exit code on every run, and whether the hook's firing conditions
 
 ## `/gantry:ship` — commit, push, PR
 
-`/gantry:ship [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--base <branch>]`
+`/gantry:ship [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--review-model <alias>] [--review-effort <level>] [--base <branch>]`
 
 An idempotent stage machine. It runs `detect_state.sh` once, routes on the reported stage, and
 falls through the remaining steps without re-detecting — **except** after `--review-fix`, which can
@@ -248,11 +394,13 @@ create a commit and therefore forces a re-detect before the push.
 
 **Ship does not review.** There is no review stage on its path, and a bare `/gantry:ship` never
 invokes a reviewer: a review is slow, expensive and worth choosing, so it is asked for rather than
-suppressed. `--review` invokes `gantry:review` between the commit and the push; `--review-fix`
-invokes it with `--fix`, so findings are applied, committed separately, and the gate re-run over
-them, with a red gate stopping the push. Both take an optional tier — `--review=<tier>` — which
-ship forwards **unvalidated**, because `gantry:review` owns that list and a second copy would
-drift. A review you asked for can block the ship; a missing reviewer never does.
+suppressed. `--review` launches `gantry:review` as a headless child between the commit and the
+push, through the same launcher the drivers use; `--review-fix` then launches a second child for
+the fix step, so findings are applied, committed separately, and the gate re-run over them, with
+a red gate stopping the push. Both take an optional tier — `--review=<tier>` — which ship forwards
+**unvalidated**, because `gantry:review` owns that list and a second copy would drift;
+`--review-model` and `--review-effort` reach the child as `--model` and `--effort`. A review you
+asked for can block the ship; a missing reviewer never does.
 
 The drivers pass no review flag: the chain runs `/gantry:review --fix` as its own phase, and a
 second pass here would reopen the deferrals that phase recorded in `handover.md`.
@@ -266,15 +414,17 @@ the whole interface to the reviewer, so three things are composed into it rather
 memory. It runs `lib/detect_stage.sh` for the `HUMAN_ONLY:` line — its own `detect_state.sh` reads
 git state and never opens `task.md` — and on `present` emits a fixed `## Not proven by this run`
 heading carrying `task.md`'s `human_only` entries verbatim; the heading is fixed so that its
-*absence* is information. Under `--draft` it also states what draft does not mean: unwatched, not
-unverified. Separately, when the repo is itself a plugin and the diff touches `skills/`, `lib/`,
+*absence* is information. Declared e2e scenarios that `/gantry:qa` did not run go under the same
+heading, with the reason; the ones it did run go under a second fixed heading, `## Exercised by this
+run`, one verdict per scenario from `qa.md`. Under `--draft` it also states what draft does not
+mean: unwatched, not unverified. Separately, when the repo is itself a plugin and the diff touches `skills/`, `lib/`,
 `hooks/` or `agents/`, it names the plugin version that actually executed — because the harness
 loads `skills/` and `agents/` from the *installed* plugin, so a change to them is not exercised by
 the run that makes it. That disclosure is suppressed when the plugin root and the repo are the same
 tree (the `--plugin-dir` shape), where the edits genuinely did run.
 
 Then it re-reads its own prose. The title, the body and the commit subject are the only text no
-phase reads — `plan-grill` reads the artifacts, `/gantry:review` reads the diff — and they are
+phase reads — `plan-critique` reads the artifacts, `/gantry:review` reads the diff — and they are
 written last, by the context most invested in the result. The rule is narrow: a claim about how
 something works either cites the file that establishes it or does not go in the body. Review is not
 extended to cover this because it runs before ship composes anything.
@@ -282,11 +432,31 @@ extended to cover this because it runs before ship composes anything.
 All of these are **disclosures, not refusals**: none withholds the PR, fails the gate, or blocks
 the push.
 
+**It can also bring an existing body up to date.** The body used to be write-once: composed at
+`gh pr create` and never touched again. But `handover.md` is normally written *after* the PR opens,
+because `/gantry:review` is what produces one — so the body went on saying no handover existed
+while the file held verified findings, and the worktree holding the only copy was one merge away
+from a prune. A refresh sub-stage, entered both when stage 4 finds a PR already open and at stage 5,
+asks `lib/handover_body_state.sh` whether the body carries the current handover and rewrites **only
+the `## Deliberately not done` section** when it does not, through `lib/splice_pr_section.sh`. The
+same check, under `--section qa`, covers `## Exercised by this run`: a `/gantry:qa` re-run after
+the PR opened would otherwise leave the body reporting the old outcome. `## Not proven by this run`
+is never rewritten; when it goes out of date, the report names the line. The
+answer is a digest marker ship leaves in the body as an HTML comment, so a body that is already
+current is edited **not at all**, a hand-edit inside the section survives, and an ambiguous heading
+is a refusal rather than a guess. That branch also fixes a pre-existing defect: stage 4's only
+fenced commands were `gh pr create`, which fails outright when a dirty or ahead tree routes a
+branch whose PR is already open.
+
 - **Refuses:** to run on the repo's default branch; to rewrite history on a diverged branch; to
-  bundle several unrelated changes without asking how to split them.
+  bundle several unrelated changes without asking how to split them; to splice a body whose
+  handover heading appears more than once; to edit a body it could not first read back from
+  GitHub — an empty fetch would otherwise read as "no handover section" and replace the whole body
+  with that one section.
 - **Degrades:** with `gh` missing or unauthenticated it still commits and pushes, then prints the
   `gh pr create` command for you.
-- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`).
+- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`), plus
+  `lib/handover_body_state.sh` and `lib/splice_pr_section.sh` for the refresh.
 
 ## `/gantry:integrate` — N pull requests into one
 
@@ -302,6 +472,19 @@ the source PRs' combined *Not proven by this run* and *Deliberately not done* se
 The problem it exists for: `auto-unattended` leaves a stack of drafts, each cut from the base and
 each checked alone. **A green check on a PR says nothing about the combined tree** — and the boring
 shared surfaces (a docs table, a count, a version, a shared script) are exactly where they collide.
+
+The docs are one of those surfaces, and a merge that goes through cleanly can still leave them
+wrong — each PR documented its own change alone, and two true-in-isolation edits add up to one
+wrong count or two changelog entries for one change. So after the last merge and before the
+reviewer, a **docs stage** checks the combined tree against the docs the repo keeps: the
+skill-count line, the skills table and the shared-flags list in `docs/SKILLS.md`, the README
+sections that name a skill or a flag, and a `CHANGELOG.md` entry per included PR, with no duplicate
+or contradictory entries once they have met. A surface the repo does not keep is nothing to check,
+never something to create. Any fix goes in one `integrate: docs` commit of its own, separate from
+every merge and fix commit, and the gate runs after it like after any other — so the reviewer
+reads the docs change alongside the resolutions, and the PR body says under `## Docs` what was
+reconciled, or `no docs change needed`. On a re-run the stage gates first, because a lane that
+stopped on a red docs gate has nothing in git marking it.
 
 Three scripts carry the parts that must be reproducible, and all three take local branches or SHAs
 as well as PR numbers, which is how `tests/cases/` proves them against fixture repos with no `gh`:
@@ -333,9 +516,11 @@ as well as PR numbers, which is how `tests/cases/` proves them against fixture r
   outward-facing.
 - **Invokes:** `gantry:worktree` for the lane, the reviewer role for the resolutions,
   `gantry:handover` for findings that belong to a source PR's author.
-- **Gate:** `lib/run_gates.sh --strict`, once as a baseline on the fresh lane and again after every
-  merge. Two fix attempts per PR, in **separate** commits, then the merge is reset out and the PR is
-  skipped with that reason. A gate exit `2` stops the run and does not count as an attempt.
+- **Gate:** `lib/run_gates.sh --strict`, once as a baseline on the fresh lane, again after every
+  merge, and again after the `integrate: docs` commit. Two fix attempts per PR, in **separate**
+  commits, then the merge is reset out and the PR is skipped with that reason; two for the docs
+  commit, then the run stops `blocked`. A gate exit `2` stops the run and does not count as an
+  attempt.
 - **Detail:** `references/merge-loop.md` and `references/pr-body.md`.
 
 **There is no `--unattended` flag, and this is the same argument as `--autonomous`.** A flag that
@@ -357,7 +542,9 @@ parent's; the body says so per PR.
 `/gantry:worktree <branch>`
 
 Creates `.claude/worktrees/<branch>` on that branch in the **main** repo (resolved via
-`--git-common-dir`, so worktrees never nest) and enters it. Base detection prefers `develop` when
+`--git-common-dir`, so worktrees never nest) and enters it. The name is the caller's: a driver
+derives `<type>/<ID>-<slug>` when the task has a tracker id (see *Shared flags* above), and this
+skill only validates it. Base detection prefers `develop` when
 it exists, then `origin/HEAD`, then `master`/`main`, and asks which parent to use when the current
 branch differs.
 
@@ -384,6 +571,8 @@ then the optional external profile resolver, then `ship`'s detection.
 - **Honest about its limits:** merge classification only works for `develop`/`master`/`main`; any
   other base gets an explicit "merge classification unavailable" note rather than a confident wrong
   answer.
+- **Names what is at stake:** each prunable candidate it reports carries the chain artifacts that
+  worktree is holding, so an operator approving the handoff has seen which of them hold a handover.
 - **Invokes:** `gantry:prune-worktrees`.
 - **Scripts:** none of its own — reuses `ship`'s and `prune-worktrees`'.
 
@@ -392,13 +581,26 @@ then the optional external profile resolver, then `ship`'s detection.
 `/gantry:prune-worktrees`
 
 Buckets every worktree (stale at 7+ days idle, or merged into develop/master/main), summarises each
-candidate's last five commits, then asks: review individually, prune all, or abort. Review is
-batched in groups of four with **nothing checked by default**, and every selected path gets a
-`git status --porcelain` safety re-check immediately before removal.
+candidate's last five commits and **which chain artifacts it is holding**, then asks: review
+individually, prune all, or abort. Review is batched in groups of four with **nothing checked by
+default**, and every selected path is archived, re-checked with `git status --porcelain`, and
+removed — one worktree at a time, so nothing happens between a path's re-check and its removal.
+
+**Why the archive.** The chain's artifacts are excluded from git, and `git status --porcelain` does
+not list ignored files — so a worktree holding `task.md`, `plan.md`, `handover.md`, `review.md`,
+its journal and its gate logs reports **clean**, and `git worktree remove` deletes the directory
+with rc 0 and no warning. `lib/archive_artifacts.sh` copies them to
+`~/.claude/sessions/<repo-slug>/worktrees/<date>-<branch-slug>-<sha8>/` first, beside where
+`gantry:preserve` writes, and a non-zero exit from it drops that path from the removal list. The
+artifacts field itself changes no classification: every gantry worktree holds artifacts, so making
+them a `dirty`-style skip would make the skill inert.
 
 - **Refuses:** to delete branches — scope is worktree checkouts only. It prints the manual
-  `git branch -d` line and leaves the decision to you.
-- **Scripts:** `scripts/detect_candidates.sh`.
+  `git branch -d` line and leaves the decision to you. And to remove a worktree whose artifacts
+  could not be archived — including one whose directory has already vanished, which `git worktree
+  prune` clears instead.
+- **Scripts:** `scripts/detect_candidates.sh`, plus `lib/worktree_artifacts.sh` and
+  `lib/archive_artifacts.sh`.
 
 ## `/gantry:preserve` — session handoff
 
@@ -410,12 +612,14 @@ exact next action. It gathers from the conversation, deliberately not from the r
 
 Docs land at `~/.claude/sessions/<repo-slug>/<date>-<slug>.md` — outside the repo, so a worktree
 prune can't destroy them and `git add -A` can't sweep them in. Same day plus same label means the
-same file, and it reads an existing doc before overwriting.
+same file, and it reads an existing doc before overwriting. `lib/session_paths.sh` holds that
+convention, which `gantry:prune-worktrees`' artifact archive now shares — it writes a `worktrees/`
+subtree into the same per-repo directory, for the same reason.
 
 The closing check is the point: *could a session with no memory pick up from this file alone?*
 
 - **Deliberately not a git report:** no sync state, no uncommitted-file lists, no commit dumps.
-- **Scripts:** `scripts/doc_path.sh`.
+- **Scripts:** `scripts/doc_path.sh`, over `lib/session_paths.sh`.
 
 ---
 
@@ -426,30 +630,34 @@ Descriptions are always-on; bodies are paid per invocation. Measure it yourself 
 
 | Component | Always-on |
 |---|---|
-| auto | ~180 |
+| auto | ~190 |
 | auto-unattended | ~180 |
 | plan | ~100 |
-| plan-grill | ~120 |
+| plan-critique | ~120 |
+| grill | ~120 |
 | implement | ~100 |
 | review | ~170 |
+| qa | ~180 |
 | handover | ~130 |
 | ship | ~230 |
 | integrate | ~100 |
 | sync | ~220 |
 | worktree | ~70 |
 | preserve | ~190 |
-| prune-worktrees | ~110 |
+| prune-worktrees | ~130 |
 | the three agents | ~240 combined |
-| **total always-on** | **~2,124** |
+| **total always-on** | **~2,456** |
 
 **These are measured, not derived** — `claude --plugin-dir . plugin details gantry`, against this
-tree (v0.5.1 plus `integrate`, which measured ~2,024 before it). v0.2 published a figure scaled from
+tree (0.7.0, where splitting `plan-grill` into `plan-critique` and `grill` took the total from
+~2,124 to ~2,230, and adding `qa` took it to ~2,456; v0.5.1 measured ~2,024 before `integrate`). v0.2 published a figure scaled from
 v0.1's reading, which is exactly the kind of claim this project argues does not belong in prose; the
 number is now read from the tool and, more to the point, **enforced**:
 `scripts/context_budget.sh` runs in `scripts/verify.sh` and fails the build when the descriptions
 outgrow a declared ceiling. Adding `integrate` landed exactly on the old ceiling of 6,250
 **characters** — the unit that check counts — so it was raised to 6,600, that measurement plus about
-5%, in the same commit as the skill. A ceiling with no headroom does not hold the cost down; it just
+5%, in the same commit as the skill; the 0.7.0 split of `plan-grill` into two skills raised it to 6,950, and
+adding `qa` and #33's longer `prune-worktrees` description to 7,600, each on the same rule. A ceiling with no headroom does not hold the cost down; it just
 means the next edit trims whichever description is easiest rather than whichever is least useful.
 The token figures in the table are a separate reading, from the CLI, and the ceiling is not derived
 from them.

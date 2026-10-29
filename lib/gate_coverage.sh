@@ -145,12 +145,13 @@ changed_raw="$(
 )"
 
 # --- 4. Set the orchestrator's own bookkeeping aside --------------------------
-# task.md, plan.md, handover.md, the journal and the gate logs are untracked in
-# a fresh worktree and sit under no gate root, so counting them would drag every
-# run toward "uncovered" and make a reported count read as source files.
+# task.md, plan.md, handover.md, review.md, qa.md, the journal and the gate logs
+# are untracked in a fresh worktree and sit under no gate root, so counting them
+# would drag every run toward "uncovered" and make a reported count read as
+# source files.
 is_run_artifact() {
   case "$1" in
-    task.md|plan.md|handover.md|journal.jsonl) return 0 ;;
+    task.md|plan.md|handover.md|review.md|qa.md|journal.jsonl) return 0 ;;
     .claude/artifacts/*) return 0 ;;
     *) return 1 ;;
   esac

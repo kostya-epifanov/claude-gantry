@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # detect_stage.sh — read-only snapshot of where a task sits on the gantry chain
-# (plan -> grill -> implement -> review -> ship), for every phase skill.
+# (plan -> critique -> grill -> implement -> review -> ship), for every phase skill.
 #
 # Why this exists: the phase skills are individually invocable, so you can drop
 # out of the chain, edit by hand, and come back. That means no phase may infer
@@ -20,6 +20,14 @@
 #                              why every uncertain case degrades to `present`.
 #   PLAN:present|absent        plan.md at ROOT
 #   HANDOVER:present|absent    handover.md at ROOT
+#   REVIEW:absent|pending|applied|clean
+#                              review.md at ROOT — the findings gantry:review recorded as in
+#                              scope to fix, and whether the fix step still has work to do.
+#                              See review_state() for the rules.
+#   QA:absent|exercised|unrunnable|no-agent|no-scenarios|unknown
+#                              qa.md at ROOT — what gantry:qa recorded about the task's e2e
+#                              scenarios. `absent` is no file; the rest is the file's
+#                              `outcome:` line. See qa_state() for the rules.
 #   STATUS:<value>|none        task.md frontmatter status:
 #   FORKS:open|none|unknown|absent
 #                              whether task.md's "Open questions" section still holds a fork
@@ -28,7 +36,13 @@
 #                              whether task.md's `human_only` block — the acceptance checks no
 #                              automated gate can make — holds any entries. See
 #                              human_only_state() for the rules.
+#   E2E:present|none|absent    whether task.md's `e2e.scenarios` block — the scenarios
+#                              gantry:qa runs against the built app — holds any entries.
+#                              See e2e_state() for the rules.
 #   GATES:present|absent       .claude/gates.sh — the readiness hook's opt-in
+#   QA_ROLE:present|absent     .claude/agents/qa.md — the repo's qa agent, gantry:qa's opt-in.
+#                              There is no default; absent is the normal case.
+#   QA_ENV:present|absent      .claude/qa-env.sh — the script that builds and boots the app
 #   HOOK:conditions-met|conditions-unmet
 #                              whether the readiness hook's FIRING CONDITIONS hold — GATES
 #                              present AND STATUS exactly implementing. It is not a claim
@@ -36,7 +50,7 @@
 #                              the comment above the check for why that is not detectable.
 #   DIRTY:clean                or  DIRTY:staged=<n> unstaged=<n> untracked=<n>
 #   NEXT:<command>             the phase skill that advances from here
-#   PHASE:<plan|grill|implement|review|ship|done|blocked|not-a-repo>
+#   PHASE:<plan|critique|grill|implement|review|ship|done|blocked|not-a-repo>
 #
 # PHASE is derived from STATUS when task.md carries a known one, and inferred
 # from which artifacts exist when it does not — a hand-written task.md with no
@@ -322,6 +336,156 @@ human_only_state() {
   ' "$f" 2>/dev/null
 }
 
+# --- e2e scenarios (what gantry:qa runs) --------------------------------------
+# Reports whether task.md's `e2e.scenarios` block holds anything. Those are the
+# scenarios `gantry:qa` runs against the built app, and the input to two fixed
+# headings in the pull request body `gantry:ship` composes: a scenario the qa
+# phase ran lands under "Exercised by this run", and a declared scenario nobody
+# ran lands under "Not proven by this run" — the contract promised it, so the
+# body says it was not kept.
+#
+# Same reasoning as human_only_state() above: a disclosure that depends on a
+# reader remembering to look is not a disclosure, so this is a printed fact.
+#
+#   key          a line whose first non-blank content is `e2e:`, at any
+#                indentation, ANYWHERE in the file — fences are not invisible,
+#                for the same reason as human_only: the block's canonical home
+#                is the fenced `verification:` block under "How to verify".
+#   scenarios    a `scenarios:` key indented DEEPER than `e2e:`. An inline
+#                `scenarios: [ ... ]` with content counts as entries; an empty
+#                `[]` counts as none.
+#   entry        a following line whose first non-blank character is `-`,
+#                indented at or deeper than the `scenarios:` key — at-or-deeper,
+#                because YAML permits a block sequence at its key's indentation.
+#                Any other content deeper than the key counts too; bullets are
+#                the conventional shape, not the only populated one.
+#   comment      a `#` line is not an entry. The task template ships its sample
+#                scenario commented out for exactly this reason: a live
+#                placeholder would make every task.md written from the template
+#                report `present`, and put a scenario called "scenario name"
+#                under "Not proven" on every pull request.
+#   block end    the first non-blank line indented at or less than the key it
+#                belongs to — a sibling key, a closing fence, a heading — or EOF.
+#   occurrences  the whole file is scanned and the STRONGEST result wins.
+#
+# Three values, same shape as HUMAN_ONLY: `present` is at least one entry,
+# `none` is an `e2e:` key (with or without `scenarios:`) and no entries, `absent`
+# is no `e2e:` key at all — or no task.md. Permissive toward `present`: a
+# scenario read as missing drops a disclosure and tells the reviewer, by the
+# heading's absence, that there was nothing to disclose.
+#
+# NOT part of the frontmatter parser — shares no code with frontmatter_status().
+e2e_state() {
+  local f="$1"
+  [ -f "$f" ] || { printf 'absent'; return 0; }
+  awk '
+    function indent(s) { match(s, /^[ \t]*/); return RLENGTH }
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s
+    }
+    # best: 0 = no e2e key, 1 = key with no entries, 2 = entries
+    # ine2e: inside the e2e block; insc: inside its scenarios block
+    BEGIN { best = 0; ine2e = 0; insc = 0; e2eind = 0; scind = 0 }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      body = trim(line)
+      if (body == "") { next }
+      ind = indent(line)
+
+      if (body ~ /^e2e[[:space:]]*:/) {
+        e2eind = ind; ine2e = 1; insc = 0
+        if (best < 1) { best = 1 }
+        next
+      }
+      if (!ine2e) { next }
+
+      # A comment is not an entry and does not end anything.
+      if (body ~ /^#/) { next }
+
+      # A horizontal rule ends the block: a key in frontmatter would otherwise
+      # see the closing --- as a bullet. Same guard as the two parsers above.
+      if (body ~ /^[-*_][[:space:]]*[-*_][[:space:]]*[-*_][[:space:]]*$/) {
+        ine2e = 0; insc = 0
+        next
+      }
+
+      # Something at or above the e2e key closes the e2e block — a sibling
+      # key (human_only:), a closing fence, a heading.
+      if (ind <= e2eind) { ine2e = 0; insc = 0; next }
+
+      if (!insc) {
+        if (body ~ /^scenarios[[:space:]]*:/) {
+          scind = ind; insc = 1
+          rest = body
+          sub(/^scenarios[[:space:]]*:[[:space:]]*/, "", rest)
+          rest = trim(rest)
+          if (rest != "" && rest !~ /^#/ && rest !~ /^(\[[[:space:]]*\]|\{[[:space:]]*\})$/) {
+            best = 2
+            insc = 0
+          }
+        }
+        # setup: and anything else under e2e: is not a scenario.
+        next
+      }
+
+      # Inside scenarios: a bullet at or deeper than the key, or any content
+      # deeper than it, is an entry. Anything at or above the key closes it.
+      if (body ~ /^-/ && ind >= scind) { best = 2; next }
+      if (ind > scind) { best = 2; next }
+      insc = 0
+    }
+    END {
+      if (best >= 2)      { print "present" }
+      else if (best == 1) { print "none" }
+      else                { print "absent" }
+    }
+  ' "$f" 2>/dev/null
+}
+
+# --- qa.md (the qa verdict file) ----------------------------------------------
+# Reports what gantry:qa recorded. The phase writes qa.md on EVERY run, whatever
+# it found, so "qa ran and found no agent" and "qa never ran" are different facts
+# here rather than the same silence:
+#
+#   absent        no qa.md at ROOT. The phase did not run on this tree.
+#   exercised     the repo's qa agent ran the scenarios; the body holds one
+#                 verdict per scenario (pass, fail, could-not-reach).
+#   unrunnable    .claude/qa-env.sh exited non-zero, or an agent exists with no
+#                 qa-env.sh beside it. Nobody could check; this is not a fail.
+#   no-agent      the repo has no .claude/agents/qa.md. The normal case.
+#   no-scenarios  task.md declared none and none could be derived.
+#   unknown       a qa.md whose `outcome:` line is missing or out of set.
+#
+# The value is the first `outcome:` line, trimmed, with one layer of quotes
+# stripped. `unknown` is the permissive direction: ship reads anything but
+# `exercised` as "the declared scenarios were not kept", so an unreadable file
+# produces the disclosure rather than suppressing it.
+#
+# NOT part of the frontmatter parser — shares no code with frontmatter_status().
+qa_state() {
+  local f="$1"
+  [ -f "$f" ] || { printf 'absent'; return 0; }
+  local raw
+  raw="$(awk '
+    { line = $0; sub(/\r$/, "", line); sub(/^[[:space:]]+/, "", line) }
+    line ~ /^outcome[[:space:]]*:/ {
+      sub(/^outcome[[:space:]]*:[[:space:]]*/, "", line)
+      sub(/[[:space:]]+#.*$/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      print line; exit
+    }
+  ' "$f" 2>/dev/null)"
+  case "$raw" in
+    \"*\") raw="${raw#\"}"; raw="${raw%\"}" ;;
+    \'*\') raw="${raw#\'}"; raw="${raw%\'}" ;;
+  esac
+  case "$raw" in
+    exercised|unrunnable|no-agent|no-scenarios) printf '%s' "$raw" ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
 # --- the inherited contract -------------------------------------------------
 # TRANSITIONAL, as of 0.5.0. gantry no longer commits task.md or plan.md, so a
 # worktree cut from the base branch no longer inherits anything and this check
@@ -449,6 +613,75 @@ task_is_inherited() {
   return 0
 }
 
+# --- review.md (the findings file) ------------------------------------------
+# Reports whether review.md — written by gantry:review without --fix, read by
+# `gantry:review --fix` in apply mode — still has findings waiting to be applied.
+#
+#   absent    no review.md at ROOT.
+#   applied   the LAST non-blank line starts `applied:`: the fix step ran and
+#             appended its gate result. Checked FIRST, so a file that was
+#             applied reads as applied however its findings section looks. Only
+#             the last line counts — step 5 of the review skill appends it last,
+#             and a finding body that happens to begin with `applied:` must not
+#             make the file read as applied before any fix ran.
+#   clean     under the `## Address now` heading (any level, case-insensitive,
+#             tolerant of a trailing colon, an ATX closer and bold wrappers) the
+#             first non-blank line is exactly `None` — a trailing period, a
+#             bullet marker and bold wrappers tolerated. Not merely a line that
+#             starts with it: "None of these are safe to skip: …" is a finding.
+#   pending   anything else — INCLUDING a file with no such heading, or one that
+#             will not parse at all.
+#
+# The permissive direction is `pending`, on purpose. A pending file makes the
+# fix step look at it, and the fix step then refuses with a reason it can name
+# (a mismatched fingerprint, a status that is not `reviewed`). An unparseable
+# file read as `clean` would skip the fix step silently, which is the failure
+# this value exists to prevent. Same asymmetry as open_questions_forks() above.
+#
+# NOT part of the frontmatter parser: shares no code with frontmatter_status(),
+# so the byte-for-byte diff scripts/verify.sh runs against the hook's copy is
+# unaffected.
+review_state() {
+  local f="$1"
+  [ -f "$f" ] || { printf 'absent'; return 0; }
+  local last
+  last="$(awk 'NF { l = $0 } END { sub(/\r$/, "", l); sub(/^[[:space:]]+/, "", l); print l }' "$f" 2>/dev/null)"
+  case "$last" in applied:*) printf 'applied'; return 0 ;; esac
+  awk '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s
+    }
+    BEGIN { insec = 0; found = 0; verdict = "pending"; decided = 0 }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      b = trim(line)
+      if (b ~ /^#+([[:space:]]|$)/) {
+        h = b
+        sub(/^#+[[:space:]]*/, "", h)
+        sub(/[[:space:]]*#+[[:space:]]*$/, "", h)
+        h = trim(h)
+        sub(/:+$/, "", h)
+        gsub(/^[*_]+/, "", h); gsub(/[*_]+$/, "", h)
+        if (tolower(trim(h)) == "address now") { insec = 1; found = 1 }
+        else { insec = 0 }
+        next
+      }
+      if (!insec || decided) next
+      if (b == "") next
+      # The first non-blank line under the heading decides. A bullet marker in
+      # front of "None" is still "None".
+      t = b
+      sub(/^([-*+]|[0-9]+[.)])[[:space:]]*/, "", t)
+      gsub(/^[*_]+/, "", t); gsub(/[*_]+$/, "", t)
+      sub(/\.$/, "", t); gsub(/[*_]+$/, "", t)
+      if (tolower(trim(t)) == "none") { verdict = "clean" } else { verdict = "pending" }
+      decided = 1
+    }
+    END { if (!found) print "pending"; else print verdict }
+  ' "$f" 2>/dev/null
+}
+
 # --- artifacts --------------------------------------------------------------
 present_or_absent() { [ -f "$1" ] && echo present || echo absent; }
 
@@ -456,6 +689,8 @@ TASK="$(present_or_absent "$ROOT/task.md")"
 PLAN="$(present_or_absent "$ROOT/plan.md")"
 HANDOVER="$(present_or_absent "$ROOT/handover.md")"
 GATES="$(present_or_absent "$ROOT/.claude/gates.sh")"
+QA_ROLE="$(present_or_absent "$ROOT/.claude/agents/qa.md")"
+QA_ENV="$(present_or_absent "$ROOT/.claude/qa-env.sh")"
 
 # STATUS is read before the TASK: line is printed, because `inherited` is a fact
 # about the status as well as about the bytes. The order of the OUTPUT lines is
@@ -466,9 +701,14 @@ if [ "$TASK" = present ] && task_is_inherited "$ROOT" "$STATUS"; then
   TASK=inherited
 fi
 
+REVIEW="$(review_state "$ROOT/review.md")"
+QA="$(qa_state "$ROOT/qa.md")"
+
 echo "TASK:$TASK"
 echo "PLAN:$PLAN"
 echo "HANDOVER:$HANDOVER"
+echo "REVIEW:${REVIEW:-pending}"
+echo "QA:${QA:-unknown}"
 echo "STATUS:${STATUS:-none}"
 
 FORKS="$(open_questions_forks "$ROOT/task.md")"
@@ -477,7 +717,12 @@ echo "FORKS:${FORKS:-unknown}"
 HUMAN_ONLY="$(human_only_state "$ROOT/task.md")"
 echo "HUMAN_ONLY:${HUMAN_ONLY:-absent}"
 
+E2E="$(e2e_state "$ROOT/task.md")"
+echo "E2E:${E2E:-absent}"
+
 echo "GATES:$GATES"
+echo "QA_ROLE:$QA_ROLE"
+echo "QA_ENV:$QA_ENV"
 
 # The hook's firing conditions — and only those. This line used to say `armed`,
 # which read as "the gate is enforced on this run" and was a claim this script
@@ -521,11 +766,15 @@ if [ "$DIRTY_TOTAL" -eq 0 ]; then echo "DIRTY:clean"; else echo "DIRTY:staged=$S
 # sensible instead of erroring.
 case "$STATUS" in
   planning)     PHASE=plan ;;
-  planned)      PHASE=grill ;;
+  planned)      PHASE=critique ;;   # a plan nobody has read yet
+  critiqued)    PHASE=grill ;;      # a critic read it; no human has agreed to it
   grilled)      PHASE=implement ;;
   implementing) PHASE=implement ;;   # resume: the gate has not gone green yet
   implemented)  PHASE=review ;;
-  reviewed)     PHASE=ship ;;
+  # A reviewed task whose review.md still lists findings has a fix step to run
+  # before it can ship. PHASE and NEXT are derived from the same value below,
+  # so they cannot disagree about it.
+  reviewed)     if [ "$REVIEW" = pending ]; then PHASE=review; else PHASE=ship; fi ;;
   shipped)      PHASE="done" ;;
   blocked)      PHASE=blocked ;;
   *)
@@ -541,9 +790,16 @@ esac
 
 case "$PHASE" in
   plan)      NEXT="/gantry:plan" ;;
-  grill)     NEXT="/gantry:plan-grill" ;;
+  critique)  NEXT="/gantry:plan-critique" ;;
+  grill)     NEXT="/gantry:grill" ;;
   implement) NEXT="/gantry:implement" ;;
-  review)    NEXT="/gantry:review --fix" ;;
+  review)
+    # A findings file under any status but `reviewed` is a review that died
+    # between writing review.md and writing the status. `--fix` refuses that
+    # combination and names /gantry:review, so name it here directly rather
+    # than suggesting a command the skill will turn away.
+    if [ "$REVIEW" = pending ] && [ "$STATUS" != reviewed ]; then NEXT="/gantry:review"
+    else NEXT="/gantry:review --fix"; fi ;;
   ship)      NEXT="/gantry:ship" ;;
   "done")    NEXT="none — already shipped" ;;
   blocked)   NEXT="none — task.md says blocked; read it before continuing" ;;

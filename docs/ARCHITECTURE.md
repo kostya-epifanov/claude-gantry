@@ -12,20 +12,25 @@ gantry/
 ├── .claude-plugin/
 │   ├── plugin.json          name: gantry  → the /gantry: namespace
 │   └── marketplace.json     name: claude-gantry, one plugin, source "./"
-├── skills/<name>/SKILL.md   → /gantry:<name>          (13)
+├── skills/<name>/SKILL.md   → /gantry:<name>          (14)
 │   ├── references/          long-form detail, read on demand
 │   ├── scripts/             skill-local deterministic work, run not read
 │   └── templates/           the task.md fallback
-├── lib/                     shared runtime scripts     (6)
+├── lib/                     shared runtime scripts     (8)
 │   ├── run_gates.sh         the one hard gate
 │   ├── gate_coverage.sh     what the gate actually read — reported, never enforced
 │   ├── detect_stage.sh      where a task sits on the chain
 │   ├── journal_append.sh    argv → one journal.jsonl line
 │   ├── lead_reply.sh        a lead's reply → one accepted token, or rejected
-│   └── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
+│   ├── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
+│   ├── run_phase_headless.sh  a phase in a fresh `claude -p` child → labeled lines + exit code
+│   └── diff_fingerprint.sh  one token for the diff, so review.md can be tied to it
 ├── agents/gantry-*.md       → the delegation roster    (3)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
-└── examples/gates.sh        a starter repo-owned gate
+└── examples/
+    ├── gates.sh             a starter repo-owned gate
+    ├── qa-env.sh            a starter repo-owned QA environment script
+    └── agents/qa.md         a starter repo-owned qa agent — gantry ships no default
 ```
 
 `lib/` exists because these scripts are shared by several skills *and* by the hook. Putting the
@@ -51,7 +56,13 @@ as files the caller wrote with its Write tool, never as argv. Only flags go on t
 The script's exit code, not the model's reading of the reply, decides whether the reply answered
 anything.
 
-None of them is a framework; all six take flags in and return a contract.
+`run_phase_headless.sh` is the newest and the only one that starts a model: it launches one
+phase in a fresh headless child session, sets the child's tool boundary from the command line, and
+turns the child's JSON result plus what it left on disk into labeled lines and an exit code. See
+*Headless phases* below. `diff_fingerprint.sh` exists for it: `review.md` has to say which diff it
+describes, and a pipe in a skill's argv is a command a worktree-isolated session refuses.
+
+None of them is a framework; all eight take flags in and return a contract.
 
 A skill body enters the conversation when it fires and **stays there for the rest of the session**.
 That is why detail lives in `references/` (loaded only when the skill says to read it) and why
@@ -67,13 +78,16 @@ they dispatch the same phase skills a human would type.
 ```mermaid
 flowchart TB
   subgraph drivers ["the two drivers — dispatch only, no phase logic"]
-    A["gantry:auto — pauses twice"]
+    A["gantry:auto — a grill conversation, then one checkpoint"]
     U["gantry:auto-unattended — never pauses, draft PR"]
   end
   subgraph chain ["the phase skills — one procedure, whoever runs it"]
-    P["gantry:plan → task.md + plan.md"] --> GR["gantry:plan-grill → a fresh critic"]
-    GR --> I["gantry:implement → owns the gate"]
+    P["gantry:plan → task.md + plan.md"] --> GR["gantry:plan-critique → a fresh critic"]
+    GR -- "supervised" --> GL["gantry:grill → settle the approach, then approve it"]
+    GL --> I["gantry:implement → owns the gate"]
+    GR -- "unattended: no human to ask" --> I
     I --> RV["gantry:review → report, fix with --fix, hand over"]
+    RV --> Q["gantry:qa → runs the e2e scenarios, if the repo has a qa agent"]
   end
   W["gantry:worktree — branch, worktree, parent fetch"] --> P
   H["gantry:handover → handover.md"]
@@ -81,8 +95,8 @@ flowchart TB
   A --> W
   U --> W
   You["you, typing them"] --> W
-  RV -- "deferred" --> H --> S
-  RV -- "clean" --> S
+  Q -- "deferred" --> H --> S
+  Q -- "clean, or no qa agent" --> S
 ```
 
 The **drivers** own three things and nothing else: which mode is running, when to pause, and which
@@ -115,27 +129,29 @@ delegation trustworthy:
 So a driver **invokes** `/gantry:plan` — rather than restating the planning procedure into a
 prompt, which is how two copies of a procedure start disagreeing. Delegation happens one level
 down, inside the phase, where the sub-job is narrow enough for a tool boundary to mean something:
-`plan` dispatches the explorer when the surface warrants it, `plan-grill` always dispatches a fresh
+`plan` dispatches the explorer when the surface warrants it, `plan-critique` always dispatches a fresh
 critic, `review` dispatches an independent reviewer.
 
 **That split is what lets every shipped agent be read-only.** A phase has to write — `task.md`,
 `plan.md`, the code itself — so wrapping a phase in an agent means either a writable agent (the
-boundary is gone) or a phase that cannot do its job. Keeping the phases in the caller's context and
-the agents on the sub-jobs gets both: the writing is visible where it happens, and every roster
-agent is one a prompt cannot talk into changing the tree.
+boundary is gone) or a phase that cannot do its job. Keeping the phases in the caller's context —
+or in a child session the driver launches, see *Headless phases* — and the agents on the sub-jobs
+gets both: the writing is visible where it happens, and every roster agent is one a prompt cannot
+talk into changing the tree.
 
 One consequence worth stating, because it is easy to get backwards: a skill's `allowed-tools`
 **restricts** what is permitted while the skill is active — it does not grant. A driver therefore
 carries `Agent` not because it dispatches phases, but because the phases it invokes dispatch their
 own agents, and a tool the driver has not allowed is one the phase cannot reach.
 
-Drawn out, with the two checkpoints `auto` adds and where each phase's sub-job goes:
+Drawn out, with the one checkpoint `auto` adds, the grill conversation that carries the plan
+approval, and where each phase's sub-job goes:
 
 ```mermaid
 flowchart TD
   E["/gantry:auto<br/>/gantry:auto-unattended"] --> W["gantry:worktree"]
   subgraph D ["the driver invokes each phase skill in turn"]
-    P["/gantry:plan"] --> G["/gantry:plan-grill"]
+    P["/gantry:plan"] --> PC["/gantry:plan-critique"] --> G["/gantry:grill"]
     G --> I["/gantry:implement"]
     I --> GATE{"gate<br/>--strict when unattended"}
     GATE -- "red" --> I
@@ -147,15 +163,109 @@ flowchart TD
     RV(["gantry-reviewer"])
   end
   P -. "when the surface is wide" .-> EX
-  G -. "always" .-> C
+  PC -. "always" .-> C
   R -. "if /code-review is absent" .-> RV
   W --> P
-  G -.- K1{{"auto pauses here:<br/>confirm the plan"}}
+  G -.- K1{{"grill's last question<br/>IS the plan approval"}}
   R -.- K2{{"auto pauses here:<br/>confirm the PR"}}
   R --> S["gantry:ship"]
   S --> A(["auto → ready PR"])
   S --> U(["auto-unattended → draft PR"])
 ```
+
+## Headless phases
+
+**The problem.** A driver invokes every phase in its own session, so by the time review runs that
+session holds the plan, the critique and the whole implementation. In the one `auto` run on disk,
+`/code-review` started at 187k tokens of context and ran inline, with `Bash` and `Edit`,
+dispatching no sub-agent: the diff was reviewed by the model that wrote it, with everything it was
+thinking while writing it still in context. That is the weakest possible reviewer, and it was the
+default. Review is also the phase that gains most from inheriting none of that.
+
+**What moves.** Where the phase runs, not what it does. Since 0.7.0 the two drivers and
+`gantry:ship --review` launch review as a fresh `claude -p "/gantry:review --headless …"` child in
+the worktree, through `lib/run_phase_headless.sh`, and read its results from disk. The phase skill
+is unchanged in procedure; it gained `--headless` (defer an ambiguous finding instead of asking —
+a print-mode child exits when it ends its turn, so it cannot wait for a reply), a findings file,
+and a stage-aware `--fix`. Fixing is a **second child**: `gantry:review --fix` sees `REVIEW:pending`
+and applies what `review.md` lists instead of reviewing again, then re-runs the gate.
+
+**The boundary is an allowlist on the child, not an agent definition.** The roster's agents are
+read-only by tool list, and a review child needs to write three artifacts, so the same trick does
+not apply. Instead the launcher runs the review child under `--permission-mode dontAsk
+--permission-prompts none`, where everything that would prompt is denied, plus `--allowedTools`
+naming exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`, `handover.md`
+and `task.md`, `Skill(gantry:handover)`, and Bash rules for four read-only gantry scripts:
+`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh` and `diff_fingerprint.sh`. The forms were
+probed on CLI 2.1.270 and corrected after the first real runs: an `Edit(<file>)` rule governs the
+Write tool too, but its relative form resolves against the child's *current* directory, and a `cd`
+inside one Bash call persists — a child that had wandered into a sub-package was denied the write
+of its own `review.md`, so the absolute `//` form is emitted beside it. A plugin skill is denied
+under `dontAsk` without a `Skill(...)` rule (the built-in `/code-review` is not), hence the
+handover rule. A Bash rule matches the literal command, so each script's rule is emitted
+twice — `Bash(bash <abs>/lib/x.sh:*)` and `Bash(bash "<abs>/lib/x.sh":*)` — because a skill may
+write either and single quotes matched neither. The fix child runs under `acceptEdits` with the
+same Bash rules and no `Edit(` rule. Neither child gets `--disallowedTools`, `--lead`, or
+`--dangerously-skip-permissions`. Code stays untouchable by the harness, not by prose.
+
+**The child is detached, and that is load-bearing.** A driver runs the launcher as a backgrounded
+Bash task, and a Claude Code session registers a `memoryPressure` handler over *its own* background
+tasks: when the runtime raises the event, every running task of that session is marked killed with
+the message "stopped because the system is running low on memory". The event comes from the runtime
+inside one session process, so it fires regardless of what the host has free — measured at 0.6,
+0.8, 0.9, 1.1 and 2.9 GiB free against one survivor at 1.6 GiB, with two lanes running the identical
+command and one losing six children in a row while the other lost none. The message names the wrong
+cause, and only this topology is exposed: an in-session review has no background task to reap. The
+session variable that disables the handler is read in the *driver's* process, which a skill cannot
+set, so `run_phase_headless.sh` puts the child in a session of its own with `setsid` and lets a
+small wrapper record the exit code and touch `.done`. If the launcher is reaped the review carries
+on, and re-running the same command attaches to that child by its `.pid` rather than paying for a
+second review. With no `setsid` on `PATH` the child runs inline and a `NOTE:` line says it is
+exposed — the phase still works, it is just back where it was.
+
+**A child with no `--model` does not inherit the driver's.** It takes the user default from
+`settings.json`. The two are usually the same and were not once: a driver pinned to Sonnet launched
+its review children on Opus because a `/model` command in an unrelated session had just saved that
+default, and the review ran on a model nobody chose for it. The drivers therefore pass `--model`
+every time — `--review-model`'s alias when given, otherwise their own model — and the launcher
+raises a `NOTE:` when nobody did.
+
+**What the orchestrator's context holds afterwards.** The launcher's labeled lines — `SESSION:`,
+`MODEL:`, `EFFORT:`, `TURNS:`, `SUBTYPE:`, `COST_USD:`, `DENIALS:` and one `DENIED:` per denial,
+`GATE_EXIT:` after the fix child, `RESULT_FILE:`, zero or more `NOTE:`, `REASON:` on failure, and
+the child's result text inside `RESULT_BEGIN … RESULT_END`, last — plus `review.md` and `task.md`'s
+status, read from disk.
+Not the child's transcript: a human who wants it runs `claude --resume <session id>`, and the id is
+in the report and in the journal's `phase` event.
+
+**Why the exit code is decided on disk.** A permission denial does not set `is_error`; the child
+carries on half-blind and still reports `success`. So denials are printed and never fatal on their
+own, and what *is* fatal is the artifact check: after `review`, `review.md` must exist and
+`task.md` must say `reviewed` or `blocked`; after `review-fix`, `review.md` must end with an
+`applied:` line. `0` means the child completed *and* the phase left what it promises; `1` is a
+phase that failed by its JSON or by that check (`max_turns` included); `3` is `claude` itself
+failing or writing nothing parseable; `2` is usage or environment.
+
+**Why review is first.** It is the phase that gains the most from a clean context and risks the
+least: it writes only artifacts, and the fix step that does write code is gated by the same script
+`implement` uses. `implement` would be next — the gain is smaller (it has no author bias to shed)
+and the boundary is wider (it must write code) — and `plan-critique` already gets its independence
+from the critic's own tool list. `qa` is not headless either, for a different reason: its heavy
+context (screenshots, UI trees) already lives in the repo's `qa` sub-agent and the phase takes back
+a summary; there is no author bias to shed, because the driver is a different agent by
+construction; and a `qa` child would need the launcher to allowlist that agent's MCP tools, which
+the launcher cannot know. It could be made headless later if the orchestrator's context turns out
+to matter in practice.
+
+**Limits, stated.** The child runs under print-mode permission defaults, so anything outside the
+allowlist that would prompt is denied — tests, Python, shell writes — and a review that needed one
+of those is reported with its `DENIED:` lines rather than silently weaker. There is no lead round
+trip from a child. `review.md` carries no `session:` line, because a child cannot read its own id;
+the launcher prints it. Whether gantry's own `Stop` hook fires inside a `-p` child is unverified —
+and it is inert in both children by status anyway, since the hook arms only on `implementing` and
+`gantry:review` refuses that status. And `review.md` is tied to a diff by `lib/diff_fingerprint.sh`:
+the fix step refuses when the branch or the token no longer matches, so stale findings are never
+applied to a tree that moved.
 
 ## ship is a stage machine
 
@@ -210,11 +320,13 @@ Every mode writes artifacts at the **worktree root** — not just the delegated 
 
 | Artifact | Written by | Committed | How a reader gets it |
 |---|---|---|---|
-| `task.md` | `gantry:plan` (Affected areas pasted from the explorer) | no — `.git/info/exclude` | `gantry:ship` quotes the contract into the PR body |
-| `plan.md` | `gantry:plan`, revised by `gantry:plan-grill` | no — same exclusion | the human who approves it reads it in the worktree |
-| `handover.md` | `gantry:handover`, when review defers something | no — same exclusion | `gantry:ship` quotes it into the PR body |
-| `journal.jsonl` | `gantry:auto-unattended`, append-only | no — same exclusion | a run artifact, not a deliverable |
-| gate logs | the gate script | no — same exclusion | evidence, kept out of the diff |
+| `task.md` | `gantry:plan` (Affected areas pasted from the explorer) | no — `.git/info/exclude` | `gantry:ship` quotes the contract into the PR body; the prune archive keeps a copy |
+| `plan.md` | `gantry:plan`, revised by `gantry:plan-critique` | no — same exclusion | the human who approves it reads it in the worktree; the prune archive keeps a copy |
+| `handover.md` | `gantry:handover`, when review defers something | no — same exclusion | `gantry:ship` quotes it into the PR body **and refreshes that section when the file is newer than the body**; the prune archive keeps a copy |
+| `review.md` | `gantry:review` — the findings in scope to fix, with the diff's fingerprint | no — same exclusion | the fix step reads it; never quoted; `lib/detect_stage.sh` reports it as `REVIEW:`; archived |
+| `qa.md` | `gantry:qa` — the outcome and one verdict per e2e scenario, with the evidence paths | no — same exclusion | `gantry:ship` quotes it under *Exercised by this run*; `lib/detect_stage.sh` reports its outcome as `QA:`; archived |
+| `journal.jsonl` | `gantry:auto-unattended`, append-only | no — same exclusion | a run artifact, not a deliverable; archived |
+| gate logs | the gate script | no — same exclusion | evidence, kept out of the diff; archived |
 
 **Why none of them are committed.** They are the chain's working state, not the change. Committing
 them put a file at the repo root of every target repo that nothing ever deleted, so each merged PR
@@ -225,16 +337,46 @@ repository published three of its dogfooding artifacts to everyone who installed
 
 The exclusion goes in **`.git/info/exclude`**, never `.gitignore`: the latter is tracked, so
 writing to it would itself be a diff in the user's pull request. `lib/ensure_excluded.sh` asserts
-the patterns — `/task.md`, `/plan.md`, `/handover.md`, each anchored so a project's own nested
-`task.md` is untouched — and is idempotent, so every phase that writes one may assert them first.
+the patterns — `/task.md`, `/plan.md`, `/handover.md`, `/review.md`, `/qa.md`, each anchored so a
+project's own nested `task.md` is untouched — and is idempotent, so every phase that writes one may
+assert them first. `scripts/verify.sh` holds the set at five: a call under `skills/` that names any
+of `/task.md`, `/review.md` or `/qa.md` without the other two is a red check, so the next artifact
+fails CI rather than drifting in one call site at a time.
 gantry's own repository additionally lists them in its `.gitignore`, because there it is the target
 repo and a fresh clone should be safe before any gantry command has run.
+
+**An excluded file is one git will silently delete.** `git status --porcelain` does not list ignored
+files, so a worktree holding every artifact in the table above reports **clean** — and
+`git worktree remove` then deletes the directory with rc 0 and no warning. Verified on git 2.55: an
+ignored file is removed silently, while a non-ignored untracked file aborts the removal. The
+exclusion that keeps these files out of the diff is precisely what makes git willing to destroy
+them, which is a consequence of the contract above rather than a bug in it. Two mechanisms close
+it. `skills/prune-worktrees/scripts/detect_candidates.sh` reports, per worktree, which artifacts it
+holds — read from the filesystem by `lib/worktree_artifacts.sh`, because git cannot answer the
+question — so `prune-worktrees` and `sync` can show the operator what a removal would cost. And
+`lib/archive_artifacts.sh` copies them to
+`~/.claude/sessions/<repo-slug>/worktrees/<date>-<branch-slug>-<sha8>/` before `git worktree remove`
+runs, next to where `gantry:preserve` writes and outside every repo; a non-zero exit from it drops
+that path from the removal list. The artifacts are **reported, never classified**: making an
+artifact-bearing worktree `dirty` would make the prune skill inert, since every gantry worktree
+holds artifacts. `scripts/verify.sh` compares `worktree_artifacts.sh`'s `ROOT_ARTIFACTS` array
+against the `ensure_excluded.sh` arguments under `skills/`, so a fifth artifact added to one and
+not the other is a red check rather than a file that is excluded and never archived.
 
 **What a reviewer loses, and where it went.** The contract used to reach the reviewer by riding
 along in the diff. It now reaches them through the pull request body, which `gantry:ship` composes
 — see *Stage 4* in `skills/ship/SKILL.md`. That is a strictly better channel for it: the body is
 read, the root-level file was scrolled past, and an unattended run already treated the body as the
 entire interface to the reviewer.
+
+That channel used to be **write-once**, which quietly broke for `handover.md`. The body is composed
+when the PR is *created*, and a handover is normally written after that — `gantry:review` is what
+produces one. Observed on this repository: a PR opened at 2026-10-21T23:48Z whose `handover.md` was
+written an hour later, with the body still reading *"No `handover.md` was written"* while the file
+held two verified findings. Ship now refreshes that one section when the body is out of date,
+deciding it from a digest marker it leaves in the body rather than from judgement
+(`lib/handover_body_state.sh`), and replacing only that section
+(`lib/splice_pr_section.sh`) so a hand-edit made on GitHub after the PR opened survives.
 
 These files are also the chain's memory. `task.md`'s `status:` is the phase marker, and
 `lib/detect_stage.sh` is the one place a phase reads it from — so a fresh session, a sub-agent, and
@@ -259,15 +401,22 @@ boundary written from the task description alone is a guess that later phases re
 Its `status` field is the chain's state machine:
 
 ```
-planning → planned → grilled → implementing → implemented → reviewed → shipped
-    ↓                                ↓
- blocked                          blocked
+planning → planned → critiqued → grilled → implementing → implemented → reviewed → shipped
+                          ↓                          ↓
+                       blocked                    blocked
 ```
 
-`planning → blocked` is the open-fork stop: `plan` and `plan-grill` will not advance a task whose
+The three states before `implementing` are deliberately distinct, and the distinction is who has
+read the plan: **`planned`** means drafted and nothing has read it; **`critiqued`** means a cold
+critic read it and `plan.md` carries the findings; **`grilled`** means a human agreed to the
+approach and every fork is closed. Only the last is an approval, and only `/gantry:grill` writes
+it. `gantry:auto-unattended` has no grill, so its runs reach `implement` at `critiqued` — which
+`/gantry:implement` accepts without a warning for exactly that reason.
+
+`critiqued → blocked` is the open-fork stop: `/gantry:grill` will not reach its approval while
 *Open questions* still holds an undecided fork, and an unattended run journals an `escalation` and
-blocks there rather than guessing at the answer. A supervised run resolves the fork with the user
-instead and continues, so it never reaches that edge.
+blocks there rather than guessing at the answer. A supervised run settles the fork inside grill's
+rounds and continues, so it never reaches that edge.
 
 **The readiness hook arms on exactly one of those values, `implementing`, and ignores the rest.**
 That narrowness is deliberate: the hook must not fire while planning is still under way, and
@@ -323,8 +472,8 @@ however it is prompted.
 | Agent | Tools | Model | Dispatched by | Role |
 |---|---|---|---|---|
 | `gantry-explorer` | Read, Grep, Glob | haiku | `gantry:plan`, when the surface is unfamiliar or wide | read-only scout; produces the text for `task.md`'s Affected areas. Physically cannot write it. |
-| `gantry-critic` | Read, Grep, Glob | opus | `gantry:plan-grill`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
-| `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
+| `gantry-critic` | Read, Grep, Glob | opus | `gantry:plan-critique`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
+| `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable — from inside the headless review child | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
 
 There is deliberately no planner or implementer agent. Writing is what those phases *are*, so an
 agent around one is either writable — and then the roster's guarantee is prose again — or unable to
@@ -334,6 +483,19 @@ to the sub-jobs that genuinely only need to read.
 **Resolution is per role, repo first**, and the *phase* does it. If the target repo defines
 `.claude/agents/<role>.md`, the phase dispatches that; otherwise `gantry-<role>`. A repo that has
 tuned one agent to its codebase overrides that one and inherits the rest.
+
+**One role has no `gantry-` fallback: `qa`.** `gantry:qa` runs the task's e2e scenarios against the
+built app, and the agent that drives the app needs a tool that taps real UI — a Maestro MCP server
+for a Flutter app, a Playwright one for a web app, nothing at all for a CLI. A published plugin
+cannot pick that, and a reviewer must never hold it. So the repo supplies `.claude/agents/qa.md`
+whole, its `tools:` line is the boundary (and is recorded in `qa.md`, so a reader knows what
+observed the verdict), and the phase pairs it with a repo-owned `.claude/qa-env.sh` that builds and
+boots the app with the gate's exit-code shape. Absent, the phase reports `no-agent` and the chain
+continues — the same stance as the `gantry-profile` contract below: absence is the normal case and
+is never a warning. `examples/agents/qa.md` and `examples/qa-env.sh` are the starters. The verdict
+is **reported, never enforced**, like `gate_coverage.sh`: what blocks is what the repo put in
+`.claude/gates.sh` — which is also where a flow file the qa agent wrote ends up, so that a scenario
+explored once by judgment is enforced from then on by a script.
 
 **There is deliberately no verifier agent either.** v0.1 and v0.2 shipped a `gantry-verifier` that
 nothing dispatched, defended as available to callers who wanted a scoped read-only check-runner,

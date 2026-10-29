@@ -22,6 +22,11 @@ holds even when the skill is invoked from within a worktree.
 `.claude/worktrees/`. Validate: each `/`-separated segment must match `[A-Za-z0-9._-]+`, 64 chars
 max overall (an `EnterWorktree` constraint). If no argument was given, ask for one.
 
+A name a driver derived with a tracker id in it — `feat/BASE-71-integrate-docs` — already
+satisfies the charset; the length cap is the deriving driver's job
+(`$GANTRY/skills/auto/references/orchestration.md` § *Deriving the branch name*), and this skill
+only validates what it is handed.
+
 Below, `$ARG` is that value.
 
 ### 2. Resolve the main repo root
@@ -132,12 +137,12 @@ This step only *decides*; nothing is created until step 8, so that step 7's excl
 hardcoding a path.
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" '**/.claude/worktrees/' /task.md /plan.md /handover.md
+bash "$GANTRY/lib/ensure_excluded.sh" '**/.claude/worktrees/' /task.md /plan.md /handover.md /review.md /qa.md
 ```
 
-The worktrees directory, plus the three artifacts the chain writes at the worktree root, which are
+The worktrees directory, plus the four artifacts the chain writes at the worktree root, which are
 never committed (`docs/ARCHITECTURE.md` § *The artifact contract*). `gantry:plan` asserts the same
-three before it writes the first one — this call is the earlier of the two, so a lane is clean from
+four before it writes the first one — this call is the earlier of the two, so a lane is clean from
 the moment it is cut, and asserting twice is free because the script is idempotent. The leading `/`
 anchors each to the worktree root, leaving a project's own nested `task.md` alone.
 
