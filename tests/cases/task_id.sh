@@ -108,6 +108,14 @@ parse '--here --lead lead-1 BASE-71 fix the docs'
 assert_eq 'BASE-71' "$(line ID)" "several flags are skipped"
 assert_eq '--here --lead lead-1 fix the docs' "$(line TEXT)" "and all of them stay"
 
+parse '--review-model sonnet --task BASE-71 fix the docs'
+assert_eq 'BASE-71' "$(line ID)" "--review-model's value is not taken as the first token"
+assert_eq 'flag' "$(line SOURCE)" "so a --task after it is still read"
+assert_eq '--review-model sonnet fix the docs' "$(line TEXT)" "and the flag and its value stay"
+
+parse '--review-effort high BASE-71: fix the docs'
+assert_eq 'BASE-71' "$(line ID)" "--review-effort's value is not taken as the first token either"
+
 parse 'BASE-71: fix the docs'
 assert_eq 'BASE-71' "$(line ID)" "a trailing colon on the id is tolerated"
 assert_eq 'fix the docs' "$(line TEXT)" "and removed with it"

@@ -158,7 +158,7 @@ if [ -n "$ARGS_FILE" ]; then
           [ -z "$BRANCH" ] || die "--branch was given twice"
           BRANCH="$2"
           shift 2; continue ;;
-        --base|--lead)
+        --base|--lead|--review-model|--review-effort)
           # A driver flag with a value: both stay in the text, neither is the id.
           kept[${#kept[@]}]="$tok"
           if [ "$#" -ge 2 ]; then kept[${#kept[@]}]="$2"; shift 2; else shift; fi
