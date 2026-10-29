@@ -296,7 +296,10 @@ sub-agent's context, and there is no author bias to shed.
   itself when the repo's agent cannot be dispatched; to fix anything without `--fix`; to fix
   anything *Out of scope* with it.
 - **Invokes:** the repo's `qa` agent; `gantry:handover` for what it deferred.
-- **Scripts:** `lib/run_gates.sh`, after any fix it makes; the repo's `.claude/qa-env.sh`.
+- **Scripts:** `lib/run_gates.sh`, after any fix it makes **and over any flow file it keeps** —
+  ship runs no gate, so a kept flow is otherwise pushed unchecked; one still red after two attempts
+  is parked under `.claude/artifacts/qa/<task-id>/flows/` and handed over. The repo's
+  `.claude/qa-env.sh`.
 - **Starters:** `examples/agents/qa.md`, `examples/qa-env.sh`.
 
 ## `/gantry:handover` — what this change left
@@ -436,6 +439,9 @@ while the file held verified findings, and the worktree holding the only copy wa
 from a prune. A refresh sub-stage, entered both when stage 4 finds a PR already open and at stage 5,
 asks `lib/handover_body_state.sh` whether the body carries the current handover and rewrites **only
 the `## Deliberately not done` section** when it does not, through `lib/splice_pr_section.sh`. The
+same check, under `--section qa`, covers `## Exercised by this run`: a `/gantry:qa` re-run after
+the PR opened would otherwise leave the body reporting the old outcome. `## Not proven by this run`
+is never rewritten; when it goes out of date, the report names the line. The
 answer is a digest marker ship leaves in the body as an HTML comment, so a body that is already
 current is edited **not at all**, a hand-edit inside the section survives, and an ambiguous heading
 is a refusal rather than a guess. That branch also fixes a pre-existing defect: stage 4's only

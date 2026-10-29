@@ -215,6 +215,22 @@ model in the loop. Decide what happens to them, by mode:
   naming each file and the next action: wire it into `.claude/gates.sh`. The driver journals it. A
   flow nobody has wired is harmless in a draft PR; a flow silently deleted is the loop not closing.
 
+**A kept flow file is new code the gate has never seen — run the gate over it**, in every mode and
+with or without `--fix`, using the strictness step 6 names for the mode. This phase runs after the
+last green gate, `gantry:ship` runs no gate of its own, and the readiness hook is off past
+`implementing`: without this run, `ship` commits and pushes the file unchecked. That is not
+hypothetical — a kept flow that failed the repo's lint reached a pushed branch exactly this way.
+
+- `0` → record `gate=0` against each file in `qa.md`.
+- `1`+ → the flow file broke the gate. Its fix is to the flow file only, never to the app: lint it,
+  type it, move it to where the suite's config expects it. At most 2 attempts, re-running the gate
+  after each. Still red → **move the file out of the tree** into
+  `.claude/artifacts/qa/<task-id>/flows/` (excluded, so it cannot reach a commit), record it as
+  `parked, gate=<exit>`, and add a `handover.md` item naming the parked path and the gate's
+  complaint. A parked flow is kept work; a red one in the tree is a push the chain cannot stop.
+- `2` → the gate could not run. Park the files the same way and say so; an unproven tree is not
+  shipped on the strength of this phase.
+
 ### 7. Write `qa.md`
 
 At the worktree root, with the Write tool, **overwriting** whatever is there — a file left by an
@@ -239,7 +255,7 @@ verdicts: pass=<n> fail=<n> could-not-reach=<n>
 - …
 
 ## Flow files
-- <path> — kept | removed | kept, not yet wired (unattended)
+- <path> — kept, gate=<exit> | removed | parked, gate=<exit> | kept, not yet wired (unattended), gate=<exit>
 None.                      # when the agent wrote none
 
 ## Address now
@@ -253,11 +269,18 @@ puts the task's declared scenarios under `## Not proven by this run` with the `r
 `outcome:` to exactly those four values — anything else reads as `unknown`, which ship treats as
 not exercised.
 
-With `--fix`, append one line, last, after the gate's final run:
+When `--fix` **changed the app** — not when it was merely given — append one line, last, after
+the gate's final run:
 
 ```
 applied: <ISO-8601 UTC date> gate=<exit> after-review=yes
 ```
+
+The date is `date -u +%FT%TZ` at the time of writing, never a placeholder. With `--fix` and nothing
+to repair, write **no** `applied:` line: `gantry:ship` reads its presence as "a fix landed after
+the review" and says so in the PR body, which a run that changed nothing must not claim. A kept
+flow file is not a fix to the app and does not earn the line either; its gate result is recorded
+under `## Flow files`.
 
 ### 8. Status
 

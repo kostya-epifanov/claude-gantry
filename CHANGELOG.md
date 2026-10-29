@@ -368,6 +368,19 @@ off, and `ship` refreshes a stale handover section in an existing body.
 - `tests/cases/pr_body_file_in_tree.sh` raises ship's body-file floor from 2 to 3, so losing the
   refresh command would be noticed.
 
+
+**A flow file `qa` keeps is gated before anything ships it, and ship refreshes the QA section of an
+existing body.** Found by running the 0.7.0 chain on a real repo. `qa` ran the gate before its agent
+wrote a flow file; the run kept it, `ship` — which runs no gate — committed and pushed it, and it
+failed the repo's lint on the pushed branch. `qa` now runs the gate over every kept flow file, fixes
+only the flow file (two attempts), and parks one that stays red under
+`.claude/artifacts/qa/<task-id>/flows/` with a handover item rather than leaving it in the tree. Its
+`applied:` line is written only when `--fix` changed the app, with a real timestamp — a run that
+fixed nothing had written one, which ship reads as "a fix landed after the review". And
+`lib/handover_body_state.sh --section qa` gives `## Exercised by this run` the same digest marker
+and refresh the handover section has, so a `qa` re-run after the PR opened no longer leaves a body
+saying "no qa agent" over scenarios that passed.
+
 ## 0.6.1
 
 **`/gantry:ship` sends the pull-request body from a file inside the worktree.** Ship documented an
