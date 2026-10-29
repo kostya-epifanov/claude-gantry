@@ -84,6 +84,11 @@ Each case is standalone — `bash tests/cases/<name>.sh` runs one on its own. A 
 `lib/run_gates.sh` or `hooks/readiness-gate.sh` should arrive with a case, and the honest check on a
 new one is that it fails before your fix and passes after.
 
+The suite tests scripts. For a change to an **agent's prose** — `agents/gantry-critic.md`,
+`agents/gantry-reviewer.md` — there is a small eval suite that scores the output instead of reading
+it. `bash scripts/check_evals.sh` lints the cases for free; a real run spends API credit and is
+described in [docs/EVALS.md](docs/EVALS.md), along with what its numbers do and do not prove.
+
 ## Cutting a release
 
 A release is a git tag. There is no build step and nothing is uploaded — `/plugin marketplace add`
