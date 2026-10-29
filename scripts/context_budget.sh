@@ -53,15 +53,51 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 #
 # The raise is in CHARACTERS, which is what this file measures; the reading above
 # is in tokens and is not what the ceiling is derived from. Thirteen skills and
-# three agents come to exactly 6,250 characters — zero headroom, so the next
+# three agents came to exactly 6,250 characters — zero headroom, so the next
 # clause anywhere would have failed the gate, and the obvious fix would then be
 # to trim whichever description was easiest rather than whichever was least
-# useful. 6,600 is that measured 6,250 plus about 5%: a deliberately thinner
+# useful. 6,600 was that measured 6,250 plus about 5%: a deliberately thinner
 # margin than the ~10% v0.3 started with, because the text is now four times
 # closer to the ceiling and each raise should be a visible line in a diff rather
-# than a comfortable cushion. At this tree's ~2.94 characters per token it stands
-# for roughly ~2,240 tokens.
-CEILING=6600
+# than a comfortable cushion.
+#
+# Raised from 6,600 to 6,950 for 0.7.0, where `plan-grill` became two skills:
+# `plan-critique` (headless) and `grill` (the conversation). This one is worth
+# spelling out, because it is the case the whole file is designed to catch.
+#
+# The split alone was nearly free — one 338-character description out, two in at
+# 340 and 339, which landed at 6,591 against the old ceiling with nine characters
+# to spare. What actually broke the budget was second-order: BOTH driver
+# descriptions name the chain in prose, so one command name becoming two grew
+# `auto` from 531 to 554 as well. That is the drift this ceiling exists to make
+# visible — nobody set out to spend it, and a per-skill reading would not have
+# shown it.
+#
+# Measured on this tree, not estimated:
+#
+#     bash scripts/context_budget.sh      -> 6,612 characters, 17 components
+#     claude --plugin-dir . plugin details gantry
+#       Always-on: ~2,230 tok   (plan-critique ~120, grill ~110 of it)
+#
+# ~2.97 characters per token here, so 6,950 stands for roughly ~2,340 tokens. The
+# raise is 6,612 plus about 5%, the same thin margin as the last one and for the
+# same reason.
+#
+# Raised again, from 6,950 to 7,600, when `qa` joined the same 0.7.0 tree. On its
+# own branch (before the plan-grill split) qa measured 6,809 against a 7,150
+# ceiling: its description is 551 characters, and the other eight were
+# second-order — both driver descriptions and the manifest name the chain in
+# prose, so one new phase grew each by four. Combined with the split, measured
+# on this tree:
+#
+#     bash scripts/context_budget.sh      -> 7,227 characters, 18 components
+#     (with #33's longer prune-worktrees description; 7,171 before it)
+#     claude --plugin-dir . plugin details gantry
+#       Always-on: ~2,456 tok
+#
+# 7,600 is that plus about 5%, the same thin margin as the last raises and for
+# the same reason.
+CEILING=7600
 
 # Extract the value of a single-line `description:` field from a frontmatter
 # block. Every skill and agent in this repo uses the one-line form, and

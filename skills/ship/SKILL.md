@@ -1,7 +1,7 @@
 ---
 name: ship
 description: Advances the current branch one clean step closer to a merged PR, doing only what isn't done yet — commits outstanding changes, pushes to the upstream, opens a pull request, and once the PR exists and is up to date, reports its status and waits. Idempotent — it detects the stage and picks up from there, so it's safe to run repeatedly. Pass --no-pr to stop after the push without opening a PR, --draft to open the PR as a draft, or --review / --review-fix to run gantry:review before the push. Use when the user types "/gantry:ship", or asks to ship, to commit and push, to open a PR for this branch, or to "get this out for review". Refuses to run on the repo's default branch.
-argument-hint: [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--base <branch>]
+argument-hint: [--no-pr] [--draft] [--review[=<tier>]] [--review-fix[=<tier>]] [--review-model <alias>] [--review-effort <level>] [--base <branch>]
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Skill, Agent, AskUserQuestion, SendMessage
 ---
 
@@ -26,10 +26,13 @@ survives the skip:** stage 4's disclosure checks. The push still happens, so a `
 changed the plugin's own files, or shipped a task with unproven acceptance criteria, still has to
 say so — in the report, since there is no body to say it in.
 
-**`--review`** / **`--review-fix`**: invoke `gantry:review` before the push. `--review` reviews and
-reports without touching the code; `--review-fix` also applies the findings triage keeps. Both take
-an optional tier — `--review=<tier>`, `--review-fix=<tier>` — and the bare forms mean `high`. See
-the section below, which is where the whole behaviour lives.
+**`--review`** / **`--review-fix`**: run `gantry:review` before the push, in a fresh headless child
+session. `--review` reviews and reports without touching the code; `--review-fix` also runs a
+second child that applies the findings triage kept. Both take an optional tier —
+`--review=<tier>`, `--review-fix=<tier>` — and the bare forms mean `high`. **`--review-model
+<alias>`** and **`--review-effort <level>`** reach the child as `--model` and `--effort`; with
+neither, it inherits the user's defaults. See the section below, which is where the whole behaviour
+lives.
 
 **`--base <branch>`**: if `$ARGUMENTS` names a base branch, pass it straight through to the
 detector (below) so it overrides base detection, and open the PR against it. Use it when the repo
@@ -107,17 +110,45 @@ git commit -m "<subject>"        # add -m for a body paragraph if warranted
 **Not a stage.** It has no number because it is not on the path: with neither flag given, nothing
 in this section runs and nothing invokes a reviewer. That is the default, and it is deliberate.
 
-- **`--review`** → invoke `gantry:review`. It reviews, verifies its findings, triages them against
-  `task.md` and reports. It does not touch the code under review.
-- **`--review-fix`** → invoke `gantry:review --fix`. Same, and it applies the findings triage keeps.
+- **`--review`** → launch `gantry:review` in a fresh headless child. It reviews, verifies its
+  findings, triages them against `task.md`, records what is in scope to fix in `review.md`, and
+  reports. It does not touch the code under review.
+- **`--review-fix`** → the same, and then — when the detector says `REVIEW:pending` — a second
+  headless child runs `gantry:review --fix`, which applies what `review.md` lists and re-runs the
+  gate over its own edits.
 
-**The tier rides on the flag.** `--review=<tier>` and `--review-fix=<tier>` map to
-`/gantry:review --tier <tier>` and `/gantry:review --tier <tier> --fix`; the bare forms mean `high`.
-**Do not validate the tier here.** `gantry:review` owns the valid-value list and rejects anything
-outside it — duplicating that list is how two skills come to disagree about it. If review rejects
-the value it stops without dispatching anything, and by then stage 2 has already committed: nothing
-has been pushed, the commit stands, and the run is resumed by fixing the flag and running ship
-again. Say exactly that in the report rather than leaving the state to be guessed at.
+**Headless, through the launcher, never in this session.** Since 0.7.0 there is one place a review
+runs when an entry point asks for it, and it is `lib/run_phase_headless.sh` — the same launcher the
+drivers use — so the reviewer is a child that has read nothing but the skill, the artifacts and
+the diff, rather than the context that just wrote the commit. Do not invoke `/gantry:review`
+yourself. Run each launch with the Bash tool's `run_in_background` and wait for the completion
+notification; do not poll:
+
+```bash
+bash "$GANTRY/lib/run_phase_headless.sh" --phase review --root <ROOT> --tier <tier>
+bash "$GANTRY/lib/run_phase_headless.sh" --phase review-fix --root <ROOT>      # --review-fix, on REVIEW:pending
+```
+
+**Pass `--model` every time**: a child with no `--model` takes the user default from
+`settings.json`, not this session's model. Use `--review-model`'s alias when it was given,
+otherwise the model this session is running on. Add `--effort <level>` only when `--review-effort`
+was given, and `--plugin-dir "$GANTRY"` when `$GANTRY` is not under
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/` (a checkout, not an install). Then read the
+launcher's lines: exit `1` or `3` → the review did not happen; stop with its `REASON:` line, **no
+push, no PR**. Exit `2` → a broken environment (no `jq`, no `claude`); stop and say so. On exit
+`0`, run `bash "$GANTRY/lib/detect_stage.sh"`: `STATUS:blocked` → the review found the change
+unsafe; stop. Under `--review-fix`, `REVIEW:pending` → launch the fix child and read its
+`GATE_EXIT:`; `REVIEW:clean` → nothing to apply, say so. Carry every `DENIED:` line and both
+`SESSION:` ids into the report.
+
+**The tier rides on the flag.** `--review=<tier>` and `--review-fix=<tier>` are forwarded to the
+launcher as `--tier <tier>`; the bare forms mean `high`. **Do not validate the tier here.**
+`gantry:review` owns the valid-value list and rejects anything outside it — duplicating that list
+is how two skills come to disagree about it. If the child rejects the value it stops without
+dispatching anything, the launcher exits non-zero with its reason, and by then stage 2 has already
+committed: nothing has been pushed, the commit stands, and the run is resumed by fixing the flag
+and running ship again. Say exactly that in the report rather than leaving the state to be guessed
+at.
 
 **Where it runs, at each entry point.** "Before the push" only describes one of them, and an
 explicitly requested review must never silently not happen:
@@ -131,11 +162,12 @@ explicitly requested review must never silently not happen:
   has already been published as though it could still change the outcome here.
 - `no-diff` / the other guards → the run stops before this section is reached.
 
-**The gate belongs to the review, and a red one stops the ship.** `gantry:review --fix` re-runs
-`lib/run_gates.sh` over its own fixes before it returns — ship runs no gate of its own, so read
-the exit code out of review's report and treat a non-zero one as terminal: **no push, no PR**.
-A fix made after the gate went green is unproven code, and `--review-fix` is the only path on
-which ship could carry unproven code to a remote. Report the exit code and what failed.
+**The gate belongs to the review, and a red one stops the ship.** The fix child re-runs
+`lib/run_gates.sh` over its own fixes and records the result in `review.md`'s `applied:` line,
+which the launcher reads back as `GATE_EXIT:` — ship runs no gate of its own, so take the exit
+code from that line and treat a non-zero one as terminal: **no push, no PR**. A fix made after
+the gate went green is unproven code, and `--review-fix` is the only path on which ship could carry
+unproven code to a remote. Report the exit code and what failed.
 
 **And note what a `0` does not prove.** Under `--review-fix` the review runs `run_gates.sh`
 *without* `--strict` on the supervised path, so a repo where no checks are detected exits `0` —
@@ -153,10 +185,10 @@ git add -A && git commit -m "Apply review findings"            # --review-fix
 ```
 
 **A bare `--review` has nothing to commit.** The only files a read-only review writes are
-`handover.md` and `task.md`'s status, and since 0.5.0 both are excluded (`docs/ARCHITECTURE.md`
-§ *The artifact contract*) — so `git add -A` would stage nothing and the commit would fail on an
-empty index. Do not run one. What it deferred still reaches the reviewer, through stage 4's body
-rather than through the diff.
+`review.md`, `handover.md` and `task.md`'s status, and all three are excluded
+(`docs/ARCHITECTURE.md` § *The artifact contract*) — so `git add -A` would stage nothing and the
+commit would fail on an empty index. Do not run one. What it deferred still reaches the reviewer,
+through stage 4's body rather than through the diff.
 
 **Then re-detect — after `--review-fix`, and after the commit it caused rather than before it.**
 Everything downstream branches on `AHEAD` and `DIRTY`, so a read taken before the fixes, or before
@@ -174,13 +206,11 @@ verdict counts. Report what it found.
 
 **Why this skill's `allowed-tools` is as wide as it is.** Frontmatter *restricts* what is permitted
 while the skill is active, so an invoked sub-skill cannot use a tool this one has not allowed.
-`Write` and `Edit` are what let `--review-fix` apply a single byte; `Agent` is what lets review fall
-back to a sub-agent when `/code-review` is unavailable, instead of silently degrading to
-self-review; `AskUserQuestion` is what lets its triage round ask about an ambiguous finding. Ship's
-own use of `Write` is narrow — the pull-request body file in stage 4 — so this list looks over-broad
-until you know the rest; do not trim it.
-A review that cannot write reports as a clean no-op, which is indistinguishable from a diff with
-nothing wrong in it.
+The review no longer runs inside this session — its tools are the child's, set by the launcher —
+so none of this list is what lets a review edit. `Write` is still needed for the pull-request body
+file in stage 4 and for the lead reply file under `references/lead.md`; `AskUserQuestion` for
+stage 2's split question and `SendMessage` for its lead form; `Edit`, `Agent`, `Grep` and `Glob`
+stay so that a sub-skill ship invokes is not silently narrowed. Do not trim it.
 
 ### 3. Push
 
@@ -197,6 +227,19 @@ If the push is rejected because the remote moved, stop and report it — let the
 
 ### 4. Open the PR
 
+**First, branch on `PR` from the detector read.** A PR that already exists cannot be opened again,
+and this stage's only fenced commands are `gh pr create`, which fails outright against one:
+
+- **`PR:none`** → compose and create, as the rest of this stage describes.
+- **anything else** (a PR already exists) → skip straight to *Refresh the handover and QA sections* below,
+  then continue to stage 5. Nothing here is composed or created.
+
+That second route is not hypothetical. `detect_state.sh` routes a dirty tree to `commit` and an
+ahead branch to `push` **whether or not a PR exists**, and stage 1 says to continue straight down
+without re-detecting — so "write the handover, make one more commit, run `/gantry:ship`" arrives
+here with the PR already open. It is also exactly the path on which a handover most needs to reach
+the body.
+
 Skip this stage entirely if `--no-pr` was given — the push was the finish line. Go straight to the
 **Report** (not stage 5, which reads a PR that doesn't exist) and note the PR was intentionally not
 opened. **Run the contract step and both disclosure checks below anyway** and put their answers in
@@ -212,6 +255,15 @@ never wrote either fails or, worse, sends a body some earlier run left behind.
 
 Compose from the branch's commits rather than a bare `--fill`. Title = the change in one line;
 body = a short what/why, bulleting the commits when there are several.
+
+**The tracker id goes first.** When the detector says `TASK:present` — never on `inherited`, whose
+`task.md` is a previous task's — run `bash "$GANTRY/lib/task_id.sh" --task-file task.md`. If its
+`ID:` line is not `-`, the title is `<ID>: <the change in one line>` (`BASE-71: integrate updates
+the docs`), and the first line under `## What this change is for` is `Tracker: <ID>`, followed by a
+blank line. That is what lets Linear's GitHub integration, and its equivalents, link the PR to the
+issue. Nothing else in the body changes, and on `ID:-` — a date-slug id, or no id line — neither
+does the title. Exit `2` here means the file could not be read — run it from the worktree root,
+where the detector found `task.md` — and is not a reason to invent a prefix.
 
 **Do not hard-wrap the body.** GitHub renders a pull request body in *comment* mode, where a single
 newline inside a paragraph becomes a `<br>` — so a body wrapped at a column, the way this and most
@@ -232,26 +284,67 @@ re-read runs after it.
 
 #### The contract, which the diff does not carry
 
-`task.md`, `plan.md` and `handover.md` are **not committed** (`docs/ARCHITECTURE.md` § *The
-artifact contract*), so unlike in 0.4.x they are not in the diff and a reviewer cannot open them
-from the pull request. **The body is now the only channel they have**, which makes this step
+`task.md`, `plan.md`, `handover.md` and `qa.md` are **not committed** (`docs/ARCHITECTURE.md` §
+*The artifact contract*), so unlike in 0.4.x they are not in the diff and a reviewer cannot open
+them from the pull request. **The body is now the only channel they have**, which makes this step
 load-bearing rather than a nicety: skip it and the reviewer gets a diff with no statement of what
 it was meant to do.
 
 Read what exists at `ROOT` — the detector already reported which do:
 
 ```bash
-bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: lines
+bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: / QA: lines
 ```
 
 - **`TASK:present`** → the body carries a `## What this change is for` heading, and under it
-  `task.md`'s **Goal** and **Acceptance criteria** — quoted, not re-summarised. A summary written
+  the `Tracker: <ID>` line when stage 4 found a tracker id, then `task.md`'s **Goal** and
+  **Acceptance criteria** — quoted, not re-summarised. A summary written
   here is a second source of truth that can drift from the contract the work was actually done
   against, which is the entire failure this heading exists to prevent. On `TASK:inherited` the file
   is the *previous* task's contract: do **not** quote it, and say the branch shipped without one.
+- **`task.md`'s `## Decisions` section holds entries** → a `## Decisions made` heading, carrying
+  each one: the question, what was chosen, and **why**. This is `/gantry:grill`'s record of the
+  conversation that settled the approach, and it is the only place that reasoning reaches a
+  reviewer — the critique's own log lives in `plan.md`, which this body does not quote. Carry
+  through anything grill marked **decided by recommendation, unconfirmed**: a decision the owner
+  did not actually confirm is exactly what a reviewer should see flagged.
+
+  **Entries, not the heading.** The task template ships this section with instructional prose in it,
+  so a `task.md` freshly copied from the template *has* the heading and no decisions. Read it the
+  way `lib/detect_stage.sh` reads *Open questions*: list items count, prose and fenced examples do
+  not. Keying on the heading would quote the template's own guidance into the body as if it were
+  this change's reasoning. A run with no entries — every `gantry:auto-unattended` run, since grill
+  never ran — gets the heading and one line saying no grill conversation ran, per the absent rule
+  below. And on **`TASK:inherited`** quote nothing here, for the same reason as the contract above:
+  the decisions on disk belong to the previous, merged task.
 - **`HANDOVER:present`** → a `## Deliberately not done` heading carrying `handover.md`'s items, one
   line each with its reason. This is what `/gantry:review` deferred; a reviewer who cannot see it
-  re-reports every finding the run already triaged.
+  re-reports every finding the run already triaged. **Put the marker line under the heading**, so a
+  later run can tell whether the body is still current:
+
+  ```bash
+  bash "$GANTRY/lib/handover_body_state.sh" --marker handover.md
+  ```
+
+  It prints one HTML comment carrying a digest of `handover.md` — invisible in GitHub's rendering,
+  and the whole basis of the refresh below. A body born without it is rewritten once on the next
+  run; one born with it is left alone until `handover.md` changes.
+- **`QA:`, whatever its value** → a heading of **exactly** `## Exercised by this run`, fixed for
+  the same reason *Not proven by this run* below is: a reader who knows it exists can tell "the
+  scenarios were run" from "nobody ran them". On `QA:exercised`, quote `qa.md`'s `## Scenarios`
+  lines **verbatim** — each scenario, whether it was `declared` or `derived`, its verdict and the
+  observation — and its `tools:` line, so the reader knows what observed them; if the file ends
+  with an `applied:` line, say that a fix landed after the review. On any other value, one line
+  and no scenarios: `absent` → `/gantry:qa` did not run on this tree; `no-agent` → the repo has no
+  `.claude/agents/qa.md`; `unrunnable` and `no-scenarios` → `qa.md`'s `reason:` line verbatim;
+  `unknown` → `qa.md` exists but its `outcome:` could not be read. Every value but `exercised`
+  also feeds the *Not proven* heading below, when the task declared scenarios. When `qa.md`
+  exists, **put its marker line under the heading**, as for the handover, so a later `/gantry:qa`
+  run is noticed by the refresh below:
+
+  ```bash
+  bash "$GANTRY/lib/handover_body_state.sh" --section qa --marker qa.md
+  ```
 - **`PLAN:present`** → not quoted. `plan.md` is how the work got done, not what it promised, and it
   is usually long. Name it as available in the worktree and leave it there.
 - Any of them **absent** → say so in one line under the relevant heading rather than omitting the
@@ -263,17 +356,26 @@ rule that already governs that path's disclosures.
 
 #### What this run did not prove
 
-Both are **disclosures**. Neither withholds the PR, fails the gate, or blocks the push.
+All three are **disclosures**. None withholds the PR, fails the gate, or blocks the push.
 
 **1. Acceptance criteria no gate could check.** Ship's own `detect_state.sh` reads git state and
 never opens `task.md`, so the answer comes from the other detector:
 
 ```bash
-bash "$GANTRY/lib/detect_stage.sh"      # read the HUMAN_ONLY: line
+bash "$GANTRY/lib/detect_stage.sh"      # read the HUMAN_ONLY: and E2E: lines
 ```
 
 On `HUMAN_ONLY:present` the body carries a heading of **exactly** `## Not proven by this run`, and
 under it the entries from `task.md`'s `human_only` block **verbatim**.
+
+**2. Declared e2e scenarios nobody ran.** On `E2E:present` with `QA:` anything but `exercised`,
+the same heading carries the entries of `task.md`'s `e2e.scenarios` block **verbatim** — name,
+goal, steps — with one line in front saying why they were not run: the `reason:` line from `qa.md`
+when there is one, else that `/gantry:qa` did not run. The contract promised these checks and the
+run did not keep them; a reviewer who pulls the branch to tap through the feature is doing what
+this line tells them is still undone. On `QA:exercised` the scenarios are under *Exercised by this
+run* above, verdicts included, and nothing about them goes here — a scenario that ran and
+**failed** is a failure the body reports under that heading, not an unproven claim.
 
 One source of truth for each half: the detector decides **whether** the heading appears, `task.md`
 supplies the **text**. The entries are multi-line and one labeled line per value is the detector's
@@ -289,14 +391,15 @@ only when someone remembers to write it is not a disclosure.
 under it too — a gate that went green over code no check actually covered is the next such signal,
 and it arrives from `/gantry:implement`'s report rather than from anything ship computes. Add what
 the phases reported; do not invent a signal no phase gave you, and do not open a second heading for
-it. A reviewer scans for one heading or none.
+it. A reviewer scans for one heading or none. (*Exercised by this run* is not a second copy of
+this one: it holds what **was** checked, and a reader needs the two kept apart.)
 
 **When `--draft` was passed**, the body also says plainly what draft status does *not* mean:
 **draft means unwatched, not unverified.** Include it whether or not the heading above appeared —
-`--draft` is the condition, not `HUMAN_ONLY:`. Left unsaid, a reviewer reads "draft" as unfinished
-work and takes the gaps as expected rather than as unchecked.
+`--draft` is the condition, not `HUMAN_ONLY:` or `E2E:`. Left unsaid, a reviewer reads "draft" as
+unfinished work and takes the gaps as expected rather than as unchecked.
 
-**2. Whether the plugin's own change was exercised.** Three conditions, all commands:
+**3. Whether the plugin's own change was exercised.** Three conditions, all commands:
 
 1. The repo carries `.claude-plugin/plugin.json` at its root. If not, **the whole check is inert** —
    an ordinary target repo that happens to have a `lib/` directory must not produce a disclosure
@@ -345,8 +448,8 @@ Three outcomes, and the skill owes the reader whichever one happened:
 #### Re-read what you just wrote
 
 The last thing before `gh pr create`, and the only scrutiny this prose will get.
-`/gantry:plan-grill` read `task.md` and `plan.md`; `/gantry:review` read the diff, if it was asked
-to. **None of them read this title, this body, or the commit subject** — all three are written
+`/gantry:plan-critique` read `task.md` and `plan.md`; `/gantry:review` read the diff, if it was
+asked to. **None of them read this title, this body, or the commit subject** — all three are written
 last, by the context most invested in the result.
 
 One rule, narrow on purpose:
@@ -392,7 +495,7 @@ paths cannot verify, and it asks.
 Keep the file out of git, so `git add -A` on a later run can never sweep it into a commit:
 
 ```bash
-bash "$GANTRY/lib/ensure_excluded.sh" .claude/artifacts/
+bash "$GANTRY/lib/ensure_excluded.sh" /task.md /plan.md /handover.md /review.md /qa.md .claude/artifacts/
 ```
 
 Write the final, re-read body with the Write tool to `<ROOT>/.claude/artifacts/pr-body.md`.
@@ -420,10 +523,158 @@ If `gh pr create` failed, leave the file where it is: it is excluded from git, s
 commit, and the next run composes the body afresh and overwrites it — it is never reused as it
 stands, because the branch it described may have moved.
 
+#### Refresh the handover and QA sections of an existing body
+
+**Entered from two places**: stage 4's branch above, when a PR already exists, and stage 5 before
+its status read. Not a step inside either — a refresh that lived only on the fully-shipped path
+would never run after "write the handover, commit once more, ship", which is the common order.
+
+**Why it exists.** The body is composed once, at `gh pr create`. `handover.md` is usually written
+*after* that, because `/gantry:review` is what produces one — and the body then still says no
+handover exists while the file holds verified findings. The worktree holding the only copy is one
+merge away from being pruned. `qa.md` goes stale the same way: `/gantry:qa` re-run after the PR
+opened — a repo that opted in late, a `--fix` pass — leaves a body reporting the old outcome,
+typically "no qa agent" over scenarios that have since passed.
+
+**What it may rewrite.** Only the `## Deliberately not done` and `## Exercised by this run`
+sections, each only when it is out of date. Every other byte of the body is left alone: a wholesale recompose would overwrite hand-edits
+made on GitHub after the PR opened. Skip the whole sub-stage when `--no-pr` was given — there is no
+PR to refresh — and when `GH` was `missing` or `unauth`.
+
+Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
+
+1. Make the directory and keep the files out of git. *Open it* does this on the create path; a run
+   that entered at stage 5 never reaches it, and an unexcluded body file is one `git add -A` commits
+   on the next run — which then reads the worktree as dirty. **`mkdir -p` is not redundant:**
+   `ensure_excluded.sh` creates the directory holding the *exclude file*, not this one, and
+   everywhere else in this repo the first write into `.claude/artifacts/` is a **Write** tool call,
+   which creates parents. Here it is a shell redirect, and stage 5 is reachable in a worktree where
+   no phase ever wrote a gate log.
+
+   ```bash
+   mkdir -p .claude/artifacts
+   bash "$GANTRY/lib/ensure_excluded.sh" journal.jsonl .claude/artifacts/
+   ```
+
+2. Fetch the live body. **`-q .body` is not optional** — without it the file receives the JSON
+   envelope rather than the body.
+
+   ```bash
+   rm -f .claude/artifacts/pr-body-live.md
+   gh pr view --json body -q .body > .claude/artifacts/pr-body-live.tmp \
+     && mv .claude/artifacts/pr-body-live.tmp .claude/artifacts/pr-body-live.md
+   rm -f .claude/artifacts/pr-body-live.tmp
+   ```
+
+   **The `.tmp` and the `mv` are the guard, not tidiness.** A plain redirect truncates its target
+   before `gh` runs, so a fetch that fails for any reason — auth, network, rate limit — leaves an
+   **empty** `pr-body-live.md` behind. An empty body reads as `MISSING` at step 3, and step 4 would
+   then "refresh" the pull request by replacing its *entire* body with the handover section alone,
+   destroying the contract, the scope and the human-only checks. Writing to `.tmp` and promoting it
+   only on success makes a failed fetch an **absent** file, which step 3 rejects instead.
+
+3. Ask whether each section needs refreshing — two questions, one per section:
+
+   ```bash
+   bash "$GANTRY/lib/handover_body_state.sh" .claude/artifacts/pr-body-live.md handover.md
+   ```
+
+   ```bash
+   bash "$GANTRY/lib/handover_body_state.sh" --section qa .claude/artifacts/pr-body-live.md qa.md
+   ```
+
+   Each answers for its own section:
+
+   - **`CURRENT`** → the body already carries this file. Leave that section alone.
+   - **`NO-HANDOVER`** / **`NO-QA`** → there is no such file. Nothing to refresh in that section.
+   - **`STALE`** or **`MISSING`** → that section is refreshed in step 4. `MISSING` means the body
+     has no such section at all — for the handover, the PR-opened-before-the-review case.
+   - **Exit 2** (no one-word answer) → the state could not be read: step 2's fetch failed and left
+     no file, or there is no SHA-256 tool on `PATH`. **Edit nothing**, in either section. Report
+     that the body could not be checked and leave the pull request as it is.
+
+   Neither `STALE` nor `MISSING` → **make no edit.** Report that the body is current and skip to
+   the end of the sub-stage.
+
+4. Compose each stale section and write it with the Write tool:
+
+   - **handover** → the `## Deliberately not done` heading, the marker line from
+     `handover_body_state.sh --marker handover.md`, and `handover.md`'s items one line each with
+     its reason, exactly as the contract step describes — to
+     `<ROOT>/.claude/artifacts/handover-section.md`.
+   - **QA** → the `## Exercised by this run` heading, the marker line from
+     `handover_body_state.sh --section qa --marker qa.md`, and the content the contract step's
+     `QA:` rule gives for `qa.md` as it now stands — to `<ROOT>/.claude/artifacts/qa-section.md`.
+
+   Then splice. One stale section goes straight from the fetched body to `pr-body.md`:
+
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-live.md .claude/artifacts/handover-section.md "Deliberately not done" > .claude/artifacts/pr-body.md
+   ```
+
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-live.md .claude/artifacts/qa-section.md "Exercised by this run" > .claude/artifacts/pr-body.md
+   ```
+
+   Both stale → chain them, so the fetched original stays untouched:
+
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-live.md .claude/artifacts/handover-section.md "Deliberately not done" > .claude/artifacts/pr-body-handover.md
+   ```
+
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-handover.md .claude/artifacts/qa-section.md "Exercised by this run" > .claude/artifacts/pr-body.md
+   ```
+
+   Each splice replaces its one section, or inserts it before `## Not proven by this run` when the
+   body has no such section yet. **A non-zero exit means the heading is ambiguous** — it appears
+   more than once — and nothing was written. Do not hand-edit around it: report that the body needs
+   a human, and leave the pull request as it is.
+
+   **`## Not proven by this run` is not refreshed.** When QA has moved to `exercised` and the task
+   declared scenarios, that section may still list them as not run. Say so in the report, naming
+   the line, so a human deletes it; rewriting a third section on a guess is how hand-edits get lost.
+
+5. Check it, send it, clean up — three blocks, because each gates the next. The body goes as a
+   **file inside the checkout**, for the reasons *Open it* gives:
+
+   ```bash
+   bash "$GANTRY/scripts/check_pr_body.sh" .claude/artifacts/pr-body.md
+   ```
+
+   Fix what the check names **in the file** and run it again until it passes. Only the refreshed
+   sections are this run's prose; if the check flags lines elsewhere in the body, they came back from
+   GitHub that way — fix them too rather than reverting, since `gh pr edit` sends the whole file.
+   Then send it:
+
+   ```bash
+   gh pr edit --body-file .claude/artifacts/pr-body.md
+   ```
+
+   ```bash
+   rm -f .claude/artifacts/pr-body.md .claude/artifacts/pr-body-live.md .claude/artifacts/pr-body-handover.md .claude/artifacts/handover-section.md .claude/artifacts/qa-section.md
+   ```
+
+   **Clean up only after the edit succeeded** — the same rule the create path states for
+   `pr-body.md`. If `gh pr edit` failed, leave the files where they are: they are excluded
+   from git so they cannot reach a commit, the fetched original is the only copy of what the body
+   said before, and `gh pr edit --body-file .claude/artifacts/pr-body.md` is what a human reruns by
+   hand. Report the path rather than deleting the work.
+
+6. Report which sections were refreshed and what each now says, or that the body was already
+   current and nothing was edited.
+
 ### 5. Done — report and wait
 
-The branch is fully shipped: PR open, nothing left to push. Pull the current status so "wait" is
-informed, not blind:
+The branch is fully shipped: PR open, nothing left to push.
+
+**First, run *Refresh the handover and QA sections* above — unless stage 4 already routed you through it on
+the way here**, in which case it has just run and a second pass would only spend another
+`gh pr view` and repeat its report. Then come back here. A handover written after the PR opened
+reaches nobody otherwise, and this is the stage a run lands on once there is nothing left to commit
+or push — which is exactly when a review has just produced one.
+
+Then pull the current status so "wait" is informed, not blind:
 
 ```bash
 gh pr view --json url,state,mergeable,reviewDecision,statusCheckRollup
@@ -441,13 +692,16 @@ commit subject, the PR URL, **whether the PR is a draft or ready for review**, a
 status.
 
 **Whether a review ran, and it only ran if you asked.** Say which flag was given, at which tier, and
-whether it was `--review` or `--review-fix`; how many files the fixes touched, if any; and the gate
-exit code `gantry:review` reported over those fixes. If no flag was given, say the run was not reviewed —
+whether it was `--review` or `--review-fix`; the child session ids, the `MODEL:` and `EFFORT:`
+lines, and every `DENIED:` line, verbatim from the launcher; how many files the fixes touched, if
+any; and the `GATE_EXIT:` the fix child recorded over those fixes. If no flag was given, say the run was not reviewed —
 plainly, as a fact about this run rather than an omission. If `gantry:review` rejected the tier, say
 that the commit stands and nothing was pushed. If it blocked the ship, lead with that.
 
-**Both stage 4 disclosures, always — including under `--no-pr`, where the report is the only place
-they can land.** Say whether the `human_only` heading was emitted and why (or why not), and what
+**All stage 4 disclosures, always — including under `--no-pr`, where the report is the only place
+they can land.** Say whether the *Not proven* heading was emitted and why (or why not) — the
+`human_only` entries, the e2e scenarios nobody ran, or both — what *Exercised by this run* carried
+(the `QA:` value, and the verdicts on `exercised`), and what
 the executing-plugin check concluded: the version that ran, that the check was inert because the
 repo is not a plugin, that it was suppressed because the plugin root and the repo are the same
 tree, or that the version could not be determined. The driver journals this from what you report,

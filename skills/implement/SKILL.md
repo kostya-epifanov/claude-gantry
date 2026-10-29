@@ -61,10 +61,21 @@ Route on what it prints:
   scope* later. Continue.
 - `FORKS:none` → nothing is open. Proceed.
 - `PHASE:not-a-repo` → stop.
-- **`STATUS:planned`** → the plan was never grilled. Warn, name `/gantry:plan-grill` as the cheaper
-  path, and continue if the user wants to. A warning, not a refusal.
+- **`STATUS:planned`** → nothing has read this plan yet. Warn, name `/gantry:grill` as the cheaper
+  path — it chains the cold critique itself — and continue if the user wants to. A warning, not a
+  refusal.
+- **`STATUS:critiqued`** → accepted **without** a warning. A critic has read the plan, which is the
+  scrutiny that catches the defects this phase would otherwise pay for; that no human agreed to it
+  is a different thing and not this phase's business. It is also the terminal status of every
+  `gantry:auto-unattended` run, which has no dialogue by design, so warning here would fire on
+  every unattended run and devalue the warning that still means something on `planned`.
 - `PHASE:implement` → the normal entry, whether from `grilled` or resuming a previous
-  `implementing` run. On a resume, read what is already changed (`git status`, `git diff`) before
+  `implementing` run. Note that `critiqued` does **not** report `PHASE:implement` — the detector
+  maps it to `PHASE:grill`/`NEXT:/gantry:grill`, because with a human present grill is genuinely
+  the next phase. `detect_stage.sh` reads no `mode:` field, so it cannot know that
+  `gantry:auto-unattended` never runs grill; that driver knows its own next stage and invokes this
+  phase directly. A `critiqued` entry is therefore expected and accepted here even though `NEXT`
+  pointed elsewhere. On a resume, read what is already changed (`git status`, `git diff`) before
   adding to it.
 - `STATUS:implemented` or later → the work is done. Say so and name `NEXT` rather than redoing it.
 
@@ -87,7 +98,7 @@ Set `task.md` frontmatter to `status: implementing` **before any edit**. (Hard r
 ### 4. Carry out the plan
 
 Work the steps in order. Keep to the plan; when a step turns out to be wrong — and it sometimes
-does, which is the honest reason `plan-grill` exists rather than a promise it never happens:
+does, which is the honest reason `plan-critique` exists rather than a promise it never happens:
 
 - **Supervised** → stop and raise it. A plan that survived a critique and still failed contact with
   the code is worth a human's attention, not a silent patch.

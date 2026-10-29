@@ -1,5 +1,386 @@
 # Changelog
 
+## 0.7.0
+
+**`/gantry:integrate` reconciles the docs for the combined tree before the review** (BASE-71).
+Each source PR documents its own change alone, against the base it was cut from, so a merge that
+goes through cleanly can still leave the docs wrong: two PRs that each added a skill leave the
+count one short, two changelog entries describe one change, a flags list names a flag the other PR
+renamed. Nobody saw that drift until a human read the integration PR.
+
+A new stage 7 sits between the merge loop and the reviewer. It collects the doc surfaces each
+included PR touched or should have — `git diff --stat origin/<BASE>..HEAD` over the markdown, plus
+each PR's *What this change is for*, re-read rather than remembered because a resumed run is
+usually a different session — and checks the combined tree against the docs the repo keeps: the
+skill-count line, the skills table and the shared-flags list in `docs/SKILLS.md`, the README
+sections that name a skill or a flag, a `CHANGELOG.md` entry per included PR. A surface the repo
+does not keep is nothing to check, never something to create. Any fix is one `integrate: docs`
+commit of its own, staged by path (never `git add -A`, which would sweep the readiness hook's log
+in), with the gate run after it like after any other commit: two fix attempts in separate commits,
+then `status: blocked`. The reviewer is given the docs commit with the resolutions, and the PR body
+carries a `## Docs` section that is never skipped — `no docs change needed` is information.
+
+**Changed**
+- **`skills/integrate/SKILL.md`** — the docs stage; Review, Checkpoint, Publish and Report are now
+  stages 8–11. The reviewer's brief names the `integrate: docs` commit; the report lists it.
+- **`skills/integrate/references/pr-body.md`** — the `## Docs` section, after *Fixes made during
+  integration*.
+- **`skills/integrate/references/merge-loop.md`** — `NEXT:nothing` routes a re-run through the
+  docs stage, which gates first, rather than straight to the review: a lane that stopped on a red
+  docs gate has nothing in git marking it.
+- **`tests/cases/integrate_flat_commands.sh`** — cuts the docs stage out by heading, proves every
+  column-zero command there sits inside a fence (the scanner skips an unfenced line, so a `;`
+  appended to each command must be reported exactly as many times as there are commands), and runs
+  the same scanner over the region, so a non-flat command there is named as such.
+- **`tests/cases/integrate_docs_stage.sh`** — the stage order, the stage numbers running 0–11
+  without a gap, the specific column-zero commands in the docs region (and no `git add -A`), the
+  report line, the `## Docs` heading, the re-run row, and the `docs/SKILLS.md` description.
+
+**`/gantry:plan-grill` becomes two phases: `/gantry:plan-critique` and `/gantry:grill`.** The old
+phase did two jobs that pull in opposite directions. It dispatched a cold critic — the one read in
+the chain not written from inside the plan's own assumptions — and then compressed what came back
+into a count ("4 findings, 2 folded in, 1 noted") and asked a binary *"Proceed with this plan?"*.
+
+A critic attacks a plan from inside the plan's approach: it hunts steps that will fail, missing
+migrations, unfalsifiable criteria. Every one of those presupposes the approach is right. Nobody
+asked *is this the way to get what the task came for* — the question with the most leverage at plan
+time, and the one a human can answer and a critic cannot. Meanwhile the reasoning that lets an
+owner catch a wrong premise in a sentence, why approach A loses to approach B, was exactly what got
+thrown away.
+
+So the split is along mechanism versus interface. **`/gantry:plan-critique`** is the old phase minus
+every `AskUserQuestion`: headless, dispatches `gantry-critic` on every path, records the pass under
+`## Critique`, sets the new `status: critiqued`, and leaves every fork open. **`/gantry:grill`** is
+new and human-only: it explains the problem, asks in up to `--rounds N` rounds (default 3, or 1
+under `--lead`) where every question leads with a recommendation and every option is priced by what
+it costs — the recommended one included — then writes a `## Decisions` section into `task.md` and
+closes with a terminal question that **is** the plan approval. A reply meaning "go with your
+recommendation" ends the dialogue in one step, and each remaining fork is recorded as *decided by
+recommendation, unconfirmed* rather than as a confirmation nobody gave.
+
+**`gantry:auto` now has exactly one `AskUserQuestion` checkpoint**, the one before the side effects.
+Grill's terminal question replaces the plan-confirmation checkpoint, and both of the driver's fork
+rounds are gone — `plan` records forks instead of asking them, and grill is the one asking moment.
+Removing a stage renumbered the rest: ship is stage 7 and the report stage 8.
+
+**`gantry:auto-unattended` loses the conversation and keeps the critique.** `grill` is human-only
+and absent from that chain; `plan-critique` is headless and stays. Dropping both would have left
+`plan → implement` with nothing in between, and made the first independent read of anything happen
+after the code was written. Those runs reach `implement` at `critiqued`, which it accepts without a
+warning for that reason; `planned` still warns, and now names `/gantry:grill` as the cheaper path.
+
+**The reasoning finally reaches the reviewer.** `gantry:ship` quotes `task.md`'s `## Decisions` into
+the pull request body. The old `## Grilled` log lived in `plan.md`, which ship does not quote, so
+the argument behind an approach never left the worktree.
+
+**New status: `critiqued`, between `planned` and `grilled`.** The three now say who has read the
+plan — `planned` drafted, `critiqued` a critic read it, `grilled` a human agreed and every fork is
+closed — and only the last is an approval. `lib/detect_stage.sh` maps
+`planned → PHASE:critique → NEXT:/gantry:plan-critique` and
+`critiqued → PHASE:grill → NEXT:/gantry:grill`. The readiness hook is untouched: it still arms on
+exactly `implementing`, and `tests/cases/hook_inert_unless_armed.sh` now proves `critiqued` leaves
+it inert. `tests/cases/stage_phases.sh` covers the new status and, for the first time, the `NEXT:`
+mapping — a correct `PHASE` with a stale `NEXT` sends someone to a command that does not exist.
+
+`plan`'s own rule changed with it: it sets `status: planned` once the draft is complete, **whether
+or not a fork is open**, where through 0.6.x an open fork held it at `planning`. It had to move,
+because `planning` routes to `NEXT:/gantry:plan` — the chain's signpost pointing back at the phase
+that just finished. Dispatch is still protected by `/gantry:implement`'s unchanged `FORKS:open`
+refusal and by grill, which will not reach its approval while an entry is unchecked: two guards
+that read the forks directly rather than a status standing in for them.
+
+**Breaking, with no alias.** `/gantry:plan-grill` is gone — muscle memory and anything scripted
+against the command name both need updating. And note the name reuse: before 0.4.x `/gantry:grill`
+*was* the cold critique, which is why it was renamed to `plan-grill` in the first place. It now
+means the conversation. An alias would have made that ambiguity permanent instead of loud once.
+
+The always-on context budget rose from ~2,124 to **~2,230 tokens** (6,612 characters across 17
+components, measured with `claude --plugin-dir . plugin details gantry`), and
+`scripts/context_budget.sh`'s ceiling from 6,600 to 6,950. Most of that was not the new skill: both
+driver descriptions name the chain in prose, so one command name becoming two grew `auto` as well —
+the second-order drift that ceiling exists to make visible.
+
+**A task that carries a tracker id carries it everywhere.** When the task text starts with an id
+(`BASE-71 integrate should update docs`), names a tracker URL, or is given `--task <id>`, the
+drivers name the branch and worktree `<type>/<ID>-<slug>`, `task.md`'s `id:` is the tracker id, the
+journal's `task` field is that same id, and `gantry:ship` puts `<ID>: ` at the front of the PR
+title and a `Tracker:` line in the body so Linear's GitHub integration links the PR to the issue.
+A task with no id is named exactly as before, and `--branch <name>` still wins verbatim.
+
+The id and the explicit branch come from a script rather than prose: `lib/task_id.sh` reads the
+driver's argument string from a file, the way `lib/lead_reply.sh` reads a reply, and reports
+`ID:`, `SOURCE:`, `BRANCH:` and the remaining `TEXT:`. A tracker id is `[A-Z][A-Z0-9_]*-[0-9]+`,
+uppercase on purpose, so `utf-8` and `covid-19` in a task description stay words — and `--task`
+and `--branch` are flags only ahead of the task text, so a task that mentions them in prose keeps
+its words.
+`tests/cases/task_id.sh` covers the sources, the precedence, the copied URL shapes and the
+refusals.
+
+**A `qa` phase runs the task's e2e scenarios against the built app — repo-first, reported, never
+enforced.** The gate proves the tree with an exit code and the review reads the diff; neither one
+runs the product, and for a mobile or web app the question a reviewer still answered by hand was
+"does the feature work when I tap through it?". `task.md` has declared `verification.automated.e2e.scenarios`
+since 0.2 and no phase consumed the block. Now `/gantry:qa` does, between `review` and `ship`. The
+plugin does not know the word Maestro: the repo supplies the driver (`.claude/agents/qa.md`, whose
+`tools:` line is the boundary) and the environment (`.claude/qa-env.sh`, with the gate's exit-code
+shape), and gantry supplies the contract. There is deliberately **no default `gantry-qa` agent** — a
+published plugin cannot pick a stack, and a reviewer must never hold a tool that taps real UI — so a
+repo with neither file gets one `no-agent` line and the chain continues, the same stance as the
+`gantry-profile` contract. The verdict blocks nothing on its own; what blocks is `.claude/gates.sh`,
+which is also where a flow file the qa agent wrote ends up, so a scenario explored once by judgment
+is enforced from then on by a script.
+
+**Added**
+- **`skills/qa/SKILL.md`** — detect the stage (stops on `implementing`, skips on no contract); resolve
+  the role (`no-agent`, or `unrunnable` when the agent has no env script beside it); read the
+  task's declared scenarios or derive two to four from the acceptance criteria the diff touches,
+  saying which; run `.claude/qa-env.sh` (`0` up · `1`+ setup failed · `2` could not run — non-zero
+  is `unrunnable`, never a fail); dispatch the repo's `qa` agent with paths and take back one
+  verdict per scenario (`pass`, `fail`, `could-not-reach`) plus the evidence and any flow files;
+  triage failures through `review`'s own steps 3, 4 and 6 by reference; `--fix` repairs in scope,
+  re-runs the gate and re-runs the failed scenarios once; ask (or hand over, unattended) about flow
+  files; write `qa.md`. Blocks on exactly one thing: a verified failure that falsifies a stated
+  acceptance criterion and was not repaired.
+- **`qa.md`** — the fifth artifact: `outcome:` (`exercised`, `unrunnable`, `no-agent`,
+  `no-scenarios`), the agent's `tools:` line, the env exit, one line per scenario with its verdict
+  and observation, the flow files, and an `applied:` line after `--fix`. Written on every run that
+  got past the stage check, never committed.
+- **`lib/detect_stage.sh`**: `QA:absent|exercised|unrunnable|no-agent|no-scenarios|unknown` from
+  `qa.md`; `E2E:present|none|absent` from the task's `e2e.scenarios` block, with the same
+  permissive-toward-`present` rules as `HUMAN_ONLY:`; `QA_ROLE:` and `QA_ENV:` for the two opt-ins.
+  `PHASE` and `NEXT` are unchanged — the verdict is not a state on the chain's machine.
+- **`gantry:ship`** composes a second fixed heading, **`## Exercised by this run`**: on
+  `QA:exercised` the scenario lines of `qa.md` verbatim with the agent's `tools:` line; on any other
+  value one line saying why not. Declared scenarios that were not run land under the existing
+  `## Not proven by this run`, verbatim, with the reason — the contract promised them and the run
+  did not keep them.
+- **Drivers**: `gantry:auto` stage 5b invokes `/gantry:qa --fix` after the review children and
+  before the side-effects checkpoint; `gantry:auto-unattended` stage 5b invokes `/gantry:qa`
+  without `--fix` (a UI-driven fix nobody watched is the wrong kind of autonomy), journals a `qa`
+  stage and phase, escalates `qa-criterion-false` on a block, and journals `unexercised-e2e`
+  disclosures from ship's report. Both run it in their own session — the heavy context is the
+  sub-agent's, and there is no author bias to shed.
+- **`examples/qa-env.sh`** and **`examples/agents/qa.md`** — the two starters a repo copies in.
+- **Tests:** `tests/cases/stage_qa.sh` (the e2e parser's three states including the template's
+  commented sample, the block sequence at the key's own indentation, a `scenarios:` key under
+  another parent, every `QA:` value, the opt-in lines, and `PHASE:` still last).
+
+**Changed**
+- The artifact set is five: every `ensure_excluded.sh` call that named `/review.md` now names
+  `/qa.md`, `.gitignore` lists it, `lib/gate_coverage.sh` sets it aside, and `scripts/verify.sh`
+  requires a call naming any of `/task.md`, `/review.md`, `/qa.md` to name all three.
+- The task template's sample e2e scenario is **commented out**, like `human_only`'s placeholder: a
+  live one would have put a scenario called "scenario name" under *Not proven* on every pull
+  request now that something reads the block.
+- `scripts/context_budget.sh` ceiling 6,950 → 7,600 characters. On its own branch qa measured
+  6,809 against 7,150 (its description is 551 of it); combined with the `plan-grill` split above,
+  the 0.7.0 tree measures 7,227 across 18 components, and always-on reads ~2,456 tokens, qa ~180
+  of it.
+- `lead.md` gains `qa`'s two questions (an ambiguous failure, the flow files), both `fork`.
+
+**The review phase runs in a fresh headless child session.** `gantry:auto` and
+`gantry:auto-unattended` invoked every phase in the driver's own session, so by the time
+`/gantry:review` ran that session carried the plan, the critique and the whole implementation — in
+the one `auto` run on disk, `/code-review` started at 187k tokens of context and ran inline, with
+`Bash` and `Edit`, dispatching no sub-agent. The diff was reviewed by the model that wrote it. Both
+drivers, and `gantry:ship --review`, now launch `claude -p "/gantry:review --headless …"` in the
+worktree through a launcher, wait for it, and read its results from disk. The child can write only
+the chain's artifacts, by a path-scoped allowlist the harness enforces; the fix is a second child
+running `gantry:review --fix`, which applies what the first one recorded instead of reviewing again.
+The phase skill keeps carrying the procedure — only where it runs changes.
+
+**The chain's artifacts survive a prune, and a handover reaches the pull request whenever it was
+written.** Two failures with one root. `git status --porcelain` does not list ignored files, so a
+worktree holding `task.md`, `plan.md`, `handover.md`, `review.md`, its journal and its gate logs
+reports **clean** — and `git worktree remove` deletes the directory with rc 0 and no warning
+(verified on git 2.55: an ignored file goes silently, a non-ignored untracked file aborts the
+removal). The exclusion that keeps the artifacts out of the diff is what makes git willing to
+destroy them. Meanwhile the pull request body was write-once, composed at `gh pr create`, while
+`handover.md` is normally written *after* that because `/gantry:review` is what produces one: PR #30
+here was opened at 2026-10-21T23:48Z, its handover written an hour later, and the body still read
+*"No `handover.md` was written"* while the file held two verified findings — with the worktree one
+merge away from a prune that would have deleted the only copy. Now `detect_candidates.sh` reports
+per worktree what it is holding, `prune-worktrees` shows that in its summary and in the question it
+asks and archives it outside the repo before each removal, `sync` names it in the report that hands
+off, and `ship` refreshes a stale handover section in an existing body.
+
+**Added**
+- **`lib/run_phase_headless.sh`** — builds and launches the child (`--output-format json`,
+  `--name gantry-<phase>-<branch>`, `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`, `--permission-prompts
+  none`, `dontAsk` with `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`,
+  `handover.md` and `task.md` plus `Skill(gantry:handover)` for the review child — the absolute form
+  because a `cd` inside one Bash call persists and the relative rule then misses the root; the Skill
+  rule because a plugin skill is denied under `dontAsk` without one, both observed in a real run —
+  `acceptEdits` plus the Skill rule for the fix child, and Bash rules in both quote forms for `run_gates.sh`,
+  `ensure_excluded.sh`, `detect_stage.sh` and `diff_fingerprint.sh`), removes an earlier run's result
+  files first, writes the child's JSON under `.claude/artifacts/headless/`, verifies the artifact
+  the phase promises, and prints fixed labeled lines — session id, model, effort, turns, cost, every
+  permission denial, `GATE_EXIT:` after the fix child — with the child's result text last inside
+  delimiters. Exit `0` only when the child completed and left its artifact; denials are reported and
+  never fatal on their own. `--plugin-dir` is forwarded so a checkout's skills run in the child.
+  The child is launched **detached**, in a session of its own (`setsid`), with
+  `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`: a Claude Code session reaps its own background
+  tasks on a `memoryPressure` event from its runtime, and a driver runs the launcher as one of
+  those. Measured over an A/B run of five lanes, that reaper killed review children at 0.6, 0.8,
+  0.9, 1.1 and 2.9 GiB host memory free against one survivor at 1.6 GiB — host memory does not
+  predict it, the message ("stopped because the system is running low on memory") names the wrong
+  cause, and two lanes running the identical command went 6-for-6 killed and 0-for-1 killed. Only
+  this topology was exposed: an in-session review has no background task to reap. Because the
+  variable is read in the driver's process, where a skill cannot set it, the fix is the detach. A
+  launcher that is itself reaped leaves the child running, and re-running the same command
+  **attaches** to it by its `.pid` instead of paying for a second review of the same diff.
+  `--timeout <seconds>` (default 7200) bounds the wait and stops the child it was waiting on.
+  With no `setsid` on `PATH` the child runs inline and a `NOTE:` line says it is exposed.
+- **The child is told the one way to call a gantry script that the tool boundary can match**, and
+  the rules now carry the variable spelling too. A Bash rule matches the **literal text** of a
+  command, while `skills/review/SKILL.md` tells the child to run `bash "$GANTRY/lib/x.sh"` — a
+  spelling no emitted rule matched. Children that passed did so because they happened to expand the
+  variable and write the absolute path themselves; it was luck, not a contract. In the A/B run one
+  lane's review followed the skill's own `cd … && GANTRY=… && bash "$GANTRY/…"` idiom, took **19
+  denials**, lost `diff_fingerprint.sh`, and wrote HEAD/base SHAs into `review.md` where the
+  fingerprint belongs — an artifact `--fix` must refuse — while the launcher still exited `0`. Now:
+  the prompt names the resolved `lib/` path and states the convention (whole command, absolute path,
+  no `cd` prefix, no assignment prefix, no variable), the skill's headless section says the same and
+  tells the child to report a denied script rather than substitute a value for it, each script's
+  rule is additionally emitted in both literal `$GANTRY` forms, and a `review.md` whose `diff:` line
+  is not a fingerprint raises a `NOTE:` saying `--fix` will refuse it as stale. A compound command
+  is still undeniably deniable — nothing can rescue that — which is why the convention is stated to
+  the child rather than worked around.
+- **`NOTE:<line>`** in the launcher's output, after `RESULT_FILE:` and before `REASON:` — zero or
+  more: the detach or the lack of it, an attach to a child an earlier launcher left running, and
+  the one a caller most needs to see, that **no `--model` was given**. A child without `--model`
+  does not inherit the driver's model: it takes the user default from `settings.json`. In the same
+  A/B run a driver pinned to Sonnet reviewed on Opus because a `/model` command in an unrelated
+  session had just saved that default. The three drivers now pass `--model` on every launch —
+  `--review-model`'s alias when given, otherwise their own model.
+- **`lib/diff_fingerprint.sh <base>`** — one token for the diff plus untracked state, including
+  the content of untracked files. `review.md` records it; apply mode refuses on a mismatch.
+- **`review.md`** — the fourth artifact: branch, base, fingerprint, source, tier, the two tallies,
+  and the address-now findings (or `None.`). Written on every review, never committed, never quoted.
+- **`REVIEW:absent|pending|applied|clean`** from `lib/detect_stage.sh`, permissive toward `pending`;
+  a `reviewed` task with a `pending` file reports `PHASE:review` and `NEXT:/gantry:review --fix`.
+- **`--headless`** on `gantry:review`: defer an ambiguous finding instead of asking, in every mode.
+- **`--review-model <alias>`** and **`--review-effort <level>`** on `auto`, `auto-unattended` and
+  `ship`, reaching the child as `--model` and `--effort`; absent, the child inherits the user's
+  defaults.
+- **`session`** on the journal's `phase` event, and `review-fix` as a phase name;
+  `headless-child-failed` as an escalation reason.
+- **`scripts/verify.sh`** checks that every `ensure_excluded.sh` call under `skills/` naming
+  `/task.md` also names `/review.md`, and that `review.md` is not tracked at the root.
+- **Tests:** `tests/cases/headless_launcher.sh` (a fake `claude` that records its argv
+  NUL-delimited; exact-element checks of the prompt and every allowlist rule per phase; success,
+  success without the artifact, `is_error`, `max_turns`, a non-zero exit, denials, stale `.done`
+  removal), `tests/cases/diff_fingerprint.sh`, `tests/cases/verify_artifact_set.sh`, and the
+  `REVIEW:` and `session` cases in `stage_phases.sh` and `journal_append.sh`.
+- **`docs/ARCHITECTURE.md` § Headless phases** — why review is first, how the read/write split is
+  preserved by an allowlist on the child, what the orchestrator's context holds afterwards, and the
+  limits.
+- **`lib/worktree_artifacts.sh`** — which chain artifacts a worktree holds, from the filesystem,
+  because git cannot answer it. Two arrays: the contract's four root artifacts, and the run state
+  (`journal.jsonl`, a non-empty `.claude/artifacts/`). `-` for none, exit 2 for a path that is not a
+  readable **and traversable** directory — `-x`, not just `-r`, because the `-f` tests need
+  traversal: a mode-400 worktree would otherwise answer `-` and be removed with its handover in it.
+- **`lib/archive_artifacts.sh`** — copies them to
+  `~/.claude/sessions/<repo-slug>/worktrees/<date>-<branch-slug>-<sha8>/` and prints `ARCHIVE=` plus
+  a `COPIED=` line per item. Exit 0 covers "nothing to copy", so a worktree with no artifacts stays
+  prunable; non-zero names what failed, and `prune-worktrees` then refuses to remove that path. The
+  directory is reused and overwritten on a retry by design: the `<sha8>` distinguishes two tips, not
+  two prunes.
+- **`lib/session_paths.sh`** — `slugify`, `repo_slug` and `sessions_dir`, so the archive and
+  `gantry:preserve` cannot drift apart on where "outside the repo" is.
+  `skills/preserve/scripts/doc_path.sh` sources it; its own output is unchanged, error paths
+  included, which is why the lib defines functions and sets no shell options. The source itself is
+  the one exception to doc_path's print-the-lines-anyway rule: without `-e` bash walks past a failed
+  `.`, and the script used to print `DOC=/<date>-session.md` — the filesystem root — and exit 0, so
+  a missing lib is now exit 2.
+- **`lib/handover_body_state.sh`** — `CURRENT` | `STALE` | `MISSING` | `NO-HANDOVER` for a body
+  against a handover file, decided by a digest marker ship leaves in the body as an HTML comment.
+  `--marker` prints that line, so the digest has one definition. Only an equal marker is `CURRENT`:
+  a crude rule that rewrites each pre-marker body once and then converges, chosen over an earlier
+  design that tried to infer currency from each item's file citations — which `skills/handover`
+  guarantees no item has. Marker and heading are both matched **outside fenced blocks**: this repo
+  documents the marker, so a body explaining the mechanism is where one gets quoted, and the scan
+  stops at its first hit — a quoted wrong digest would pin the body to `STALE` and have every run
+  re-splice over a hand-edit, a quoted right one would suppress the refresh entirely.
+- **`lib/splice_pr_section.sh`** — replaces one `## ` section and prints the result, with the
+  boundary rules in its header: the first match outside a fence, ending at the next `## ` outside a
+  fence; more than one match is exit 1 with nothing printed; an absent heading inserts before
+  `## Not proven by this run` or appends. `\r` is stripped unconditionally — the premise that GitHub
+  can return CRLF is recorded as **unverified**, and the mitigation costs one line either way.
+- **Six new test cases** — `session_paths`, `worktree_artifacts`, `archive_artifacts`,
+  `prune_candidates_artifacts` (the first test of `detect_candidates.sh` at all) and
+  `handover_pr_body`, plus the array-vs-exclusions controls in `verify_artifact_set`.
+- **Three `scripts/verify.sh` checks** — `ROOT_ARTIFACTS` against the `ensure_excluded.sh`
+  arguments under `skills/`; `prune-worktrees` running `archive_artifacts.sh` before
+  `git worktree remove`, judged on fenced lines only; and the literal row format appearing in both
+  consumers and in the script that emits it.
+
+**Changed**
+- Where review runs: `auto` stage 5, `auto-unattended` stage 5 and `ship --review` /
+  `--review-fix` launch headless children and never invoke `/gantry:review` in their own session.
+  The "commit the review's edits separately" rule and the re-detect in ship are unchanged.
+- `gantry:review --fix` is stage-aware: with `REVIEW:pending` and `status: reviewed` it applies the
+  listed findings, re-runs the gate, and appends `applied: <date> gate=<exit>`; with `pending` and
+  any other status, or a fingerprint mismatch, it stops and names `/gantry:review`. It also stops
+  on `status: implementing` in every mode.
+- The artifact set is four: every call that asserted `/task.md /plan.md /handover.md` now names
+  `/review.md` too, `.gitignore` lists it, and `lib/gate_coverage.sh` sets it aside with the others.
+- `PHASE` and `NEXT` for `status: reviewed` depend on `REVIEW:`: `pending` keeps the task at the fix
+  step; anything else moves it to ship.
+- The allowlist names two more read-only scripts than first planned — `detect_stage.sh` and
+  `diff_fingerprint.sh` — because a `dontAsk` child was probed to deny `bash <abs>/lib/detect_stage.sh`
+  with only the gate rules present, and the review child needs both to find its stage and to
+  fingerprint the diff it records.
+- **`detect_candidates.sh`'s row gains a seventh field**:
+  `path|branch|status|days_idle|merged_into|head_sha|artifacts`. Appended, because both consumers
+  parse positionally. `-` is "holds nothing" and `?` is "could not be read" — kept distinct,
+  because the call is guarded with `|| echo '?'` precisely so a worktree git still lists but whose
+  directory is gone cannot truncate the row stream under `set -e`, and a truncation with no marker
+  is how a partial candidate list gets bucketed and approved. **No classification changed**: the
+  `git status --porcelain` test keeps its exact meaning, so a clean worktree holding only artifacts
+  is still `candidate`/`keep` and never `dirty`.
+- **`gantry:prune-worktrees`** names each candidate's artifacts in the printed summary, in the
+  per-candidate option and preview, and counts the artifact-bearing candidates in the question it
+  asks — which the "prune all N" fast path needs, since it never reaches the per-candidate options.
+  Its removal loop is now **per path**: archive, re-check `git status --porcelain`, remove, one
+  worktree at a time, in **three separate fenced blocks** because each one's result decides whether
+  the next may run — one block listing all three reads as a single call, and `worktree remove` would
+  then run whatever the archive exited. Archiving every worktree between the re-checks and the
+  removals would reopen the window the re-check exists to close. A `?` row lands on the archive's
+  failure branch and is reported as already vanished: there is nothing to copy and nothing to
+  remove, and step 9's `git worktree prune` is what clears it.
+- **`gantry:sync`**'s Stage 6 names the artifacts of each candidate it reports; bucket 3 keeps its
+  one-line-with-a-count shape and gains a count of how many carry artifacts. Stage 7 is unchanged —
+  sync still removes nothing, so the archive belongs to the skill that does the removing.
+- **`gantry:ship`'s Stage 4 branches on `PR`.** `PR:none` composes and creates as before; anything
+  else goes to a refresh sub-stage, which Stage 5 also enters before its status read. That fixes a
+  pre-existing defect as well: `detect_state.sh` routes a dirty or ahead tree to `commit`/`push`
+  whether or not a PR exists, so "write the handover, commit once more, ship" used to arrive at a
+  stage whose only fenced commands were `gh pr create`. The create path now also writes the digest
+  marker, so a body born under this release is comparable on the next run. The refresh fetches the
+  live body through a `.tmp` it promotes with `mv` only on success: a plain redirect truncates its
+  target before `gh` runs, so a failed fetch left an **empty** body file, which reads as `MISSING`
+  and would have had the refresh replace the pull request's entire body with the handover section
+  alone. It also `mkdir -p`s `.claude/artifacts/` (`ensure_excluded.sh` creates the directory
+  holding the *exclude file*, not that one, and this is the only place the first write there is a
+  shell redirect rather than a Write call), cleans up its three files only after `gh pr edit`
+  succeeded, and runs once per ship rather than twice on the PR-already-open path.
+- `tests/cases/pr_body_file_in_tree.sh` raises ship's body-file floor from 2 to 3, so losing the
+  refresh command would be noticed.
+
+
+**A flow file `qa` keeps is gated before anything ships it, and ship refreshes the QA section of an
+existing body.** Found by running the 0.7.0 chain on a real repo. `qa` ran the gate before its agent
+wrote a flow file; the run kept it, `ship` — which runs no gate — committed and pushed it, and it
+failed the repo's lint on the pushed branch. `qa` now runs the gate over every kept flow file, fixes
+only the flow file (two attempts), and parks one that stays red under
+`.claude/artifacts/qa/<task-id>/flows/` with a handover item rather than leaving it in the tree. Its
+`applied:` line is written only when `--fix` changed the app, with a real timestamp — a run that
+fixed nothing had written one, which ship reads as "a fix landed after the review". And
+`lib/handover_body_state.sh --section qa` gives `## Exercised by this run` the same digest marker
+and refresh the handover section has, so a `qa` re-run after the PR opened no longer leaves a body
+saying "no qa agent" over scenarios that passed.
+
 ## 0.6.1
 
 **`/gantry:ship` sends the pull-request body from a file inside the worktree.** Ship documented an

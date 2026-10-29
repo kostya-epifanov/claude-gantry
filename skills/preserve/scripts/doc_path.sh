@@ -12,13 +12,23 @@
 # The repo slug mirrors Claude Code's own project-dir convention (absolute path
 # with "/" replaced by "-"), so a repo's notes sit beside its auto-memory.
 # Emits labeled KEY=value lines.
+#
+# `set -e` is deliberately absent: every labeled line below must print even when
+# a step fails, so lib/session_paths.sh — which this sources for the slug
+# convention — defines functions and sets no shell options of its own.
 set -uo pipefail
 
-slugify() {
-  printf '%s' "$1" \
-    | tr '[:upper:]' '[:lower:]' \
-    | sed -e 's/[^a-z0-9]\+/-/g' -e 's/^-\+//' -e 's/-\+$//' \
-    | cut -c1-48
+# THE SOURCE IS THE ONE EXCEPTION to "print the lines anyway". Without `-e`,
+# bash carries on past a failed `.` in a non-interactive script: `slugify` and
+# `sessions_dir` are then undefined, `DIR` is empty, and this prints
+# `DOC=/<date>-session.md` — the filesystem ROOT — and exits 0. A caller
+# parsing that would have gantry:preserve write outside any sessions directory.
+# A missing lib makes every line below untrustworthy, so it is fatal.
+GANTRY="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# shellcheck source=../../../lib/session_paths.sh
+. "$GANTRY/lib/session_paths.sh" || {
+  printf 'doc_path: could not source %s/lib/session_paths.sh\n' "$GANTRY" >&2
+  exit 2
 }
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -29,15 +39,13 @@ else
   BRANCH="(no repo)"
 fi
 
-REPO_SLUG="$(printf '%s' "$MAIN_ROOT" | sed 's#/#-#g')"
-
 RAW="${1:-}"
 [ -z "$RAW" ] && RAW="$BRANCH"
 [ "$RAW" = "HEAD" ] && RAW="detached"
 SLUG="$(slugify "$RAW")"
 [ -z "$SLUG" ] && SLUG="session"
 
-DIR="$HOME/.claude/sessions/$REPO_SLUG"
+DIR="$(sessions_dir "$MAIN_ROOT")"
 DOC="$DIR/$(date +%F)-$SLUG.md"
 
 mkdir -p "$DIR"

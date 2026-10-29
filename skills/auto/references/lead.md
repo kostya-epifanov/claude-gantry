@@ -43,19 +43,25 @@ Each question has a **kind**, which decides whether `proceed` can answer it.
 
 | Where | Question | Kind |
 |---|---|---|
-| `gantry:auto` stage 2 | the open forks after planning, one question per fork | `fork` |
-| `gantry:auto` stage 3 | forks the critique opened | `fork` |
-| `gantry:auto` stage 4 | confirm the grilled plan | `checkpoint` |
-| `gantry:auto` stage 7 | commit, push, and open the PR | `checkpoint` |
+| `gantry:auto` stage 6 | commit, push, and open the PR | `checkpoint` |
 | `gantry:worktree` step 4 | branch from the current branch or the base | `fork` |
 | `gantry:plan` step 1 | an existing task: `Revise`, `Replace`, or `Leave it` (its next phase is `NEXT`) | `fork` |
-| `gantry:plan` step 6 | the question round | `fork` |
-| `gantry:plan-grill` step 3 | a finding only the user can decide | `fork` |
+| `gantry:plan` step 6 | only what the plan cannot be drafted without | `fork` |
+| `gantry:grill` step 3 | each round: the open forks and the approach, as priced options | `fork` |
+| `gantry:grill` step 5 | the terminal question — approve this approach | `checkpoint` |
 | `gantry:review` step 4 | an honestly ambiguous finding | `fork` |
+| `gantry:qa` step 6 | an honestly ambiguous scenario failure | `fork` |
+| `gantry:qa` step 6b | keep or remove the flow files the agent wrote | `fork` |
 | `gantry:ship` stage 2 | how to split several unrelated changes | `fork` |
 
 A `checkpoint` is answered by `proceed` or `stop`. It offers no other options. If the branch name
-is wrong at stage 4, the answer is `stop`.
+is wrong, the answer is `stop` — and grill's terminal question is the last checkpoint where that
+costs only a recreated worktree rather than a moved diff.
+
+**`gantry:grill` is where a lead now spends most of its replies.** It is one phase with up to
+`--rounds N` rounds, each a `fork` question, and it ends in a `checkpoint`. Because every round is a
+message round-trip subject to the re-ask cap below, grill's default is **1 round under `--lead`**
+against 3 with a human present. A lead sequencing several lanes pays for that asymmetry directly.
 
 A `fork` offers its options as labels. Never offer `stop` or `proceed` as a label: `stop` always
 means stop the run, and the classifier refuses a labels file that would blur that. Where a phase's
@@ -137,7 +143,7 @@ mode: the next question goes to the lead again.
 | Kind | Examples | A lead may |
 |---|---|---|
 | Direction | answer a fork, proceed, stop | yes |
-| Side effects | commit, push, open a PR, through `gantry:ship` at stage 7 | yes; **merge stays the owner's** |
+| Side effects | commit, push, open a PR, through `gantry:ship` | yes; **merge stays the owner's** |
 | Privilege | a privileged-gate tap, a harness permission prompt, a settings change | **never** |
 
 The lane never merges on a lead's message. `gantry:auto` has no merge step, and no reply in the
@@ -171,7 +177,8 @@ What it does not cover:
 ## Leaving lead mode
 
 The driver removes the `lead:` line from `task.md` whenever the run ends: `STOP`, a `blocked` status
-from `plan-grill` or `review`, a red gate, and the stage 9 report. A phase the owner later types by hand then
+from `grill`, `plan-critique` or `review`, **a `critiqued` status returned by `grill` with a fork
+still open**, a red gate, and the final report. A phase the owner later types by hand then
 asks the owner, not a lead that may be gone. The re-ask cap is not on that list, because it does not
 end the run.
 

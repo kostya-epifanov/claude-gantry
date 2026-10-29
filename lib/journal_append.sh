@@ -42,7 +42,7 @@ journal_append.sh --task <id> --event <stage|phase|gate|decision|escalation|disc
   Common:      --task <id>   --file <path>   (default: journal.jsonl at the repo/worktree root)
   stage:       --to <name> [--from <name>] [--mode <mode>]
   phase:       --phase <name> --result <ok|failed|refused> [--summary <text>]
-               [--agent <name> ...] [--artifact <path> ...]
+               [--agent <name> ...] [--artifact <path> ...] [--session <id>]
   gate:        --result <pass|fail|no-gates> --exit <n> [--attempt <n>]
                [--check <name> ...] [--artifact <path> ...]
                [--coverage-verdict <v> --coverage-changed <n> --coverage-covered <n>
@@ -70,7 +70,7 @@ command -v jq >/dev/null 2>&1 || die "jq is required but was not found on PATH"
 
 TASK='' EVENT='' FILE=''
 FROM='' TO='' MODE='' PHASE='' RESULT='' SUMMARY='' STAGE=''
-QUESTION='' ANSWER='' REASON='' STATUS='' EXIT_CODE='' ATTEMPT='' KIND='' PR=''
+QUESTION='' ANSWER='' REASON='' STATUS='' EXIT_CODE='' ATTEMPT='' KIND='' PR='' SESSION=''
 COV_VERDICT='' COV_CHANGED='' COV_COVERED=''
 AGENTS=() ARTIFACTS=() CHECKS=() DETAILS=() COV_ROOTS=()
 SET_FLAGS=' '
@@ -108,6 +108,7 @@ while [ "$#" -gt 0 ]; do
     --pr)       need_value "$1" "$#"; PR="$2";        mark pr;       shift 2 ;;
     --exit)     need_value "$1" "$#"; EXIT_CODE="$2"; mark exit;     shift 2 ;;
     --attempt)  need_value "$1" "$#"; ATTEMPT="$2";   mark attempt;  shift 2 ;;
+    --session)  need_value "$1" "$#"; SESSION="$2";   mark session;  shift 2 ;;
     --agent)    need_value "$1" "$#"; AGENTS[${#AGENTS[@]}]="$2";       mark agent;    shift 2 ;;
     --artifact) need_value "$1" "$#"; ARTIFACTS[${#ARTIFACTS[@]}]="$2"; mark artifact; shift 2 ;;
     --check)    need_value "$1" "$#"; CHECKS[${#CHECKS[@]}]="$2";       mark check;    shift 2 ;;
@@ -139,7 +140,9 @@ done
 
 case "$EVENT" in
   stage)      REQUIRED='to';                    PERMITTED='from to mode' ;;
-  phase)      REQUIRED='phase result';          PERMITTED='phase result summary agent artifact' ;;
+  # `session` is the id of the headless child a phase ran in (review, since
+  # 0.7.0), so a reader can `claude --resume` it. Only a phase has one.
+  phase)      REQUIRED='phase result';          PERMITTED='phase result summary agent artifact session' ;;
   gate)       REQUIRED='result exit'
               PERMITTED='result exit attempt check artifact coverage-verdict coverage-root coverage-changed coverage-covered' ;;
   decision)   REQUIRED='stage question answer'; PERMITTED='stage question answer' ;;
@@ -286,6 +289,8 @@ case "$EVENT" in
     set -- "$@" --arg phase "$PHASE" --argjson agents "$agents_json" --arg result "$RESULT"
     if was_set summary; then FILTER="$FILTER+{summary:\$summary}"; set -- "$@" --arg summary "$SUMMARY"; fi
     FILTER="$FILTER+{artifacts:\$artifacts}"; set -- "$@" --argjson artifacts "$artifacts_json"
+    # Absent, not null, on a phase that ran in the driver's own session.
+    if was_set session; then FILTER="$FILTER+{session:\$session}"; set -- "$@" --arg session "$SESSION"; fi
     ;;
   gate)
     FILTER="$FILTER+{result:\$result}+{exit:\$exit}"
