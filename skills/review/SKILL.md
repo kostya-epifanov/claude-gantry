@@ -33,6 +33,14 @@ for the verification notification", ended its turn, and the session was over wit
 So: end a turn only while `ListAgents` lists an agent you are waiting on; never to wait for anything
 else, and never with `ScheduleWakeup`, which does not fire in print mode.
 
+**A headless child leaves the worktree as it was found.** Your finder sub-agents share the
+worktree with you: a file they create, delete or modify while they run is *their* side effect, not
+the lane's. Note `git status --short` at the start of step 1; only that and the diff are
+pre-existing. Never report or escalate a change after that which traces to your own agents. And
+write nothing but the chain's artifacts (plus, under `--fix`, the fixes `review.md` lists): use
+the harness's scratchpad directory for a throwaway script if one is provided, otherwise create no
+file at all. Remove only a file you created yourself; touch nothing else.
+
 **`--fix` is stage-aware.** When `review.md` already lists findings from a review that finished,
 `--fix` **applies them** and does not review again — see step 1. That split is what lets a driver
 run the review in one child session and the fix in another.
