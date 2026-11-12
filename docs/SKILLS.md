@@ -107,7 +107,7 @@ covers only the edits the review itself caused.
 
 ## `/gantry:plan` — the contract and the plan
 
-`/gantry:plan <task> [--lead <session>]`
+`/gantry:plan <task> [--task <id>] [--lead <session>]`
 
 Writes `task.md` (context and goal, acceptance criteria, how to verify) and then `plan.md`, asking
 whatever a genuine fork requires before any code is written. *Out of scope* and *Affected areas*
