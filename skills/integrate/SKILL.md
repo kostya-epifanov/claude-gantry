@@ -461,7 +461,7 @@ bash "$GANTRY/skills/integrate/scripts/list_candidates.sh" --base <BASE>
 ```
 
 ```bash
-bash "$GANTRY/skills/integrate/scripts/integration_state.sh" --base <BASE> 21=refs/integrate/pr/21
+bash "$GANTRY/skills/integrate/scripts/integration_state.sh" --base <BASE> 21=refs/integrate/<lane-branch>/pr/21
 ```
 
 Anything now `stale` is shown with the offer to merge the new commits first.
