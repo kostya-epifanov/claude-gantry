@@ -335,8 +335,9 @@ else
   bad "see: bash scripts/context_budget.sh"
 fi
 
-head2 "DEBUG journal_append x15"
-for _i in $(seq 15); do bash tests/cases/journal_append.sh 2>&1 | cat -v | grep -a 'FAIL' | sed "s/^/run $_i: /"; done
+head2 "DEBUG race"
+_D=$(mktemp -d); echo "tmp=$_D"; df -T "$_D" | tail -1; find --version | head -1; nproc
+for _n in $(seq 20); do _F=$_D/ex$_n; : > $_F; for _i in 0 1 2 3 4 5 6 7; do bash lib/ensure_excluded.sh --file $_F pat-$_i >$_D/out$_n.$_i 2>&1 & done; wait; _c=$(grep -c '^pat-' $_F); if [ $_c -ne 8 ]; then echo "run $_n: $_c"; cat $_D/out$_n.* | sed 's/^/   /'; fi; done
 echo "DEBUG done"
 head2 "gate and hook behaviour"
 # The two scripts that carry this project's one guarantee — lib/run_gates.sh
