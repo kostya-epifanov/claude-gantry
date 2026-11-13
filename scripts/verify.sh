@@ -341,9 +341,10 @@ head2 "gate and hook behaviour"
 # check above this line proves the shell *parses*; only this one proves the gate
 # ever blocked anything. Run `bash tests/run.sh` directly for the per-case
 # detail; here we only need the verdict.
-if bash tests/run.sh >/dev/null 2>&1; then
+if bash tests/run.sh >/tmp/tests.out 2>&1; then
   ok "all cases pass"
 else
+  grep -nE 'FAIL|^== ' /tmp/tests.out | grep -B1 'FAIL'
   bad "see: bash tests/run.sh"
 fi
 
