@@ -137,11 +137,11 @@ break_if_stale() {
 acquire() {
   local i=0
   while [ "$i" -lt "$TRIES" ]; do
-    if mkdir "$LOCK" 2>/dev/null; then HELD=1; return 0; fi
+    if mkdir "$LOCK" 2>/dev/null; then HELD=1; echo "DBG $$ $(date +%s.%N) acquired try=$i" >&2; return 0; fi
     # Probed on every failed attempt rather than only after the whole budget:
     # it breaks nothing younger than $STALE_MINUTES either way, so it is no less
     # safe, and a wedged lane recovers in well under a second instead of ten.
-    if break_if_stale && mkdir "$LOCK" 2>/dev/null; then HELD=1; return 0; fi
+    if break_if_stale && mkdir "$LOCK" 2>/dev/null; then HELD=1; echo "DBG $$ $(date +%s.%N) acquired-after-break" >&2; return 0; fi
     sleep 0.2
     i=$((i + 1))
   done
@@ -178,6 +178,7 @@ is_managed() {
 
 seen_already() { case "$NL$SEEN" in *"$NL$1$NL"*) return 0 ;; *) return 1 ;; esac; }
 
+echo "DBG $$ $(date +%s.%N) read: $(tr '\n' ' ' < "$FILE")" >&2
 : > "$TMP" || die "could not write $TMP"
 
 line=''
@@ -201,7 +202,9 @@ for p in "${PATTERNS[@]}"; do
 done
 
 mv "$TMP" "$FILE" || die "could not replace $FILE"
+echo "DBG $$ $(date +%s.%N) mv done; lockdir=$([ -d "$LOCK" ] && echo yes || echo no)" >&2
 release
+echo "DBG $$ $(date +%s.%N) released" >&2
 
 if [ -n "$added" ]; then
   printf 'ensure_excluded: added to %s:%s\n' "$FILE" "$added"

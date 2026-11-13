@@ -337,7 +337,7 @@ fi
 
 head2 "DEBUG race"
 _D=$(mktemp -d); echo "tmp=$_D"; df -T "$_D" | tail -1; find --version | head -1; nproc
-for _n in $(seq 20); do _F=$_D/ex$_n; : > $_F; for _i in 0 1 2 3 4 5 6 7; do bash lib/ensure_excluded.sh --file $_F pat-$_i >$_D/out$_n.$_i 2>&1 & done; wait; _c=$(grep -c '^pat-' $_F); if [ $_c -ne 8 ]; then echo "run $_n: $_c"; cat $_D/out$_n.* | sed 's/^/   /'; fi; done
+for _n in $(seq 6); do _F=$_D/ex$_n; : > $_F; for _i in 0 1 2 3 4 5 6 7; do bash lib/ensure_excluded.sh --file $_F pat-$_i >$_D/out$_n.$_i 2>&1 & done; wait; _c=$(grep -c '^pat-' $_F); if [ $_c -ne 8 ]; then echo "run $_n: $_c"; cat $_D/out$_n.* | sort -k3 | sed 's/^/   /'; fi; done
 echo "DEBUG done"
 head2 "gate and hook behaviour"
 # The two scripts that carry this project's one guarantee — lib/run_gates.sh
