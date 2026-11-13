@@ -409,6 +409,11 @@ Typing `/gantry:ship` **is** the go-ahead — it does not ask for stage-by-stage
 matches the *target repo's* commit conventions, including whether that repo uses trailers, which is
 exactly why the drivers delegate the tail to it instead of imposing their own style.
 
+**After every commit it makes, ship asserts the tree is clean before anything is pushed**
+(`skills/ship/scripts/assert_clean_tree.sh`). A commit takes only what was staged when it ran. If
+anything is still outstanding, ship names every path, including ones left out on purpose, and stops
+with no push and no PR. A check that cannot run is a stop too, never a pass.
+
 **Before it opens the PR, ship says what the run did not prove.** For an unattended run the body is
 the whole interface to the reviewer, so three things are composed into it rather than left to
 memory. It runs `lib/detect_stage.sh` for the `HUMAN_ONLY:` line — its own `detect_state.sh` reads
