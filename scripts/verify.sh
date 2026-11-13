@@ -336,8 +336,14 @@ else
 fi
 
 head2 "DEBUG race"
-_D=$(mktemp -d); echo "tmp=$_D"; df -T "$_D" | tail -1; find --version | head -1; nproc
-for _n in $(seq 6); do _F=$_D/ex$_n; : > $_F; for _i in 0 1 2 3 4 5 6 7; do bash lib/ensure_excluded.sh --file $_F pat-$_i >$_D/out$_n.$_i 2>&1 & done; wait; _c=$(grep -c '^pat-' $_F); if [ $_c -ne 8 ]; then echo "run $_n: $_c"; cat $_D/out$_n.* | sort -k3 | sed 's/^/   /'; fi; done
+_D=$(mktemp -d); uname -a; bash --version | head -1; type mkdir; which -a mkdir; mkdir --version | head -1; echo "trap test:"; bash -c 'trap "echo EXIT-TRAP-RAN-IN \$BASHPID >&2" EXIT; x=$(date +%s); y=$(true); echo main-done' 2>&1
+multi=0
+for _n in $(seq 200); do
+  rm -rf "$_D/L"; : > "$_D/w"
+  for _i in 1 2 3 4 5 6 7 8; do ( sleep 0.05; mkdir "$_D/L" 2>/dev/null && echo x >> "$_D/w" ) & done; wait
+  _c=$(wc -l < "$_D/w"); [ "$_c" -ne 1 ] && multi=$((multi+1))
+done
+echo "pure mkdir trials with !=1 winner: $multi / 200"
 echo "DEBUG done"
 head2 "gate and hook behaviour"
 # The two scripts that carry this project's one guarantee — lib/run_gates.sh
