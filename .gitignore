@@ -22,6 +22,8 @@ settings.local.json
 .claude/artifacts/
 .claude/worktrees/
 journal.jsonl
+# `claude plugin eval` writes its scores here; see docs/EVALS.md.
+evals/results/
 
 # gantry's own run artifacts. The chain writes these at the worktree root and
 # they are deliberately NOT committed — see docs/ARCHITECTURE.md § "The artifact

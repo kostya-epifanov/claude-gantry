@@ -1,0 +1,36 @@
+diff --git a/bin/check-config.sh b/bin/check-config.sh
+index c6450f8..4d9419b 100644
+--- a/bin/check-config.sh
++++ b/bin/check-config.sh
+@@ -13,7 +13,7 @@ shift
+ 
+ missing=0
+ for key in "$@"; do
+-  if [ "$(config_has_key "$file" "$key")" = "yes" ]; then
++  if config_has_key "$file" "$key"; then
+     printf '%s: present\n' "$key"
+   else
+     printf '%s: missing\n' "$key"
+diff --git a/lib/config.sh b/lib/config.sh
+index 476f343..1807599 100644
+--- a/lib/config.sh
++++ b/lib/config.sh
+@@ -5,15 +5,11 @@
+ 
+ set -uo pipefail
+ 
+-# config_has_key <file> <key> — print "yes" when <key> is set in <file>,
+-# "no" otherwise. Always exits 0.
++# config_has_key <file> <key> — exit 0 when <key> is set in <file>, 1 when it
++# is not. Prints nothing: the status is the answer.
+ config_has_key() {
+   local file="$1" key="$2"
+-  if grep -qE "^[[:space:]]*${key}[[:space:]]*=" "$file"; then
+-    printf 'yes\n'
+-  else
+-    printf 'no\n'
+-  fi
++  grep -qE "^[[:space:]]*${key}[[:space:]]*=" "$file"
+ }
+ 
+ # config_value <file> <key> — print the value of <key>, or nothing.
