@@ -344,7 +344,7 @@ head2 "gate and hook behaviour"
 if bash tests/run.sh >/tmp/tests.out 2>&1; then
   ok "all cases pass"
 else
-  grep -nE 'FAIL|^== ' /tmp/tests.out | grep -B1 'FAIL'
+  grep -anE 'FAIL|^== ' /tmp/tests.out | grep -a -B1 'FAIL'; tail -3 /tmp/tests.out
   bad "see: bash tests/run.sh"
 fi
 
