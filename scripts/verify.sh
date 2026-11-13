@@ -335,6 +335,9 @@ else
   bad "see: bash scripts/context_budget.sh"
 fi
 
+head2 "DEBUG journal_append x15"
+for _i in $(seq 15); do bash tests/cases/journal_append.sh 2>&1 | cat -v | grep -a 'FAIL' | sed "s/^/run $_i: /"; done
+echo "DEBUG done"
 head2 "gate and hook behaviour"
 # The two scripts that carry this project's one guarantee — lib/run_gates.sh
 # and hooks/readiness-gate.sh — executed against throwaway fixture repos. Every
