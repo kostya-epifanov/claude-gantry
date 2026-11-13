@@ -300,11 +300,23 @@ assert_eq 1 "$(grep -c '^\.claude/artifacts/$' "$SAME")" "8 concurrent writers l
 # A lock left behind by a killed lane must not wedge every later run.
 STALE="$CASE_TMP/exclude-stale"
 : > "$STALE"
-mkdir -p "$STALE.lock"
+: > "$STALE.lock"
 touch -t 200001010000 "$STALE.lock"
 run_exclude --file "$STALE" journal.jsonl
 assert_rc 0 "$E_RC" "a stale lock is broken rather than wedging the run"
 assert_eq 1 "$(grep -c '^journal\.jsonl$' "$STALE")" "and the pattern is still written exactly once"
+assert_path_absent "$STALE.lock" "and the lock is gone afterwards"
+
+# The lock used to be a directory made with `mkdir`. One left behind by that
+# version must be broken the same way, not wedge the first run after upgrading.
+STALE_DIR="$CASE_TMP/exclude-stale-dir"
+: > "$STALE_DIR"
+mkdir -p "$STALE_DIR.lock"
+touch -t 200001010000 "$STALE_DIR.lock"
+run_exclude --file "$STALE_DIR" journal.jsonl
+assert_rc 0 "$E_RC" "a stale directory lock from the mkdir version is broken too"
+assert_eq 1 "$(grep -c '^journal\.jsonl$' "$STALE_DIR")" "and the pattern is written exactly once"
+assert_path_absent "$STALE_DIR.lock" "and the old directory lock is removed"
 
 run_exclude --file "$CASE_TMP/nope"
 assert_rc 2 "$E_RC" "calling it with no pattern is a usage error"
