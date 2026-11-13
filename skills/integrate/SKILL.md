@@ -429,7 +429,7 @@ Dispatch **one** reviewer (Agent): the repo's `.claude/agents/reviewer.md` if it
 `gantry-reviewer`. Do not write a new agent. Give it paths and commands, not contents:
 
 ```bash
-git log --first-parent --format=%h%x20%s <BASE>..HEAD
+git log --first-parent --format=%h%x20%s origin/<BASE>..HEAD
 ```
 
 ```bash
