@@ -78,7 +78,7 @@ they dispatch the same phase skills a human would type.
 ```mermaid
 flowchart TB
   subgraph drivers ["the two drivers — dispatch only, no phase logic"]
-    A["gantry:auto — a grill conversation, then one checkpoint"]
+    A["gantry:auto — a grill conversation, then nothing; draft PR"]
     U["gantry:auto-unattended — never pauses, draft PR"]
   end
   subgraph chain ["the phase skills — one procedure, whoever runs it"]
@@ -144,8 +144,7 @@ One consequence worth stating, because it is easy to get backwards: a skill's `a
 carries `Agent` not because it dispatches phases, but because the phases it invokes dispatch their
 own agents, and a tool the driver has not allowed is one the phase cannot reach.
 
-Drawn out, with the one checkpoint `auto` adds, the grill conversation that carries the plan
-approval, and where each phase's sub-job goes:
+Drawn out, with the grill conversation that carries the plan approval, and where each phase's sub-job goes:
 
 ```mermaid
 flowchart TD
@@ -167,9 +166,8 @@ flowchart TD
   R -. "if /code-review is absent" .-> RV
   W --> P
   G -.- K1{{"grill's last question<br/>IS the plan approval"}}
-  R -.- K2{{"auto pauses here:<br/>confirm the PR"}}
   R --> S["gantry:ship"]
-  S --> A(["auto → ready PR"])
+  S --> A(["auto → draft PR"])
   S --> U(["auto-unattended → draft PR"])
 ```
 

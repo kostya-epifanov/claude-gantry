@@ -195,7 +195,7 @@ unrequested refactor is neither.
 
 **Under `--headless`, defer instead of asking — always**, whatever `mode:` says and even when a
 `lead:` is named. The child cannot wait for a reply. Count how many findings went that way; the
-report says so, and the driver shows them at its checkpoint from `handover.md`.
+report says so, and the driver's PR body shows them from `handover.md`.
 
 ### 4b. Record the findings
 
