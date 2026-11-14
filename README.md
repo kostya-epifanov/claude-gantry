@@ -104,7 +104,7 @@ conflicts from what each PR is *for* and running your checks after every merge.
 
 | Command | What it does |
 |---|---|
-| `/gantry:auto` | Task → open PR, supervised. Invokes each phase skill in turn; a grill conversation, then one checkpoint. The review runs in a fresh headless child session. `--review-model`, `--review-effort`. |
+| `/gantry:auto` | Task → open PR, supervised. Invokes each phase skill in turn; a grill conversation, then one checkpoint. The review runs in a fresh headless child session. `--explain`, `--review-model`, `--review-effort`. |
 | `/gantry:auto-unattended` | The same chain with nobody watching, ending at a **draft** PR. Same headless review. |
 | `/gantry:worktree` | Create a worktree under `.claude/worktrees/` from an up-to-date parent, and enter it. |
 | `/gantry:plan` | Write the contract and the plan — `task.md` and `plan.md` — asking what needs asking. |
