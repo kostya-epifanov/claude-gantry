@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**`/gantry:auto --explain` opens a supervised run with a plain-language explainer of the task**
+(BASE-332). A run started from a bare tracker id never said what it was about, so the person
+watching had to leave the session and read the issue. With the flag, the first thing the run
+prints, before it creates the worktree and also under `--here`, is a short explainer written for
+someone who has not read the issue. Nothing is written to disk and nothing is asked. `auto` only:
+`auto-unattended` does not recognise it. `tests/cases/auto_explain_order.sh` checks that the step
+sits ahead of the worktree stage.
+
 ## 0.7.1
 
 **`/gantry:ship` checks that the tree is clean after every commit it makes, before it pushes**
