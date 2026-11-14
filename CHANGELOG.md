@@ -10,6 +10,13 @@ someone who has not read the issue. Nothing is written to disk and nothing is as
 `auto-unattended` does not recognise it. `tests/cases/auto_explain_order.sh` checks that the step
 sits ahead of the worktree stage.
 
+**`/gantry:auto` stops once, at the grill, and opens a draft PR** (BASE-333). The checkpoint in
+front of ship ("Commit, push, and open the PR?") is gone: by then the gate is green and review and
+QA are done, and nobody had ever answered no. The plan approval at the end of the grill is now the
+run's only human stop, and ship is invoked with `--draft`, because nobody confirmed the commit, the
+push or the PR. Under `--lead` the PR is a draft too. Stages after QA are renumbered: Ship is
+stage 6, Report stage 7.
+
 ## 0.7.1
 
 **`/gantry:ship` checks that the tree is clean after every commit it makes, before it pushes**
