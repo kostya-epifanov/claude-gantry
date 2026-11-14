@@ -12,7 +12,7 @@ prompts and moved a dialog's highlight. A message arrives as a peer message, kee
 visible, and is weighed as input, not authorization.
 
 Everything else about the run is `gantry:auto` unchanged. The gate stays a hard blocker, a red gate
-still stops the run, and the PR is still ready-for-review. It is **not** a form of
+still stops the run, and the PR is still a draft. It is **not** a form of
 `gantry:auto-unattended`, which has nobody to ask and stops on a fork instead.
 
 ## Contents
@@ -43,7 +43,6 @@ Each question has a **kind**, which decides whether `proceed` can answer it.
 
 | Where | Question | Kind |
 |---|---|---|
-| `gantry:auto` stage 6 | commit, push, and open the PR | `checkpoint` |
 | `gantry:worktree` step 4 | branch from the current branch or the base | `fork` |
 | `gantry:plan` step 1 | an existing task: `Revise`, `Replace`, or `Leave it` (its next phase is `NEXT`) | `fork` |
 | `gantry:plan` step 6 | only what the plan cannot be drafted without | `fork` |
@@ -55,7 +54,7 @@ Each question has a **kind**, which decides whether `proceed` can answer it.
 | `gantry:ship` stage 2 | how to split several unrelated changes | `fork` |
 
 A `checkpoint` is answered by `proceed` or `stop`. It offers no other options. If the branch name
-is wrong, the answer is `stop` — and grill's terminal question is the last checkpoint where that
+is wrong, the answer is `stop` — and grill's terminal question is the only checkpoint where that
 costs only a recreated worktree rather than a moved diff.
 
 **`gantry:grill` is where a lead now spends most of its replies.** It is one phase with up to

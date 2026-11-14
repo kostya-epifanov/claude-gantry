@@ -12,7 +12,7 @@ Both drivers point here rather than duplicating it, so the two cannot drift apar
 - Arguments and flags
 - Invoking a phase, and where delegation happens
 - Headless phases
-- Checkpoints (`gantry:auto` only)
+- Where `gantry:auto` stops
 - Gate resolution
 - Reusing worktree and ship
 - Failure handling
@@ -33,12 +33,12 @@ often it stops, and one phase: `grill` is human-only, so `gantry:auto-unattended
 | No qa agent in the repo | continue | continue, one line in the report | continue, journaled — never a warning |
 | QA environment failed | you decide | continue; scenarios under *Not proven* | continue; scenarios under *Not proven*, journaled |
 | A failing scenario | you decide | the phase triages; stop on `blocked` | the phase triages and defers; `blocked` only on an acceptance criterion observably false |
-| Stops | after every phase | a grill conversation, then one checkpoint | never |
+| Stops | after every phase | a grill conversation, then nothing | never |
 | Red gate | you decide | stop and report | fix, capped at 2 attempts |
 | Open fork | `implement` warns; you decide | settled inside `grill`, in priced options | **stop**, journal `escalation`, `blocked` |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
 | No gates found | continue, flagged | continue, flagged | **refuse to push** |
-| PR | ready | ready | **draft** |
+| PR | ready | **draft** | **draft** |
 | `mode:` in `task.md` | `semi-auto` | `auto` | `unattended` |
 
 Semi-auto has no driver skill — it *is* the phase skills, typed in order:
@@ -59,7 +59,7 @@ removes the gate. That is the whole design: model for judgment, script for the g
 `gantry:auto --lead <session>` is not a fourth mode. It is supervised `gantry:auto` with a different
 answerer: every question goes to a lead session by message rather than to a dialog, and every row
 above still reads `gantry:auto` — the gate is still a hard blocker, a red gate still stops, the PR
-is still ready. See *Lead mode* below.
+is still a draft. See *Lead mode* below.
 
 ### Why unattended is a separate skill, not a flag
 
@@ -270,21 +270,21 @@ blocked run costs a re-run; a wrong assumption costs the work built on it.
 
 ## Where `gantry:auto` stops
 
-Two stops, and they are different kinds of thing:
+One stop: **the grill conversation**, which is a phase rather than a checkpoint. `/gantry:grill`
+explains the problem, settles the open forks in priced options, and its **terminal question is the
+plan approval**. There is no separate "Proceed with this plan?" dialog: a yes at the end of a
+conversation is worth more than a yes in front of a wall of text. Grill is also the last cheap
+moment to **catch a wrong branch name** — nothing has been edited yet, so the worktree costs one
+command to recreate; after `implement` there is a diff to move.
 
-1. **The grill conversation**, which is a phase rather than a checkpoint. `/gantry:grill` explains
-   the problem, settles the open forks in priced options, and its **terminal question is the plan
-   approval**. There is no separate "Proceed with this plan?" dialog: a yes at the end of a
-   conversation is worth more than a yes in front of a wall of text, and the old dialog was the
-   cheapest possible form of input on a plan the user had just been handed. Grill is also the last
-   cheap moment to **catch a wrong branch name** — nothing has been edited yet, so the worktree
-   costs one command to recreate; after `implement` there is a diff to move.
-2. **One `AskUserQuestion` checkpoint, after review and QA, before anything outward-facing.** The
-   gate is green, the review is in hand, and the QA verdict is on disk. "Commit, push, and open the
-   PR?" One gate in front of every side effect, since `gantry:ship` won't pause once invoked.
+There used to be a second stop, an `AskUserQuestion` after review and QA — "Commit, push, and open
+the PR?". It was removed: by then the gate is green, the review and QA are on disk, and it only
+blocked a run until somebody tapped it. Nobody confirms the side effects now, so `gantry:auto`
+passes `--draft` to `gantry:ship` and the PR says so honestly. Harness permission prompts, such as
+the privileged gate during a push, belong to the host and stay.
 
-So `gantry:auto` contains exactly one `AskUserQuestion` checkpoint. Everything else it asks, it asks
-through `grill`.
+So `gantry:auto` contains no `AskUserQuestion` of its own. Everything it asks, it asks through
+`grill` (and the other phases' narrow questions).
 
 No checkpoint between implement and gate — the gate is the check there, and it is automatic. And no
 checkpoint on either side of grill: its whole job is to make the plan worth approving, so the
@@ -297,7 +297,7 @@ surfaces the fork instead.
 
 ### Lead mode
 
-Under `gantry:auto --lead <session>`, the checkpoint, grill's rounds, and the questions the phases
+Under `gantry:auto --lead <session>`, grill's rounds and terminal question, and the questions the phases
 ask themselves are put to the lead with `SendMessage` instead of `AskUserQuestion`.
 `references/lead.md` is the whole protocol, and every asking phase points at it: which questions it
 replaces and of which kind, what the message carries, how a reply is classified by
@@ -386,7 +386,7 @@ The drivers orchestrate existing skills rather than duplicating them:
 - **`gantry:ship`** for commit → push → PR. It is idempotent, detects its own stage, and
   matches the *target repo's* commit conventions — which is why the drivers don't hardcode gantry's
   own no-trailer style, since they run in arbitrary repos. Pass `--no-pr`, `--base`, and (unattended
-  only) `--draft` through.
+  only) `--draft` through (`gantry:auto` and `gantry:auto-unattended` both pass it).
 
   **Pass no review flag.** Ship reviews only when asked — `--review` and `--review-fix` are the
   only way a reviewer runs from it — and the chain has already run `/gantry:review` as its own

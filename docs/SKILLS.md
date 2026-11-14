@@ -21,11 +21,11 @@ One chain of phases, three ways to run it.
 | QA runs | `/gantry:qa` when you type it | `/gantry:qa --fix`, in the driver's session | `/gantry:qa`, no `--fix` |
 | No qa agent / env failed | continue | continue; declared scenarios under *Not proven* | continue, journaled; same disclosure |
 | A failing scenario | you decide | triaged; stop on `blocked` | triaged, deferred; `blocked` only on an acceptance criterion observably false |
-| Stops | after every phase | a grill conversation, then one checkpoint | never |
+| Stops | after every phase | a grill conversation, then nothing | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
 | No checks found | continue, flagged | continue, flagged | **refuse to ship** (exit 3) |
-| PR | ready | ready | **draft** |
+| PR | ready | **draft** | **draft** |
 
 Semi-auto has no driver skill — it *is* the phase skills, typed in order. The gate is a hard
 blocker in all three; unattended removes the human checkpoints, never the gate.
@@ -326,8 +326,8 @@ right.
 
 `/gantry:auto <task> [flags]`
 
-Creates the worktree, then invokes each phase skill in turn, pausing twice: after the plan has been
-grilled, and before anything outward-facing. Opens a **ready-for-review** PR.
+Creates the worktree, then invokes each phase skill in turn, pausing once: after the plan has been
+grilled. Opens a **draft** PR.
 
 **It contains no phase logic.** It is the same skills you would type, invoked in order — which is
 what stops the three ways of running from becoming three subtly different pipelines. It dispatches
@@ -345,7 +345,7 @@ child recorded, and any permission denials. `docs/ARCHITECTURE.md` § *Headless 
 - **Invokes:** `gantry:worktree`, `plan`, `plan-critique`, `grill`, `implement` and `qa --fix` in
   its session; `review` and its fix step as headless children; `gantry:ship`.
 - **Detail:** `references/orchestration.md`, shared with `auto-unattended`.
-- **`--lead <session>`:** a lane a lead session steers. Every question — the checkpoint, `grill`'s
+- **`--lead <session>`:** a lane a lead session steers. Every question — `grill`'s
   rounds, and the ones `worktree`, `plan`, `review` and `ship` ask — goes to the
   lead by `SendMessage`. A reply is not read but classified by `lib/lead_reply.sh`: an option label,
   `stop`, `proceed` at a checkpoint, or a file inside the worktree (read as data, then asked again);

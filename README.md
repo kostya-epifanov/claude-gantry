@@ -44,14 +44,12 @@ command for you); `jq` is recommended. Skills, agents and the hook ship together
    /gantry:auto add a dark-mode toggle to settings
    ```
 
-4. It stops for you twice, and they are different kinds of stop. **`grill` is a conversation**:
-   it explains what the task is for and what the plan would do, puts every genuine design fork to
-   you as options priced by what they cost, and its last question is the approval for the whole
-   plan. **After the review**, with the gate green, it asks once more before it commits, pushes,
-   and opens the PR. Nothing is decided for you and nothing is edited before you have agreed to
-   the approach.
-5. The PR opens ready for review, its body quoting the contract the change was built against and
-   anything the review deliberately left out.
+4. It stops for you once. **`grill` is a conversation**: it explains what the task is for and
+   what the plan would do, puts every genuine design fork to you as options priced by what they
+   cost, and its last question is the approval for the whole plan. Nothing is decided for you and
+   nothing is edited before you have agreed to the approach. After that there is no checkpoint before the commit, the push or the PR.
+5. The PR opens as a draft, since nobody confirmed the commit or the push. Its body quotes the
+   contract the change was built against and anything the review deliberately left out.
 
 Without `.claude/gates.sh`, gantry auto-detects checks (JS, Dart/Flutter, Python, Cargo, Go, a
 Makefile `test` target). If it finds none, a supervised run continues and says so; an unattended
@@ -60,7 +58,7 @@ run refuses to push.
 ## The chain
 
 One chain of phases, three ways to run it: type each phase yourself, let `/gantry:auto` drive them
-with two pauses, or hand the whole thing to `/gantry:auto-unattended` and get a draft PR. Every
+with one pause, or hand the whole thing to `/gantry:auto-unattended` and get a draft PR. Every
 phase works out where things stand by reading the repo, not the conversation, so you can stop,
 iterate by hand, and pick the chain back up.
 
@@ -77,7 +75,7 @@ flowchart TD
   Q -- "deferred findings" --> H["/gantry:handover<br/>writes handover.md"]
   Q -- "nothing deferred" --> S["/gantry:ship<br/>commit, push, PR"]
   H --> S
-  S --> PR(["PR open — ready for review"])
+  S --> PR(["Draft PR open"])
   PR --> SY["/gantry:sync"]
   SY --> PW["/gantry:prune-worktrees"]
   PW --> W
@@ -104,7 +102,7 @@ conflicts from what each PR is *for* and running your checks after every merge.
 
 | Command | What it does |
 |---|---|
-| `/gantry:auto` | Task → open PR, supervised. Invokes each phase skill in turn; a grill conversation, then one checkpoint. The review runs in a fresh headless child session. `--review-model`, `--review-effort`. |
+| `/gantry:auto` | Task → draft PR, supervised. Invokes each phase skill in turn; a grill conversation is its only stop. The review runs in a fresh headless child session. `--review-model`, `--review-effort`. |
 | `/gantry:auto-unattended` | The same chain with nobody watching, ending at a **draft** PR. Same headless review. |
 | `/gantry:worktree` | Create a worktree under `.claude/worktrees/` from an up-to-date parent, and enter it. |
 | `/gantry:plan` | Write the contract and the plan — `task.md` and `plan.md` — asking what needs asking. |

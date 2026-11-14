@@ -1,21 +1,22 @@
 ---
 name: auto
-description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, critique, grill, implement, review, qa, ship) by invoking each phase skill in turn. Supervised: it settles the approach with you in conversation, then pauses once before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
+description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, critique, grill, implement, review, qa, ship) by invoking each phase skill in turn. Supervised: it settles the approach with you in conversation, and that approval is its only stop — the PR it opens is a draft. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
 argument-hint: "[task] [--task <id>] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--lead <session>] [--review-model <alias>] [--review-effort <level>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion, SendMessage
 ---
 
 # gantry:auto
 
-One command from a task description to an open pull request, supervised. It creates the branch and
+One command from a task description to an open draft pull request, supervised. It creates the branch and
 worktree, then walks the gantry chain — **plan → plan-critique → grill → implement → review →
 qa → ship** — invoking each phase skill in turn.
 
-**It stops for you twice, and they are different kinds of stop.** `grill` is a conversation: it
-explains the problem, asks what only you can answer, and its last question is the approval for the
-whole plan. Then one `AskUserQuestion` checkpoint in front of the side effects. There is no separate
-"confirm the plan" dialog any more — a yes at the end of a conversation is worth more than a yes in
-front of a wall of text.
+**It stops for you once.** `grill` is a conversation: it explains the problem, asks what only you
+can answer, and its last question is the approval for the whole plan. After that nothing asks
+again — there is no checkpoint in front of the commit, the push or the PR. Nobody confirmed those
+side effects, so the PR opens as a **draft**, which says so honestly. There is no separate "confirm
+the plan" dialog either — a yes at the end of a conversation is worth more than a yes in front of a
+wall of text.
 
 **This skill contains no phase logic.** Planning, grilling, implementing, reviewing, and shipping
 each live in their own skill, and this one invokes them — the same commands you would type. That is
@@ -196,7 +197,7 @@ Take from the children's output, for the report: the source named by `review.md`
 must say so), both `SESSION:` ids, `MODEL:` and `EFFORT:`, every `DENIED:` line, and `GATE_EXIT:`.
 
 Under `--lead`: a print-mode child cannot ask the lead, so anything `/gantry:review` would have
-asked about it deferred instead. It is in `handover.md`, and stage 6's checkpoint shows it.
+asked about it deferred instead. It is in `handover.md`, and the draft PR's body shows it.
 
 ## Stage 5b — QA
 
@@ -229,24 +230,15 @@ Read `bash "$GANTRY/lib/detect_stage.sh"` afterwards and route on `QA:`:
 If the phase reported **flow files**, it has already asked you (or the lead) whether to keep them;
 relay the decision in the report. A kept flow is committed by ship with the change.
 
-## Stage 6 — Checkpoint: confirm the side effects
-
-**AskUserQuestion.** The gate is green, the review is in hand, and the QA verdict is on disk.
-"Commit, push, and open the PR?"
-
-One gate in front of every side effect, since `gantry:ship` won't pause once invoked.
-
-Under `--lead`, this is a `checkpoint` question to the lead. Side effects are within a lead's
-authority; privilege is not, and a harness permission prompt that appears during ship waits for
-the owner whatever the lead has said.
-
-## Stage 7 — Ship
+## Stage 6 — Ship
 
 Set `task.md` to `status: shipped` **first** — ship commits the tree, so a status written
 afterwards would miss the commit and leave the chain reading as unshipped. Then **invoke
-`gantry:ship`.** It is exactly this tail — idempotent, stage-detecting, and it matches the *target
+`gantry:ship --draft`.** It is exactly this tail — idempotent, stage-detecting, and it matches the *target
 repo's* commit conventions rather than gantry's. Pass `--no-pr` and `--base` through if they were
-given.
+given. There is no checkpoint before the commit, the push or the PR, and the plan approval in grill
+was the run's last planned stop. (Ship's own split question for unrelated changes can still
+fire, as can the worktree's parent-branch question.) Under `--lead` nothing is sent to the lead here either.
 
 **Pass no review flag.** Ship reviews only when asked, and stage 5 already reviewed this change.
 Passing `--review` or `--review-fix` here would review the same diff a second time — and under
@@ -257,11 +249,13 @@ in the worktree, and ship quotes the contract, the QA verdict and the handover i
 instead. They are still the record of what was decided, what was seen and what was left; they just
 are not part of the diff.
 
-`gantry:auto` opens a **ready-for-review** PR. You were in the room for the review, so it does not
-need to arrive as a draft. Under `--lead` the PR is still ready-for-review, and it is still never
-merged: a lead may direct the chain as far as an open PR, and merge stays the owner's.
+`gantry:auto` opens a **draft** PR. Nobody confirmed the commit, the push or the PR, and a draft
+says that honestly. Ship's body line "draft means unwatched, not unverified" is accepted as it is
+written, even though you approved the plan in grill. Under `--lead` the PR is still a draft, and it
+is still never merged: a lead may direct the chain as far as an open PR, and merge stays the
+owner's. Marking it ready is the reviewer's act.
 
-## Stage 8 — Report
+## Stage 7 — Report
 
 The task and the mode. The branch and worktree path. Which sub-agents the phases actually
 dispatched — the explorer if `plan` used one, and which critic ran. **The review children**: the
