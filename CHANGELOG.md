@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.1
+
+**`/gantry:ship` checks that the tree is clean after every commit it makes, before it pushes**
+(BASE-141, #36). A commit takes only what was staged when it ran, so a file edited later, or left
+out by partial staging, used to be pushed without that change and without a word. This happened
+on a real lane. The new `skills/ship/scripts/assert_clean_tree.sh` runs after stage 2's commit and
+after the `--review-fix` commit. If anything is outstanding, ship names every path, including files
+left out on purpose, and stops with no push and no PR. A check that cannot run is a stop too. A
+clean tree changes nothing. `tests/test_ship_clean_tree.sh` covers it, and `tests/run.sh` now also
+runs `tests/test_*.sh`.
+
+**A headless review child leaves the worktree as it found it** (BASE-142, #35). Its finder
+sub-agents share the worktree, so `skills/review/SKILL.md` now says that what is pre-existing is
+only the diff and the `git status` from the start of the review. Nothing the child's own agents
+create or delete is reported as a lane defect. Throwaway scripts go to the harness's scratchpad, or
+are not written at all. The rule is prose only; nothing enforces it yet.
+
+**`lib/ensure_excluded.sh` takes its lock with `noclobber`, not `mkdir`** (#43). GitHub's Ubuntu
+runner now ships uutils coreutils, whose `mkdir` can report success to more than one racing caller.
+Two lanes could then rewrite `.git/info/exclude` at once, and one would lose the other's pattern.
+That turned CI red on PRs that never touched the script. The lock is now a file created under
+`set -C`, and a directory lock left behind by the old version is still cleaned up as stale.
+
+**Smaller fixes**
+- `gantry:auto-unattended` journals its stage-3 transition as `critique → implement`, not
+  `grill → implement`. Unattended runs have no grill phase (BASE-145, #37).
+- `docs/SKILLS.md` gives `/gantry:plan`'s full usage, including `--task <id>` (BASE-146, #38).
+- `/gantry:integrate`'s stage 9 example uses the lane-scoped `refs/integrate/<lane-branch>/pr/<n>`
+  ref, which the rest of the skill fetches. The old unscoped ref made stage 9 fail with exit 2
+  (BASE-147, #39).
+- `/gantry:integrate` briefs its reviewer with `origin/<BASE>..HEAD` instead of the local base, so a
+  stale local branch no longer hands the reviewer the wrong set of merges (BASE-148, #40).
+
 ## 0.7.0
 
 **`/gantry:integrate` reconciles the docs for the combined tree before the review** (BASE-71).
