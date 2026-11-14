@@ -457,10 +457,11 @@ branch whose PR is already open.
   bundle several unrelated changes without asking how to split them; to splice a body whose
   handover heading appears more than once; to edit a body it could not first read back from
   GitHub — an empty fetch would otherwise read as "no handover section" and replace the whole body
-  with that one section.
+  with that one section; to push while any path is still outstanding after one of its commits.
 - **Degrades:** with `gh` missing or unauthenticated it still commits and pushes, then prints the
   `gh pr create` command for you.
-- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`), plus
+- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`) and
+  `scripts/assert_clean_tree.sh` (read-only; the post-commit check), plus
   `lib/handover_body_state.sh` and `lib/splice_pr_section.sh` for the refresh.
 
 ## `/gantry:integrate` — N pull requests into one
