@@ -44,21 +44,21 @@ cat >"$FIX" <<'JSON'
    "mergeable":"MERGEABLE","reviewDecision":"APPROVED","labels":[],
    "createdAt":"2026-09-01T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"SUCCESS"}],
-   "body":"## What this change is for\n\nthe contract."},
+   "body":"## What this change is for\n\nthe contract.\n\n## Risk\nRisk level: high"},
 
   {"number":2,"title":"Two, changes requested","url":"https://x/2","isDraft":false,
    "baseRefName":"master","headRefName":"feat/two","headRefOid":"aaa2",
    "mergeable":"MERGEABLE","reviewDecision":"CHANGES_REQUESTED","labels":[],
    "createdAt":"2026-09-01T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"SUCCESS"}],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":3,"title":"Three, labelled WIP","url":"https://x/3","isDraft":false,
    "baseRefName":"master","headRefName":"feat/three","headRefOid":"aaa3",
    "mergeable":"MERGEABLE","reviewDecision":"","labels":[{"name":"WIP"}],
    "createdAt":"2026-09-01T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"SUCCESS"}],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":4,"title":"Four, red CI","url":"https://x/4","isDraft":false,
    "baseRefName":"master","headRefName":"fix/four","headRefOid":"aaa4",
@@ -66,56 +66,56 @@ cat >"$FIX" <<'JSON'
    "createdAt":"2026-09-01T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"FAILURE"},
                         {"__typename":"CheckRun","name":"other","status":"COMPLETED","conclusion":"SUCCESS"}],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":5,"title":"Five, CI still running","url":"https://x/5","isDraft":false,
    "baseRefName":"master","headRefName":"feat/five","headRefOid":"aaa5",
    "mergeable":"MERGEABLE","reviewDecision":"","labels":[],
    "createdAt":"2026-09-01T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"QUEUED","conclusion":null}],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":6,"title":"Six, no checks at all","url":"https://x/6","isDraft":false,
    "baseRefName":"master","headRefName":"feat/six","headRefOid":"aaa6",
    "mergeable":"UNKNOWN","reviewDecision":"","labels":[],
    "createdAt":"2026-09-01T10:00:00Z",
    "statusCheckRollup":[],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":7,"title":"Seven, a draft","url":"https://x/7","isDraft":true,
    "baseRefName":"master","headRefName":"feat/seven","headRefOid":"aaa7",
    "mergeable":"MERGEABLE","reviewDecision":"","labels":[{"name":"enhancement"}],
    "createdAt":"2026-09-02T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"SKIPPED"}],
-   "body":"## What this change is for\n\nthe contract."},
+   "body":"## What this change is for\n\nthe contract.\n\n## Risk\nRisk level: high"},
 
   {"number":8,"title":"Eight, stacked on one","url":"https://x/8","isDraft":true,
    "baseRefName":"feat/one","headRefName":"feat/eight","headRefOid":"aaa8",
    "mergeable":"MERGEABLE","reviewDecision":"","labels":[],
    "createdAt":"2026-09-03T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"SUCCESS"}],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":9,"title":"Nine, stacked on the red one","url":"https://x/9","isDraft":false,
    "baseRefName":"fix/four","headRefName":"feat/nine","headRefOid":"aaa9",
    "mergeable":"MERGEABLE","reviewDecision":"","labels":[],
    "createdAt":"2026-09-03T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"SUCCESS"}],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":10,"title":"Ten, stacked on nine","url":"https://x/10","isDraft":false,
    "baseRefName":"feat/nine","headRefName":"feat/ten","headRefOid":"aaa10",
    "mergeable":"MERGEABLE","reviewDecision":"","labels":[],
    "createdAt":"2026-09-03T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"SUCCESS"}],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":11,"title":"Eleven, another base entirely","url":"https://x/11","isDraft":false,
    "baseRefName":"release/1.x","headRefName":"feat/eleven","headRefOid":"aaa11",
    "mergeable":"MERGEABLE","reviewDecision":"","labels":[],
    "createdAt":"2026-09-03T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"SUCCESS"}],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":12,"title":"An integration PR","url":"https://x/12","isDraft":false,
    "baseRefName":"master","headRefName":"integration/2026-09-14","headRefOid":"aaa12",
@@ -129,7 +129,7 @@ cat >"$FIX" <<'JSON'
    "mergeable":"MERGEABLE","reviewDecision":"","labels":[],
    "createdAt":"2026-09-03T10:00:00Z",
    "statusCheckRollup":[{"__typename":"StatusContext","context":"ci/external","state":"ERROR"}],
-   "body":"plain body"},
+   "body":"plain body\n\n## Risk\nRisk level: low"},
 
   {"number":14,"title":"Fourteen, from a fork's own master, and red","url":"https://x/14",
    "isDraft":false,
@@ -137,7 +137,7 @@ cat >"$FIX" <<'JSON'
    "mergeable":"MERGEABLE","reviewDecision":"","labels":[],
    "createdAt":"2026-09-04T10:00:00Z",
    "statusCheckRollup":[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"FAILURE"}],
-   "body":"plain body"}
+   "body":"plain body\n\n## Risk\nRisk level: low"}
 ]
 JSON
 
@@ -205,6 +205,46 @@ assert_contains "$OUT" "VERDICT:skip integration-pr" \
   "an integration PR asked for by number says what it is"
 assert_not_contains "$OUT" "VERDICT:skip not-open" "and is not reported as closed"
 assert_contains "$OUT" "SKIPPED:12" "while still being counted"
+
+# --- ## Risk: no section, no merge ---------------------------------------------
+# The integration PR's Risk summary is the max over the PRs it merges, so a PR
+# with no assessed level must not be merged into it. Exact heading: a body whose
+# only Risk-like heading is `## Risk summary` has no `## Risk`.
+RFIX="$CASE_TMP/risk.json"
+cat >"$RFIX" <<'JSON'
+[
+  {"number":31,"title":"assessed","url":"u31","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/r31","headRefOid":"r31","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z","statusCheckRollup":[],
+   "body":"## What this change is for\n\nx\n\n## Risk\n<!-- gantry:risk sha256=abc -->\nRisk level: **High**\nBlast radius:\n- Breaks if wrong: y"},
+  {"number":32,"title":"pre-0.8 body","url":"u32","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/r32","headRefOid":"r32","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z","statusCheckRollup":[],
+   "body":"## What this change is for\n\nno risk section here"},
+  {"number":33,"title":"no review ran","url":"u33","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/r33","headRefOid":"r33","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z","statusCheckRollup":[],
+   "body":"## Risk\nRisk level: unassessed\n"},
+  {"number":34,"title":"summary only","url":"u34","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/r34","headRefOid":"r34","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z","statusCheckRollup":[],
+   "body":"## Risk summary\nRisk level: high\n"},
+  {"number":35,"title":"fenced example only","url":"u35","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/r35","headRefOid":"r35","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z","statusCheckRollup":[],
+   "body":"```\n## Risk\nRisk level: low\n```\n"}
+]
+JSON
+OUT="$(bash "$LIST" --base master --json "$RFIX" 2>&1)"
+pr_block() { printf '%s\n' "$OUT" | awk -v want="PR:$1" '$0 == want {p = 1} p; /^END$/ && p {exit}'; }
+assert_contains "$(pr_block 31)" "RISK:high" "the level under ## Risk is read, bold and case tolerated"
+assert_contains "$(pr_block 31)" "VERDICT:candidate" "and a PR with an assessed level is a candidate"
+assert_contains "$(pr_block 32)" "RISK:none" "a body with no ## Risk reports none"
+assert_contains "$(pr_block 32)" "VERDICT:skip no-risk-section" "and is skipped, named"
+assert_contains "$(pr_block 33)" "VERDICT:skip risk-level:unassessed" "an unassessed level is skipped"
+assert_contains "$(pr_block 34)" "VERDICT:skip no-risk-section" "## Risk summary is not ## Risk"
+assert_contains "$(pr_block 35)" "VERDICT:skip no-risk-section" "a ## Risk inside a fence does not count"
+assert_contains "$OUT" "CANDIDATES:31" "only the assessed PR is a candidate"
 
 # --- usage errors -------------------------------------------------------------
 OUT="$(bash "$LIST" --json "$FIX" 2>&1)"; RC=$?

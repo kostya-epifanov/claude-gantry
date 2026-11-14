@@ -24,7 +24,8 @@ gantry/
 │   ├── lead_reply.sh        a lead's reply → one accepted token, or rejected
 │   ├── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
 │   ├── run_phase_headless.sh  a phase in a fresh `claude -p` child → labeled lines + exit code
-│   └── diff_fingerprint.sh  one token for the diff, so review.md can be tied to it
+│   ├── diff_fingerprint.sh  one token for the diff, so review.md can be tied to it
+│   └── risk_floor.sh        which review lenses a diff fires, read from the base ref — no model
 ├── agents/gantry-*.md       → the delegation roster    (3)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
 └── examples/
@@ -195,8 +196,10 @@ read-only by tool list, and a review child needs to write three artifacts, so th
 not apply. Instead the launcher runs the review child under `--permission-mode dontAsk
 --permission-prompts none`, where everything that would prompt is denied, plus `--allowedTools`
 naming exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`, `handover.md`
-and `task.md`, `Skill(gantry:handover)`, and Bash rules for four read-only gantry scripts:
-`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh` and `diff_fingerprint.sh`. The forms were
+and `task.md`, `Skill(gantry:handover)`, and Bash rules for five read-only gantry scripts:
+`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh`, `diff_fingerprint.sh` and
+`risk_floor.sh` (the review-lens matcher, added in 0.8.0 so the child can decide which lenses fire
+and read a lens's body from the base ref without a `git show` rule of its own). The forms were
 probed on CLI 2.1.270 and corrected after the first real runs: an `Edit(<file>)` rule governs the
 Write tool too, but its relative form resolves against the child's *current* directory, and a `cd`
 inside one Bash call persists — a child that had wandered into a sub-package was denied the write
@@ -473,7 +476,7 @@ however it is prompted.
 |---|---|---|---|---|
 | `gantry-explorer` | Read, Grep, Glob | haiku | `gantry:plan`, when the surface is unfamiliar or wide | read-only scout; produces the text for `task.md`'s Affected areas. Physically cannot write it. |
 | `gantry-critic` | Read, Grep, Glob | opus | `gantry:plan-critique`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
-| `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable — from inside the headless review child | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
+| `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable — from inside the headless review child; and once per fired review lens, with the lens body as its brief (also `gantry:integrate`, on the integration's own commits) | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
 
 There is deliberately no planner or implementer agent. Writing is what those phases *are*, so an
 agent around one is either writable — and then the roster's guarantee is prose again — or unable to

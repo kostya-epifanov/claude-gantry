@@ -153,6 +153,72 @@ about the thing it exists to record.)
    change is the weakest source by a wide margin; the value of saying so is that the reader can
    weigh it correctly.
 
+### 2b. Run the review lenses the diff fires
+
+A **review lens** is a file the *target* repo keeps at `.claude/review-lenses/<name>.md`: a
+frontmatter naming the paths that need a careful read before merge, each with a risk floor, and a
+prompt body saying what to check there and the repo's threat model:
+
+```
+---
+name: security
+description: one line
+floors:
+  ".claude/": critical
+  "bin/": medium
+  "setup.sh": high
+defer: never
+---
+<what this lens checks, and the repo's threat model>
+```
+
+A `floors` key ending in `/` is a directory prefix; any other key is an exact repo-root-relative
+path. The keys are also the trigger: a lens fires when the diff touches any of them. Levels are
+ordered `low < medium < high < critical`. A repo with no lenses fires none, and this step costs one
+command.
+
+Which lenses fire is **not your judgement** — it is arithmetic over git, done by a script, with the
+same `<BASE>` step 1 resolved (the `origin/` ref when one exists):
+
+```bash
+bash "$GANTRY/lib/risk_floor.sh" <BASE>
+```
+
+It prints one block per lens that fired — `LENS:<name>`, `FLOOR:<level>`, `DEFER:never` when the
+lens says so, one `FILE:<path> <level>` per matched file, `END` — and nothing at all when no lens
+fired. **Lens files are read from the base ref** (`git show <BASE>:.claude/review-lenses/…`), never
+from the worktree, so a diff that adds or edits a lens does not get to judge itself with the new
+text. The script reports that case as a `LENS_IN_DIFF:<path>` line; when you see one, say in
+`review.md` that this lens's change was judged by the base's lenses, not by itself.
+
+**Exit `2`, or the command denied, is not "no lens fired".** It means a lens is malformed, the base
+did not resolve, or the script could not run — and an unevaluated lens is exactly a guarded path
+nobody read. Write it into `review.md`'s `## Risk` as `Lenses: could not be evaluated — <reason>`,
+carry on with the rest of the review, and say so in the report. Ship discloses it under *Not proven
+by this run*.
+
+**For each lens that fired, dispatch one sub-agent with a fresh context** (Agent tool): the repo's
+`.claude/agents/reviewer.md` if it defines one, otherwise `gantry-reviewer` — the same role source
+2 uses, with the lens as its brief instead of a general one. Dispatch them in parallel. Give each:
+
+- the lens body, which the script prints from the base ref:
+
+  ```bash
+  bash "$GANTRY/lib/risk_floor.sh" --body <name> <BASE>
+  ```
+
+- the worktree path, `<BASE>`, and `task.md`'s path — it reads the diff itself;
+- the `FILE:` lines that fired the lens.
+
+Ask it for findings against the lens, each with the file, the line and the concrete failure, and
+for **one "what to look at" note per matched file**: the specific lines and what a reader should
+check in them. A file the lens matched but found nothing in still gets a note — "touched only the
+comment block" tells the reader something.
+
+**Lenses run in addition to source 1, never instead of it.** `/code-review` (or the fallback) still
+reviews the whole diff; a lens reads only its own paths, with its own threat model. Lens findings go
+through step 3's verification exactly like any other.
+
 ### 3. Verify every finding before it counts as one
 
 Steps 3, 4 and 6 are also the triage `gantry:qa` applies to a scenario that failed — it invokes
@@ -187,6 +253,15 @@ something other than taste. Then sort each verified finding:
 The dividing line is scope, not difficulty. A one-line fix outside the contract still gets
 deferred; a genuinely fiddly fix to code this change introduced still gets made.
 
+**A lens that says `defer: never` (its block carries `DEFER:never`) takes the Defer bucket away.**
+Its findings are never moved to `handover.md` — not by scope, not by `--headless`, not by an
+ambiguous call. Each one is either **Address now** (it is in this change's footprint, so it gets
+fixed) or an **open risk**: written under that lens's section in `review.md` as `- Open risk: …`,
+which ship carries into the pull request and which raises the PR's risk level one step. An open
+risk is the honest form of "not fixed here" for a guarded path — it stays in front of the reader
+instead of in a file they will not open. When you ask about an ambiguous one (below), offer
+Address now or open risk, never defer.
+
 Where the call is honestly ambiguous, ask — **AskUserQuestion**, one round, with the findings
 described in terms of what each costs. If `task.md`'s frontmatter names a `lead:`, put this
 question to the lead instead, as a `fork`, following `$GANTRY/skills/auto/references/lead.md`. With
@@ -194,7 +269,8 @@ no human present, defer rather than expand: a deferred finding is written down a
 unrequested refactor is neither.
 
 **Under `--headless`, defer instead of asking — always**, whatever `mode:` says and even when a
-`lead:` is named. The child cannot wait for a reply. Count how many findings went that way; the
+`lead:` is named — **except a `defer: never` finding, which becomes an open risk instead** (above).
+The child cannot wait for a reply. Count how many findings went that way; the
 report says so, and the driver shows them at its checkpoint from `handover.md`.
 
 ### 4b. Record the findings
@@ -228,7 +304,42 @@ One bullet per address-now finding, each with the file, the line, what is wrong 
 failure — enough for a fix step in another session to act on without re-reviewing. **No
 address-now findings → the section still exists and reads `None.`** on its first line, so the fix
 step can tell "reviewed, nothing to apply" from "never reviewed"; `lib/detect_stage.sh` reads that
-line as `REVIEW:clean`.
+line as `REVIEW:clean`. An address-now finding that came from a `defer: never` lens starts its
+text with `[lens <name>]`, so ship can tell it from the rest if it is never applied.
+
+Then, **on every review, whatever the source and whether or not a lens fired**, the risk
+assessment. This session writes it — the review run, never the session that wrote the change:
+
+```
+## Risk
+Risk level: <low|medium|high|critical>
+Blast radius:
+- Breaks if wrong: <what fails, for whom, if this change is wrong>
+- Live after merge: <yes|no> — <how: what runs it, and when>
+- Rollback: <how to undo it, and whether a revert is enough>
+```
+
+`Risk level:` is your judgement of the diff, not the floor — ship takes the max of it and every
+fired lens's floor, so do not inflate it to meet one. `Blast radius:` has **exactly** those three
+bullets. When step 2b could not evaluate the lenses, add `Lenses: could not be evaluated — <reason>`
+as the line after `Risk level:`.
+
+Then one section per lens that fired, in the order the script printed them:
+
+```
+## Lens: <name>
+floor: <FLOOR from the script>
+- `<path>:<line>` — <finding>. Failure: <inputs → wrong result>.
+- Open risk: `<path>:<line>` — <finding left unfixed here, and why>.
+### What to look at
+- `<path>`: <the lines to read, and what to check in them>
+```
+
+Findings first (or `No findings.`), an `- Open risk:` line for each `defer: never` finding that is
+not in *Address now*, then `### What to look at` with **one bullet per `FILE:` line the script
+printed — every one of them**. When the script printed a `LENS_IN_DIFF:` line, add a line here
+saying which lens file this diff changed and that the base's version judged it. None of these
+sections changes `REVIEW:` — the detector reads only *Address now* and the last line.
 
 No `session:` line, deliberately: a child cannot read its own session id, and the launcher already
 reports it from the child's JSON result.
@@ -319,6 +430,10 @@ say what happened when you invoked it; "unavailable" with no cause is how a down
 Then how many were addressed, deferred, and dropped — and under `--headless`, how many were
 deferred because they would otherwise have been asked about. A run that reports "12 findings" when
 5 were untrue has told the reader something false about the diff.
+
+**The lenses**: which fired (name, floor, matched-file count), or that none did, or that they could
+not be evaluated and why; any `LENS_IN_DIFF:` line; the `Risk level:` you wrote; and every open
+risk, verbatim.
 
 Whether `--fix` was given, and whether this was apply mode. Without `--fix`, say plainly that
 nothing was edited and name what would have been. With it, the gate's exit code. The `review.md`

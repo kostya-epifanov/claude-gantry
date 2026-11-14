@@ -209,8 +209,9 @@ harness rather than by prose: the review child runs under `--permission-mode don
 allowlist of exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`,
 `handover.md` and `task.md` (the relative form resolves against the child's current directory,
 which a `cd` moves; the absolute form holds wherever the shell ended up), `Skill(gantry:handover)`
-(a plugin skill is denied under `dontAsk` without it), and Bash rules for four read-only gantry
-scripts (the gate, the exclusion writer, the stage detector, the diff fingerprint — each in both
+(a plugin skill is denied under `dontAsk` without it), and Bash rules for five read-only gantry
+scripts (the gate, the exclusion writer, the stage detector, the diff fingerprint, the review-lens
+matcher `risk_floor.sh` — each in both
 quote forms, because a rule matches the literal command). It can write the chain's artifacts and
 nothing else. The fix step is a **second child**, `gantry:review --fix`
 under `acceptEdits` with the same Bash rules, which applies what `review.md` lists and re-runs the

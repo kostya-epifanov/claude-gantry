@@ -101,10 +101,19 @@ What the classes mean when you show them:
   checkpoint: `pending` may still go red, and `none` means the PR's own checks never ran at all.
 - `MERGEABLE` is reported and never acted on. Whether a PR can go in is decided in stage 3, against
   the base you just fetched.
+- `RISK:` is the `Risk level:` under the PR body's `## Risk` heading. **A PR with no `## Risk`
+  section is skipped (`no-risk-section`), and so is one whose level is not `low`, `medium`, `high`
+  or `critical` (`risk-level:<word>` — `unassessed` is what ship writes when no review ran).** The
+  integration PR's `## Risk summary` is the maximum over the PRs it merges, and a PR with no
+  assessed level would make that maximum a claim nobody checked. Name every such PR in the
+  checkpoint and the report, with the remedy: `/gantry:review` then `/gantry:ship` on its branch,
+  which refreshes the section on the open PR. Never merge one anyway, and never write a level for
+  it.
 
 Then read each candidate's contract — a gantry PR body carries `## What this change is for`,
 `## Deliberately not done` and `## Not proven by this run`, and those are what you resolve conflicts
-from later:
+from later — and its `## Risk` and `## Guarded changes` sections, which stage 10's `## Risk summary`
+and `## Guarded changes` are built from:
 
 ```bash
 gh pr view <n> --json body
@@ -175,8 +184,8 @@ item is re-queued, and `rewritten` items are shown for a decision.
 
 **AskUserQuestion.** Nothing has been created yet. Show:
 
-- the queue in order, each item with why it sits there (`isolated`, `overlapping`, `stacked`) and
-  its CI class;
+- the queue in order, each item with why it sits there (`isolated`, `overlapping`, `stacked`), its
+  CI class and its `RISK:` level;
 - every predicted conflict, with **both PRs' stated intent** beside it, because that is what the
   resolution will be made from;
 - every skipped PR and its reason, in the script's words;
@@ -448,6 +457,41 @@ PRs meet:
 - something one PR deferred that another already fixed;
 - a resolution that kept both sides' text but not both sides' behaviour.
 
+### The lines the integration wrote, through the review lenses
+
+Each source PR's guarded files were read by its own review. The lines **this run** wrote — conflict
+resolutions, `integrate: fix` and `integrate: docs` commits — were read by nobody yet, and a
+resolution inside a guarded path is exactly where two safe changes become an unsafe one. So the
+target repo's review lenses (`.claude/review-lenses/*.md`, read from the base — see
+`skills/review/SKILL.md` step 2b) run on exactly those commits. Take every sha the
+`git log --first-parent` above printed — the merge commits and the lane's own commits — and pass
+them all:
+
+```bash
+bash "$GANTRY/lib/risk_floor.sh" --commits origin/<BASE> <sha> <sha> <sha>
+```
+
+For a merge commit the script counts only the files where the recorded resolution differs from a
+mechanical merge, so a merge that went in cleanly contributes nothing and a PR's own guarded files
+are not counted twice. It prints one block per lens that fired (`LENS:`, `FLOOR:`, `FILE:` lines,
+`END`), or **nothing** — in which case the PR body's `## Lines written by the integration` says
+`None.`. **Exit `2` is not nothing**: a lens is malformed or the script could not run. Stop at the
+checkpoint and say so; a `None.` published over lines nobody checked is the false all-clear this
+section exists to prevent.
+
+For each lens that fired, dispatch **one more** reviewer (Agent) with a fresh context, the same role
+as above, with the lens body as its brief:
+
+```bash
+bash "$GANTRY/lib/risk_floor.sh" --body <name> origin/<BASE>
+```
+
+Give it the lens body, the worktree, the shas whose files matched and the `FILE:` lines, and ask for
+findings in exactly those commits' changes — `git show --remerge-diff <sha>` for a merge, `git show
+<sha>` otherwise — plus one "what to look at" note per matched file. Its notes go into the PR body
+verbatim. A finding that is an interaction defect gets a fix commit and a gate run like any other
+(and the new fix commit is itself one of the integration's own lines: run the script again over it).
+
 **Verify every finding before acting on it.** An interaction defect gets a fix commit and a gate
 run. A finding about a single PR's own content is **not yours to fix** — invoke `gantry:handover`
 and let the source PR's author have it. Then set `status: reviewed`.
@@ -467,7 +511,8 @@ bash "$GANTRY/skills/integrate/scripts/integration_state.sh" --base <BASE> 21=re
 Anything now `stale` is shown with the offer to merge the new commits first.
 
 **AskUserQuestion**, with the included table (number, title, merge commit, conflicts y/n, gate
-result), the skipped list with reasons, every resolution and its reasoning, the docs commit (or
+result, risk level), the overall risk level, every lens that fired on the integration's own lines,
+the skipped list with reasons, every resolution and its reasoning, the docs commit (or
 that none was needed), and what the review found: "Push the lane, open the integration PR against `<BASE>`, and comment on the N included
 PRs?"
 
@@ -528,6 +573,9 @@ gh pr checks
 - **Every conflict resolution** and what it was decided from.
 - **Docs**: the `integrate: docs` commit, sha and subject, and what it reconciled — or
   `no docs change needed`.
+- **Risk**: the overall level (the maximum over the included PRs), each PR's level, the PRs
+  skipped for `no-risk-section` or `risk-level:<word>`, and which lenses fired on the lines the
+  integration wrote — or that none did.
 - The gate: `--strict` or overridden, the baseline result, the exit code after each merge, and how
   many fix attempts were used.
 - `HOOK:conditions-met` or `conditions-unmet` from `lib/detect_stage.sh` — and what that does not

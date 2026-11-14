@@ -26,7 +26,7 @@ All live at the **root of the task's worktree**.
 | `task.md` | `gantry:plan` (Affected areas from the explorer) | **no** — excluded via `.git/info/exclude`; ship quotes the contract into the PR body |
 | `plan.md` | `gantry:plan`, revised by `gantry:plan-critique` | **no** — same exclusion; named in the PR body, not quoted |
 | `handover.md` | `gantry:handover`, when review defers something | **no** — same exclusion; ship quotes it into the PR body |
-| `review.md` | `gantry:review` in its headless child — the findings in scope to fix, tied to the diff by a fingerprint | **no** — same exclusion; read by the fix child, never quoted |
+| `review.md` | `gantry:review` in its headless child — the findings in scope to fix, tied to the diff by a fingerprint, plus `## Risk` and one `## Lens: <name>` per fired review lens | **no** — same exclusion; read by the fix child; ship quotes its Risk section, lens notes and open risks |
 | `qa.md` | `gantry:qa` — the outcome and one verdict per e2e scenario, with the evidence paths | **no** — same exclusion; ship quotes it under *Exercised by this run* |
 | `journal.jsonl` | the orchestrator, append-only | **no** — a run artifact; same exclusion |
 | gate logs | the gate script / the readiness hook | **no** — same exclusion |
