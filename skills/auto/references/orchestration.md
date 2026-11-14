@@ -82,6 +82,7 @@ below). Strip the recognised flags out; what remains, cleaned up, is the task.
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. Refuses on the repo default branch or a detached HEAD. |
 | `--base <branch>` | Override the PR base branch. Passed through to `gantry:ship` (and its detector). |
 | `--lead <session>` | **`gantry:auto` only.** Every question the run would ask in a dialog goes to that lead session by `SendMessage`, and only a narrow reply vocabulary is accepted. Protocol: `references/lead.md`. `gantry:auto-unattended` refuses the flag. |
+| `--explain` | **`gantry:auto` only.** Print a short plain-language explainer of the task before anything else, including before the worktree is created and under `--here`. Takes no value; not part of the task. Nothing is written to disk and nothing is asked. `gantry:auto-unattended` does not recognise it, so there it stays in the task text. |
 | `--review-model <alias>` | The model the review children run on, passed to the launcher as `--model`. Absent, the child inherits the user's default. `sonnet` is a cost-neutral choice for a review. `gantry:ship` takes it too. |
 | `--review-effort <level>` | The effort level for the review children, passed as `--effort`. Absent, neither flag is passed and the child inherits. |
 

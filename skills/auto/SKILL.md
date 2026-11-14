@@ -1,7 +1,7 @@
 ---
 name: auto
 description: Takes a task from a one-line description all the way to an open pull request on its own branch — creates a worktree, then drives the gantry chain (plan, critique, grill, implement, review, qa, ship) by invoking each phase skill in turn. Supervised: it settles the approach with you in conversation, then pauses once before anything outward-facing. The repo's checks are a hard blocker throughout. Pass --no-pr to stop after the push. Use when the user types "/gantry:auto" with a task, or asks to take a task end to end or to "just do this and open a PR".
-argument-hint: "[task] [--task <id>] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--lead <session>] [--review-model <alias>] [--review-effort <level>]"
+argument-hint: "[task] [--task <id>] [--no-pr] [--branch <name>] [--here] [--base <branch>] [--lead <session>] [--explain] [--review-model <alias>] [--review-effort <level>]"
 allowed-tools: Bash, Read, Write, Edit, Skill, Agent, AskUserQuestion, SendMessage
 ---
 
@@ -46,7 +46,7 @@ hardcoding a path.
 
 `$ARGUMENTS` is one string; read it yourself. Recognise `--no-pr`, `--branch <name>`,
 `--task <id>`, `--here` (alias `--on-current`), `--base <branch>`, `--lead <session>`,
-`--review-model <alias>` and `--review-effort <level>`; strip them; what remains is the task. The
+`--explain`, `--review-model <alias>` and `--review-effort <level>`; strip them; what remains is the task. The
 tracker id and the `--branch` value are not read by eye: write the whole string to a file and run
 `lib/task_id.sh` on it, as `references/orchestration.md` § *Deriving the branch name* describes —
 its `TEXT:` line is the task with those two removed. On its exit `2` (a `--task` or `--branch` with
@@ -58,6 +58,17 @@ question, and it goes to the owner: there is no lead to ask yet.
 
 State the task, the mode, and the flags back in one line before doing anything, including the lead
 session if there is one.
+
+**`--explain` — open with a plain-language explainer.** It takes no value and is not part of the
+task: strip it. With it, the explainer is the first thing this run prints after that one line and
+before anything is created or asked — before `gantry:worktree` creates anything, and **also under
+`--here`**, which skips Stage 1 but not this. Write it for someone who has not read the issue: a
+few plain sentences on what is being asked, why, what done looks like and what is explicitly left
+out. If the task is only a pointer to a tracker issue ("read it in full first"), read the issue
+first, then explain it; if it cannot be read, say so in one line rather than explaining from the
+bare id. It is printed, not written to a file, and it asks nothing — the run goes straight on to
+Stage 1. Without the flag, none of this happens. `gantry:auto-unattended` does not recognise
+`--explain`.
 
 **Under `--lead`, every question below goes through `references/lead.md` instead of
 `AskUserQuestion`.** That includes the questions the phases ask themselves. Each stage names the

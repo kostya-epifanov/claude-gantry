@@ -46,7 +46,7 @@ Both drivers take these flags, parsed from one argument string — the skill rea
 what remains is the task. The two values that have to be exact, the tracker id and an explicit
 `--branch`, come from `lib/task_id.sh`, which reads the string from a file and takes those two as
 flags only ahead of the task's first word, so a task that mentions them in prose keeps its words.
-`--lead` is the exception: `auto` only.
+`--lead` and `--explain` are the exceptions: `auto` only.
 
 | Flag | Effect |
 |---|---|
@@ -56,6 +56,7 @@ flags only ahead of the task's first word, so a task that mentions them in prose
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. |
 | `--base <branch>` | Override the PR base branch. Passed through to `ship` and its detector. |
 | `--lead <session>` | **`auto` only.** Put every question to that lead session by message instead of a dialog, accepting only an option label, `proceed`, `stop`, or a file path. `auto-unattended` refuses it. |
+| `--explain` | **`auto` only.** Open the run with a short plain-language explainer of the task, printed before the worktree is created (and under `--here`), for someone who has not read the issue. Nothing is written or asked. `auto-unattended` does not recognise it, so there it stays in the task text. |
 | `--review-model <alias>` | The model the headless review children run on (`--model` to the child). Absent, the child inherits your default. `sonnet` is a cost-neutral choice for a review. `ship --review` takes it too. |
 | `--review-effort <level>` | The effort level for the review children (`--effort` to the child). Absent, the child inherits. `ship --review` takes it too. |
 
