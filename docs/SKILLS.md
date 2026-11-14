@@ -107,7 +107,7 @@ covers only the edits the review itself caused.
 
 ## `/gantry:plan` — the contract and the plan
 
-`/gantry:plan <task> [--lead <session>]`
+`/gantry:plan <task> [--task <id>] [--lead <session>]`
 
 Writes `task.md` (context and goal, acceptance criteria, how to verify) and then `plan.md`, asking
 whatever a genuine fork requires before any code is written. *Out of scope* and *Affected areas*
@@ -409,6 +409,11 @@ Typing `/gantry:ship` **is** the go-ahead — it does not ask for stage-by-stage
 matches the *target repo's* commit conventions, including whether that repo uses trailers, which is
 exactly why the drivers delegate the tail to it instead of imposing their own style.
 
+**After every commit it makes, ship asserts the tree is clean before anything is pushed**
+(`skills/ship/scripts/assert_clean_tree.sh`). A commit takes only what was staged when it ran. If
+anything is still outstanding, ship names every path, including ones left out on purpose, and stops
+with no push and no PR. A check that cannot run is a stop too, never a pass.
+
 **Before it opens the PR, ship says what the run did not prove.** For an unattended run the body is
 the whole interface to the reviewer, so three things are composed into it rather than left to
 memory. It runs `lib/detect_stage.sh` for the `HUMAN_ONLY:` line — its own `detect_state.sh` reads
@@ -452,10 +457,11 @@ branch whose PR is already open.
   bundle several unrelated changes without asking how to split them; to splice a body whose
   handover heading appears more than once; to edit a body it could not first read back from
   GitHub — an empty fetch would otherwise read as "no handover section" and replace the whole body
-  with that one section.
+  with that one section; to push while any path is still outstanding after one of its commits.
 - **Degrades:** with `gh` missing or unauthenticated it still commits and pushes, then prints the
   `gh pr create` command for you.
-- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`), plus
+- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`) and
+  `scripts/assert_clean_tree.sh` (read-only; the post-commit check), plus
   `lib/handover_body_state.sh` and `lib/splice_pr_section.sh` for the refresh.
 
 ## `/gantry:integrate` — N pull requests into one

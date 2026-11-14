@@ -105,6 +105,22 @@ Look before writing the message: `git status` and `git diff` (or `git diff --sta
 git commit -m "<subject>"        # add -m for a body paragraph if warranted
 ```
 
+**Then assert the tree is clean — after every commit this skill makes, before anything is pushed.**
+A commit takes what was staged when it ran: a file edited since, or left out by partial staging,
+is not in it, and the push below would carry the branch without it, silently.
+
+```bash
+bash "$GANTRY/skills/ship/scripts/assert_clean_tree.sh"
+```
+
+Exit `0` (`CLEAN`) → continue exactly as before. **Any non-zero exit → no push, no PR, stop.** Exit
+`1` prints `DIRTY:<n>` and a `PATH:` line for every outstanding path: name them all in the report,
+**including files you left out on purpose**, and let the user decide each one — commit it, exclude
+it, or discard it. Never commit or exclude one yourself to turn the check green. Say what a re-run
+does: with nothing staged, ship falls back to `git add -A` and commits every leftover. Exit `2`
+means the check could not run (not a work tree, or `git status` failed); that is a stop too, never
+a pass.
+
 ### Review, only when you asked for it
 
 **Not a stage.** It has no number because it is not on the path: with neither flag given, nothing
@@ -182,6 +198,13 @@ That is `--review-fix`, and only it:
 
 ```bash
 git add -A && git commit -m "Apply review findings"            # --review-fix
+```
+
+Then, if that commit was made (a fix child that changed nothing makes none), run the same
+assertion, with the same rule — any non-zero exit stops the ship before the push:
+
+```bash
+bash "$GANTRY/skills/ship/scripts/assert_clean_tree.sh"
 ```
 
 **A bare `--review` has nothing to commit.** The only files a read-only review writes are
@@ -706,6 +729,9 @@ the executing-plugin check concluded: the version that ran, that the check was i
 repo is not a plugin, that it was suppressed because the plugin root and the repo are the same
 tree, or that the version could not be determined. The driver journals this from what you report,
 so an omission here becomes an omission in an append-only log.
+
+**The clean-tree check**, every time a commit was made: `CLEAN`, or the `PATH:` lines that stopped
+the push, with nothing pushed.
 
 If a guard stopped it (on the default branch, diverged, nothing to ship, gh unavailable), say which
 and what the user should do next. **When a run stops after a review but before the PR** — the

@@ -210,7 +210,7 @@ bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase crit
 literal exit code every time it runs**, with `attempt` incrementing:
 
 ```bash
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from grill --to implement --mode unattended
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from critique --to implement --mode unattended
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --check <name> --coverage-verdict <verdict> --coverage-changed <n> --coverage-covered <n> --coverage-root <root> --artifact .claude/artifacts/gate-1.log
 ```
 

@@ -429,7 +429,7 @@ Dispatch **one** reviewer (Agent): the repo's `.claude/agents/reviewer.md` if it
 `gantry-reviewer`. Do not write a new agent. Give it paths and commands, not contents:
 
 ```bash
-git log --first-parent --format=%h%x20%s <BASE>..HEAD
+git log --first-parent --format=%h%x20%s origin/<BASE>..HEAD
 ```
 
 ```bash
@@ -461,7 +461,7 @@ bash "$GANTRY/skills/integrate/scripts/list_candidates.sh" --base <BASE>
 ```
 
 ```bash
-bash "$GANTRY/skills/integrate/scripts/integration_state.sh" --base <BASE> 21=refs/integrate/pr/21
+bash "$GANTRY/skills/integrate/scripts/integration_state.sh" --base <BASE> 21=refs/integrate/<lane-branch>/pr/21
 ```
 
 Anything now `stale` is shown with the offer to merge the new commits first.
