@@ -35,6 +35,9 @@ risk assessment that the agent which wrote the change never writes.
   the lenses run on exactly the integration's own commits, or `None.`.
 - **`lib/run_phase_headless.sh`** allows the review child `risk_floor.sh`, the fifth read-only
   script on its allowlist.
+- **`scripts/check_pr_body.sh`** treats the `## Risk` block's labeled lines (`Risk level:`,
+  `Floor:`, `Lenses:`, `Blast radius:`) as structure, so the block ship writes no longer reads as
+  a hard-wrapped paragraph.
 
 **Upgrading.** PRs already open have no `## Risk`, so `/gantry:integrate` skips them until
 `/gantry:review` and then `/gantry:ship` run on their branch.
