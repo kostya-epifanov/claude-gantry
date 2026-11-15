@@ -239,6 +239,47 @@ assert_eq "$(bash "$STATE" --section qa "$W/qa-missing-body.md" "$W/qa.md" 2>/de
 assert_eq "$(bash "$STATE" --section qa "$W/both-body.md" "$W/no-such-qa.md" 2>/dev/null)" NO-QA \
   "no qa.md at all is NO-QA"
 
+# --- and of the composed Risk sections ---------------------------------------
+# A PR opened before review lenses existed has no ## Risk; a re-review after it
+# opened changes the level. --section risk digests the composed text ship wrote.
+printf '## Risk\nRisk level: high\n' >"$W/risk-source.md"
+RISK_MARKER="$(bash "$STATE" --section risk --marker "$W/risk-source.md")"
+case "$RISK_MARKER" in
+  '<!-- gantry:risk sha256='*' -->') _pass "--section risk --marker prints a risk marker" ;;
+  *)                                 _fail "unexpected risk marker: $RISK_MARKER" ;;
+esac
+assert_eq "$(bash "$STATE" --section risk "$W/qa-missing-body.md" "$W/risk-source.md" 2>/dev/null)" MISSING \
+  "a body from before lenses, with no ## Risk, is MISSING"
+{
+  printf '## Risk\n%s\nRisk level: high\n\n' "$RISK_MARKER"
+  printf '## Risk summary\n\nnot this section\n'
+} >"$W/risk-body.md"
+assert_eq "$(bash "$STATE" --section risk "$W/risk-body.md" "$W/risk-source.md" 2>/dev/null)" CURRENT \
+  "a matching risk marker is CURRENT"
+printf '## Risk\nRisk level: critical\n' >"$W/risk-source.md"
+assert_eq "$(bash "$STATE" --section risk "$W/risk-body.md" "$W/risk-source.md" 2>/dev/null)" STALE \
+  "a re-review that changed the composed Risk text makes it STALE"
+printf '# T\n\n## Risk\nRisk level: low\n' >"$W/risk-unmarked.md"
+assert_eq "$(bash "$STATE" --section risk "$W/risk-unmarked.md" "$W/risk-source.md" 2>/dev/null)" STALE \
+  "a hand-written ## Risk with no marker is STALE"
+assert_eq "$(bash "$STATE" --section risk "$W/risk-body.md" "$W/no-such-risk.md" 2>/dev/null)" NO-RISK \
+  "no composed Risk file is NO-RISK"
+
+# Splicing ## Risk into a body that has none lands it before Not proven, and a
+# second splice replaces it and nothing else.
+printf '## Risk\n%s\nRisk level: high\n' "$RISK_MARKER" >"$W/risk-section.md"
+bash "$SPLICE" "$W/qa-stale-body.md" "$W/risk-section.md" "Risk" >"$W/risk-spliced.md"
+if awk '/^## Risk$/{r=NR} /^## Not proven by this run$/{n=NR} END{exit !(r && n && r < n)}' "$W/risk-spliced.md"; then
+  _pass "a spliced ## Risk lands before ## Not proven by this run"
+else
+  _fail "## Risk was not inserted before the Not proven anchor"
+fi
+printf '## Risk\nRisk level: critical\n' >"$W/risk-section2.md"
+bash "$SPLICE" "$W/risk-spliced.md" "$W/risk-section2.md" "Risk" >"$W/risk-respliced.md"
+assert_file_contains "$W/risk-respliced.md" '^Risk level: critical$' "a second splice replaces the Risk section"
+assert_file_lacks "$W/risk-respliced.md" '^Risk level: high$' "and the old level is gone"
+assert_file_contains "$W/risk-respliced.md" '^## Exercised by this run$' "and the neighbouring section survived"
+
 bash "$STATE" --section review "$W/both-body.md" "$W/qa.md" >/dev/null 2>&1
 assert_rc 2 "$?" "an unknown --section is a usage error"
 

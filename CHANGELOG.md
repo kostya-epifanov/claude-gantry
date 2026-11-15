@@ -1,6 +1,46 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
+
+**Review lenses, a `## Risk` section on every PR, and guarded changes** (BASE-341). The protection a
+guarded path needs is a careful read of the diff before merge, by a reader pointed at the right
+lines — not a supervised session where the approach was never in question. Every PR now carries a
+risk assessment that the agent which wrote the change never writes.
+
+- **`lib/risk_floor.sh` (new).** A target repo may keep `.claude/review-lenses/<name>.md`: `floors`
+  (path keys — a trailing `/` is a directory prefix, anything else an exact path — each with a
+  level `low < medium < high < critical`), an optional `defer: never`, and a prompt body. The
+  script reads the lenses **from the base ref**, never the worktree, matches them against the diff
+  from the merge-base (committed, working-tree and untracked changes), and prints each fired lens's
+  matched files and floor. No model is involved. `--commits` does the same for a set of commits (a
+  merge counts only the files its resolution wrote), and `--body` prints a lens's prompt from the
+  base. A malformed lens is exit 2, never a silently unguarded path. Tested in
+  `tests/cases/risk_floor.sh`.
+- **`/gantry:review`** runs each fired lens as its own fresh-context reviewer sub-agent, in
+  addition to `/code-review`, and writes `## Lens: <name>` (findings, then a *what to look at* note
+  per matched file) and, on every review, `## Risk`: `Risk level:` and a blast radius of exactly
+  *Breaks if wrong*, *Live after merge* and *Rollback*. A `defer: never` lens's findings are never
+  handed over: each is fixed, or recorded as an `Open risk:`.
+- **`/gantry:ship`** writes `## Risk` (the highest of the review's level and every fired floor,
+  one step higher for an open risk; `unassessed` when no review ran) and, when a lens fired,
+  `## Guarded changes` — every matched file from `risk_floor.sh` with its note, and every open risk
+  — and labels the PR `guarded`, creating the label if needed and never failing the PR over it. The
+  refresh of an open PR's body now covers these sections too (`handover_body_state.sh --section
+  risk`), so a PR opened before this release gains them on the next `/gantry:review` +
+  `/gantry:ship`.
+- **`/gantry:integrate`** skips a PR whose body has no `## Risk` or no assessed level
+  (`list_candidates.sh`: `RISK:` line, skips `no-risk-section` and `risk-level:<word>`), and its
+  PR carries `## Risk summary` (overall level, a `PR | Risk level | Guarded files` table, the union
+  of blast radii), `## Guarded changes` per source PR, and `## Lines written by the integration` —
+  the lenses run on exactly the integration's own commits, or `None.`.
+- **`lib/run_phase_headless.sh`** allows the review child `risk_floor.sh`, the fifth read-only
+  script on its allowlist.
+- **`scripts/check_pr_body.sh`** treats the `## Risk` block's labeled lines (`Risk level:`,
+  `Floor:`, `Lenses:`, `Blast radius:`) as structure, so the block ship writes no longer reads as
+  a hard-wrapped paragraph.
+
+**Upgrading.** PRs already open have no `## Risk`, so `/gantry:integrate` skips them until
+`/gantry:review` and then `/gantry:ship` run on their branch.
 
 **`/gantry:auto --explain` opens a supervised run with a plain-language explainer of the task**
 (BASE-332). A run started from a bare tracker id never said what it was about, so the person

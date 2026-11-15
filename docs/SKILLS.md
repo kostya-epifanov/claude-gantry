@@ -226,9 +226,22 @@ fingerprint that no longer matches is a refusal — the file describes a differe
 `pending` file under any other status, which means the review that wrote it did not finish. With
 `REVIEW:absent` it reviews and then fixes, as before.
 
+**Review lenses** run beside the source, never instead of it. A target repo may keep
+`.claude/review-lenses/<name>.md`: a frontmatter of `floors` — path keys (a trailing `/` is a
+directory prefix, anything else an exact path) each with a level `low < medium < high < critical` —
+an optional `defer: never`, and a prompt body with that repo's threat model. `lib/risk_floor.sh
+<base>` decides, with no model involved, which lenses the diff fires and which files fired them,
+reading the lens files **from the base ref** so a diff cannot rewrite the lens that judges it. Each
+fired lens runs as its own fresh-context reviewer sub-agent with the lens body as its brief, and
+writes a `## Lens: <name>` section into `review.md`: findings, then one *what to look at* note per
+matched file. A `defer: never` lens's findings are never handed over — each is fixed, or recorded as
+an open risk that reaches the PR and raises its level one step. Every review, lens or not, also
+writes `## Risk`: a `Risk level:` and a three-line blast radius (breaks if wrong, live after merge,
+rollback), from the review run rather than from the session that wrote the change.
+
 **`--headless`** is what the drivers' launcher passes: a finding whose triage is honestly
 ambiguous is deferred rather than asked about, whatever `mode:` says — a print-mode child cannot
-wait for a reply.
+wait for a reply. A `defer: never` lens's finding becomes an open risk instead.
 
 Gets the diff with `git diff <base>` plus `git status --short`, because the tree is normally
 uncommitted at this point and a three-dot range would come back empty.
@@ -238,7 +251,8 @@ uncommitted at this point and a three-dot range would come back empty.
   whose branch or fingerprint no longer matches the tree; to review a tree whose status is still
   `implementing`.
 - **Invokes:** `gantry:handover` for everything deferred, with or without `--fix`.
-- **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`.
+- **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`;
+  `lib/risk_floor.sh`.
 - **Shared:** its verify, triage and hand-over steps (3, 4 and 6) are the ones `qa` applies to a
   failing scenario, by reference — one procedure, two phases.
 
@@ -438,6 +452,14 @@ extended to cover this because it runs before ship composes anything.
 All of these are **disclosures, not refusals**: none withholds the PR, fails the gate, or blocks
 the push.
 
+**Every body carries `## Risk`**, and `## Guarded changes` when a review lens fired. The level is
+the highest of the review's `Risk level:` and every fired lens's floor, raised one step for any
+open risk; with no review it is `unassessed`, never a floor standing in for a judgement. The
+guarded file list comes from `lib/risk_floor.sh`, run again by ship at ship time — every matched
+file, each with the lens's *what to look at* note — not from the model. A fired lens also puts the
+GitHub label `guarded` on the PR, created when the repo lacks it; a label that cannot be applied is
+reported, never a reason not to open the PR.
+
 **It can also bring an existing body up to date.** The body used to be write-once: composed at
 `gh pr create` and never touched again. But `handover.md` is normally written *after* the PR opens,
 because `/gantry:review` is what produces one — so the body went on saying no handover existed
@@ -446,7 +468,9 @@ from a prune. A refresh sub-stage, entered both when stage 4 finds a PR already 
 asks `lib/handover_body_state.sh` whether the body carries the current handover and rewrites **only
 the `## Deliberately not done` section** when it does not, through `lib/splice_pr_section.sh`. The
 same check, under `--section qa`, covers `## Exercised by this run`: a `/gantry:qa` re-run after
-the PR opened would otherwise leave the body reporting the old outcome. `## Not proven by this run`
+the PR opened would otherwise leave the body reporting the old outcome. Under `--section risk` it
+covers `## Risk` and `## Guarded changes`, digesting the text ship composes for the tree as it now
+is — so a PR opened before lenses existed gains the sections, and a re-review reaches the body. `## Not proven by this run`
 is never rewritten; when it goes out of date, the report names the line. The
 answer is a digest marker ship leaves in the body as an HTML comment, so a body that is already
 current is edited **not at all**, a hand-edit inside the section survives, and an ambiguous heading
@@ -476,6 +500,14 @@ that PR or to its meeting with the ones already in — not to the pile. It ends 
 whose body carries the included table, every skip with its reason, every conflict resolution, and
 the source PRs' combined *Not proven by this run* and *Deliberately not done* sections.
 
+It also carries the risk up. **`## Risk summary`** gives the overall level — the highest of the
+included PRs' own levels — a `PR | Risk level | Guarded files` table and the union of their blast
+radii; **`## Guarded changes`** collects each source PR's guarded files, linked to the PR; and
+**`## Lines written by the integration`** runs the repo's review lenses (`lib/risk_floor.sh
+--commits`) on exactly the commits the integration wrote — conflict resolutions and its own fixes —
+and records their notes, or `None.`. A PR whose body has no `## Risk`, or an `unassessed` level, is
+skipped and named, never merged.
+
 The problem it exists for: `auto-unattended` leaves a stack of drafts, each cut from the base and
 each checked alone. **A green check on a PR says nothing about the combined tree** — and the boring
 shared surfaces (a docs table, a count, a version, a shared script) are exactly where they collide.
@@ -498,8 +530,8 @@ as well as PR numbers, which is how `tests/cases/` proves them against fixture r
 
 - `scripts/list_candidates.sh` — `gh` JSON (or `--json <file>`) to one labeled line per field, with
   a verdict per PR. Skips: changes requested, a `blocked`/`wip`/`do-not-merge` label, failing CI on
-  the head commit, a stacked parent that is not itself selected (to a fixpoint, so grandchildren
-  go too), and a base that is neither the target nor another candidate's head. **A draft is a
+  the head commit, a body with no `## Risk` section or no assessed `Risk level:`, a stacked parent
+  that is not itself selected (to a fixpoint, so grandchildren go too), and a base that is neither the target nor another candidate's head. **A draft is a
   candidate** — unattended runs open drafts, and those are the PRs this gathers. `CI:none` is a
   candidate too, and is carried through as its own class everywhere it is shown: the PR's own checks
   never ran, so the gate on the combined tree is the only one its code has had.

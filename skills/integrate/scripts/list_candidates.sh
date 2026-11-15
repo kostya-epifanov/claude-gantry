@@ -29,13 +29,26 @@
 #   PR:<n> / TITLE: / URL: / DRAFT:yes|no / BASE_REF: / HEAD_REF: / HEAD_SHA:
 #   CREATED:<iso> <epoch> / MERGEABLE: / REVIEW: / LABELS:<a,b>|none
 #   CI:passing|failing|pending|none / STACKED_ON:<n>|none
-#   CONTRACT:gantry|none / VERDICT:candidate|skip <reason> / END
+#   CONTRACT:gantry|none / RISK:<level>|none / VERDICT:candidate|skip <reason> / END
 #   INTEGRATION_PR:<n> <head-ref> <base-ref> <url>
 #   CANDIDATES:<n ...>|none
 #   SKIPPED:<n ...>|none
 #
 # SKIP REASONS, first match wins: not-open · integration-pr · changes-requested ·
-# label:<name> · ci-failing · stacked-parent-not-selected:<n> · base:<ref>.
+# label:<name> · ci-failing · no-risk-section · risk-level:<word> ·
+# stacked-parent-not-selected:<n> · base:<ref>.
+#
+# NO `## Risk`, NO MERGE. Since 0.8.0 every gantry PR body carries a `## Risk`
+# section whose `Risk level:` is one of low|medium|high|critical, written from
+# an independent review. The integration PR's `## Risk summary` is the max over
+# the PRs it merges, so a PR with no level would make that max a lie. RISK: is
+# read from the FIRST `Risk level:` line inside the section headed exactly
+# `## Risk` (not `## Risk summary`), outside fenced blocks; the section ends at
+# the next `#` or `##` heading. No such section → `RISK:none`, skip
+# `no-risk-section`. A level outside the four — `unassessed`, which ship writes
+# when no review ran, or a typo — → `RISK:<word>`, skip `risk-level:<word>`.
+# The remedy for either is `/gantry:review` then `/gantry:ship` on that branch,
+# which refreshes the section on the open PR.
 #
 # TARGETING THE BASE IS NEVER STACKING. `headRefName` carries no owner prefix, so
 # a fork's own `master` arrives as the head branch named `master` — see
@@ -109,7 +122,7 @@ fi
 command -v python3 >/dev/null 2>&1 || die "python3 is required to read the PR JSON"
 
 python3 - "$TMP/prs.json" "$BASE_NAME" "$NUMBERS" <<'PY'
-import json, sys, datetime
+import json, re, sys, datetime
 
 path, base, numbers_raw = sys.argv[1], sys.argv[2], sys.argv[3]
 explicit = [int(n) for n in numbers_raw.split()]
@@ -159,6 +172,34 @@ def ci_class(rollup):
     if pending:
         return "pending"
     return "passing" if seen else "none"
+
+RISK_LEVELS = ("low", "medium", "high", "critical")
+FENCE = re.compile(r"^ {0,3}(```|~~~)")
+RISK_LINE = re.compile(r"^\s*[-*]?\s*\**Risk level:\**\s*(.*)$", re.IGNORECASE)
+
+def risk_of(body):
+    """The `Risk level:` under the exact `## Risk` heading, or None if no section.
+
+    Returns the lower-cased first word of the value (bold and backticks
+    stripped), or "" when the section exists with no level line."""
+    insec = found = infence = False
+    for raw in (body or "").replace("\r", "").split("\n"):
+        line = raw.rstrip()
+        if FENCE.match(line):
+            infence = not infence
+            continue
+        if infence:
+            continue
+        if re.match(r"^#{1,2}(\s|$)", line):
+            insec = line.strip() == "## Risk"
+            found = found or insec
+            continue
+        if insec:
+            m = RISK_LINE.match(line)
+            if m:
+                words = m.group(1).strip().strip("*`").split()
+                return words[0].strip("*`.").lower() if words else ""
+    return "" if found else None
 
 def epoch(iso):
     if not iso:
@@ -232,7 +273,8 @@ for pr in selected:
     review = (pr.get("reviewDecision") or "NONE").upper()
     parent = parent_of(pr)
     facts[n] = dict(pr=pr, labels=labels, ci=ci, review=review,
-                    parent=parent["number"] if parent else None)
+                    parent=parent["number"] if parent else None,
+                    risk=risk_of(pr.get("body")))
 
     if review == "CHANGES_REQUESTED":
         verdicts[n] = "skip changes-requested"
@@ -243,6 +285,13 @@ for pr in selected:
         continue
     if ci == "failing":
         verdicts[n] = "skip ci-failing"
+        continue
+    risk = facts[n]["risk"]
+    if risk is None:
+        verdicts[n] = "skip no-risk-section"
+        continue
+    if risk not in RISK_LEVELS:
+        verdicts[n] = "skip risk-level:%s" % (risk or "missing")
         continue
     verdicts[n] = "candidate"
 
@@ -301,6 +350,8 @@ for n in sorted(list(facts) + missing + integration_asked):
     out.append("STACKED_ON:%s" % (f["parent"] if f["parent"] is not None else "none"))
     out.append("CONTRACT:%s" % ("gantry" if "## What this change is for" in (pr.get("body") or "")
                                 else "none"))
+    r = f["risk"]
+    out.append("RISK:%s" % ("none" if r is None else (r or "missing")))
     out.append("VERDICT:%s" % verdicts[n])
     out.append("END")
 

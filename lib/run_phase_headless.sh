@@ -22,8 +22,10 @@
 #               task.md, plus Skill(gantry:handover), plus the Bash rules
 #   review-fix  acceptEdits (the fix step must edit code) + Skill(gantry:handover) + the Bash rules
 #
-# The Bash rules name four gantry scripts — the gate, the exclusion writer, the
-# stage detector and the diff fingerprint — and each is emitted TWICE, in the
+# The Bash rules name five gantry scripts — the gate, the exclusion writer, the
+# stage detector, the diff fingerprint, and the lens matcher (risk_floor.sh,
+# which the review runs to decide which review lenses fire and which prints a
+# lens's body from the base ref) — all read-only, and each is emitted TWICE, in the
 # unquoted and the double-quoted path form, because a rule matches the literal
 # command text and a skill may write either (probed: `Bash(bash <abs>:*)` let
 # `bash <abs>` through and denied `bash "<abs>"`). Nothing else Bash is allowed
@@ -219,7 +221,7 @@ not invent a value the script was supposed to produce."
 # one is forwarded (it wins over an install), else this script's own root.
 RULE_ROOT="${PLUGIN_DIR:-$GANTRY}"
 RULES=()
-for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh; do
+for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh risk_floor.sh; do
   RULES[${#RULES[@]}]="Bash(bash $RULE_ROOT/lib/$script:*)"
   RULES[${#RULES[@]}]="Bash(bash \"$RULE_ROOT/lib/$script\":*)"
   # The variable spelling, literally: the skill's own text says
