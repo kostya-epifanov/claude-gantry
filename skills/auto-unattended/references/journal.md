@@ -166,7 +166,7 @@ here.
 {"ts":"2026-08-16T09:48:02Z","task":"2026-08-16-contact-form","event":"decision","stage":"plan","question":"proceed with this plan?","answer":"proceed; use the existing /api/contact handler rather than a new route"}
 ```
 
-- `stage` — where the checkpoint sat: `plan` (after the plan) or `review` (before ship).
+- `stage` — where the checkpoint sat: `plan` (after the plan).
 - `question` / `answer` — one line each, in the user's terms. Record what was *decided*, not the
   full option list you rendered.
 

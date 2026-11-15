@@ -254,7 +254,7 @@ If the push is rejected because the remote moved, stop and report it — let the
 and this stage's only fenced commands are `gh pr create`, which fails outright against one:
 
 - **`PR:none`** → compose and create, as the rest of this stage describes.
-- **anything else** (a PR already exists) → skip straight to *Refresh the handover and QA sections* below,
+- **anything else** (a PR already exists) → skip straight to *Refresh the handover, QA and Risk sections* below,
   then continue to stage 5. Nothing here is composed or created.
 
 That second route is not hypothetical. `detect_state.sh` routes a dirty tree to `commit` and an
@@ -265,8 +265,8 @@ the body.
 
 Skip this stage entirely if `--no-pr` was given — the push was the finish line. Go straight to the
 **Report** (not stage 5, which reads a PR that doesn't exist) and note the PR was intentionally not
-opened. **Run the contract step and both disclosure checks below anyway** and put their answers in
-the report; the push already happened, so skipping them would mean shipping the plugin's own
+opened. **Run the contract step, the Risk step and both disclosure checks below anyway** and put
+their answers in the report — the risk level, every guarded file and every open risk; the push already happened, so skipping them would mean shipping the plugin's own
 change, or a task with unproven acceptance criteria, or a branch whose contract now lives only in
 an uncommitted file, with nothing anywhere saying so.
 
@@ -376,6 +376,92 @@ bash "$GANTRY/lib/detect_stage.sh"      # TASK: / PLAN: / HANDOVER: / QA: lines
 
 The `--no-pr` path has no body to put this in. Say the same thing in the report instead, under the
 rule that already governs that path's disclosures.
+
+#### Risk, and the guarded changes
+
+Every body carries a `## Risk` section, and a `## Guarded changes` section when a review lens fired.
+The exact headings below are an interface: a CI check in the target repo and `/gantry:integrate`
+both parse them, and integrate skips a PR whose body has no `## Risk`. Which files are guarded is
+**not** read from `review.md` or decided by you — ship computes it again, at ship time, against
+the same base the review used:
+
+```bash
+bash "$GANTRY/lib/risk_floor.sh" origin/<BASE>
+```
+
+`origin/<BASE>` when that ref exists, else `<BASE>` — the same rule `/gantry:review` resolves its
+base by, so the two read the same lens files and the same file set. It prints one block per lens
+that fired (`LENS:`, `FLOOR:`, optional `DEFER:never`, one `FILE:<path> <level>` per matched file,
+`END`), `LENS_IN_DIFF:` lines, or nothing at all. **Exit `2` is not "nothing fired"**: a lens is
+malformed or the script could not run. Then the `## Risk` section says `Lenses: could not be
+evaluated — <the stderr line>`, the same sentence goes under `## Not proven by this run`, and no
+`guarded` label is claimed either way.
+
+Then read `review.md`'s `## Risk` and `## Lens: <name>` sections, if the file exists and has them.
+
+**The level.** `Risk level:` is the highest of:
+
+- the `Risk level:` in `review.md`'s `## Risk` — the review run's judgement, never yours;
+- every `FLOOR:` the script printed;
+
+raised **one step** (`low → medium → high → critical`, capped at `critical`) when there is any
+**open risk**. An open risk is a `- Open risk:` line under a `## Lens:` section of `review.md`, **or**
+a `[lens <name>]` finding in its `## Address now` that was never applied — the detector reports
+`REVIEW:pending` (a read-only `ship --review`, or a review whose fix step never ran). A lens with
+`defer: never` promised each finding would be fixed or shown; an unapplied one is shown.
+
+**No review assessed the risk** — there is no `review.md`, or it has no `## Risk` section (a review
+from before 0.8.0, or a bare `/gantry:ship`) — then the level is **`unassessed`**, whatever the
+floors say. The level is the review's judgement, and a floor written in its place would pass a CI
+check with a level nobody assessed. `unassessed` is never combined into a max. A PR shipped that way
+is skipped by `/gantry:integrate` until `/gantry:review` runs and the next `/gantry:ship` refreshes
+the section, and the report says so.
+
+**The section**, with these exact headings and labels:
+
+```
+## Risk
+<the marker line>
+Risk level: <level>
+Floor: <highest FLOOR> (lens <name>: <file>, <file>; lens <name>: <file>)
+Blast radius:
+- Breaks if wrong: <from review.md>
+- Live after merge: <from review.md>
+- Rollback: <from review.md>
+```
+
+- `Floor:` appears **only when a lens fired**, and names every lens and every matched file.
+- The three `Blast radius:` bullets are quoted from `review.md`. When no review assessed the risk,
+  each says `not assessed — no review ran on this diff`.
+- The marker line is how a later run can tell whether this section is current (see *Refresh*
+  below). Compose the section **without** it first, together with the `## Guarded changes` section
+  when there is one, and write that text with the Write tool to
+  `<ROOT>/.claude/artifacts/risk-source.md`; then print the marker from it:
+
+  ```bash
+  bash "$GANTRY/lib/handover_body_state.sh" --section risk --marker .claude/artifacts/risk-source.md
+  ```
+
+  and put the line it prints directly under `## Risk` in the body. It is an HTML comment, invisible
+  on GitHub.
+
+**`## Guarded changes`**, only when a lens fired, right after `## Risk`:
+
+```
+## Guarded changes
+- `<path>`: <what to look at>
+- Open risk: <the finding, verbatim from review.md>
+```
+
+**One bullet per `FILE:` line the script printed — every one of them, in its order.** The note
+after each path is the bullet for that file under `review.md`'s `### What to look at`. A matched
+file with **no** note there is listed anyway, with `not seen by the lens — changed after the review,
+or no review ran`; that is also how a `review.md` that describes an older diff shows up. Then one
+`- Open risk:` bullet per open risk, as defined above. A `LENS_IN_DIFF:` line from the script adds
+one bullet saying that lens file is changed by this diff and was judged by the base's version.
+
+When a lens fired, the PR also gets the GitHub label `guarded` — under *Open it* below, after the PR
+exists, so a missing label permission can never stop the PR from opening.
 
 #### What this run did not prove
 
@@ -535,18 +621,37 @@ gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body-file .cl
 gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body-file .claude/artifacts/pr-body.md --draft   # --draft
 ```
 
-Report the PR URL it prints. Once the PR exists, remove the file — the body now lives on the pull
+Report the PR URL it prints. **When a lens fired**, label it `guarded` — creating the label first
+if the repository does not have it:
+
+```bash
+gh label list --search guarded --json name -q '.[].name'
+```
+
+```bash
+gh label create guarded --color B60205 --description "Touches a path a review lens guards"
+```
+
+```bash
+gh pr edit --add-label guarded
+```
+
+Run the `create` only when the list did not print `guarded`. **A failure here is reported, never
+fatal**: the PR is open, and a token without label permission is a reason to say "the `guarded`
+label could not be applied" in the report, not to undo anything. No lens fired → no label step.
+
+Once the PR exists, remove the file — the body now lives on the pull
 request, and a stale copy is one a later run could mistake for its own:
 
 ```bash
-rm -f .claude/artifacts/pr-body.md
+rm -f .claude/artifacts/pr-body.md .claude/artifacts/risk-source.md
 ```
 
 If `gh pr create` failed, leave the file where it is: it is excluded from git, so it cannot reach a
 commit, and the next run composes the body afresh and overwrites it — it is never reused as it
 stands, because the branch it described may have moved.
 
-#### Refresh the handover and QA sections of an existing body
+#### Refresh the handover, QA and Risk sections of an existing body
 
 **Entered from two places**: stage 4's branch above, when a PR already exists, and stage 5 before
 its status read. Not a step inside either — a refresh that lived only on the fully-shipped path
@@ -557,10 +662,12 @@ would never run after "write the handover, commit once more, ship", which is the
 handover exists while the file holds verified findings. The worktree holding the only copy is one
 merge away from being pruned. `qa.md` goes stale the same way: `/gantry:qa` re-run after the PR
 opened — a repo that opted in late, a `--fix` pass — leaves a body reporting the old outcome,
-typically "no qa agent" over scenarios that have since passed.
+typically "no qa agent" over scenarios that have since passed. And `## Risk`: a PR opened before
+review lenses existed has none — so `/gantry:integrate` skips it — and a review re-run after the PR
+opened changes the level, the open risks, or the guarded files.
 
-**What it may rewrite.** Only the `## Deliberately not done` and `## Exercised by this run`
-sections, each only when it is out of date. Every other byte of the body is left alone: a wholesale recompose would overwrite hand-edits
+**What it may rewrite.** Only the `## Deliberately not done`, `## Exercised by this run`, `## Risk`
+and `## Guarded changes` sections, each only when it is out of date. Every other byte of the body is left alone: a wholesale recompose would overwrite hand-edits
 made on GitHub after the PR opened. Skip the whole sub-stage when `--no-pr` was given — there is no
 PR to refresh — and when `GH` was `missing` or `unauth`.
 
@@ -596,7 +703,9 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    destroying the contract, the scope and the human-only checks. Writing to `.tmp` and promoting it
    only on success makes a failed fetch an **absent** file, which step 3 rejects instead.
 
-3. Ask whether each section needs refreshing — two questions, one per section:
+3. Ask whether each section needs refreshing — three questions. For the third, first compose the
+   Risk text exactly as *Risk, and the guarded changes* describes, for the tree as it is now, and
+   write it with the Write tool to `<ROOT>/.claude/artifacts/risk-source.md`:
 
    ```bash
    bash "$GANTRY/lib/handover_body_state.sh" .claude/artifacts/pr-body-live.md handover.md
@@ -606,12 +715,18 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    bash "$GANTRY/lib/handover_body_state.sh" --section qa .claude/artifacts/pr-body-live.md qa.md
    ```
 
+   ```bash
+   bash "$GANTRY/lib/handover_body_state.sh" --section risk .claude/artifacts/pr-body-live.md .claude/artifacts/risk-source.md
+   ```
+
    Each answers for its own section:
 
    - **`CURRENT`** → the body already carries this file. Leave that section alone.
    - **`NO-HANDOVER`** / **`NO-QA`** → there is no such file. Nothing to refresh in that section.
+     (`NO-RISK` means `risk-source.md` was not written — compose it; every PR has a Risk section.)
    - **`STALE`** or **`MISSING`** → that section is refreshed in step 4. `MISSING` means the body
-     has no such section at all — for the handover, the PR-opened-before-the-review case.
+     has no such section at all — for the handover, the PR-opened-before-the-review case; for Risk,
+     a PR opened before review lenses existed.
    - **Exit 2** (no one-word answer) → the state could not be read: step 2's fetch failed and left
      no file, or there is no SHA-256 tool on `PATH`. **Edit nothing**, in either section. Report
      that the body could not be checked and leave the pull request as it is.
@@ -628,6 +743,14 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    - **QA** → the `## Exercised by this run` heading, the marker line from
      `handover_body_state.sh --section qa --marker qa.md`, and the content the contract step's
      `QA:` rule gives for `qa.md` as it now stands — to `<ROOT>/.claude/artifacts/qa-section.md`.
+   - **Risk** → two files, because the splice replaces one `## ` section at a time: the `## Risk`
+     section with the marker line from `handover_body_state.sh --section risk --marker
+     .claude/artifacts/risk-source.md` under its heading, to
+     `<ROOT>/.claude/artifacts/risk-section.md`; and the `## Guarded changes` section to
+     `<ROOT>/.claude/artifacts/guarded-section.md` — when no lens fires any more but the live body
+     has a `## Guarded changes` section, that file holds the heading and `None — no lens fires on
+     the current diff.`; when no lens fires and the body has none, write no guarded file and skip
+     its splice — the Risk splice is then the last one and writes `pr-body.md` itself (below).
 
    Then splice. One stale section goes straight from the fetched body to `pr-body.md`:
 
@@ -648,6 +771,31 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    ```bash
    bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-handover.md .claude/artifacts/qa-section.md "Exercised by this run" > .claude/artifacts/pr-body.md
    ```
+
+   A stale Risk section is spliced the same way, after any of the above, each splice reading the
+   previous one's output — `Risk` first, then `Guarded changes` — and the last one writing
+   `pr-body.md`:
+
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-live.md .claude/artifacts/risk-section.md "Risk" > .claude/artifacts/pr-body-risk.md
+   ```
+
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-risk.md .claude/artifacts/guarded-section.md "Guarded changes" > .claude/artifacts/pr-body.md
+   ```
+
+   No guarded file was written (no lens fires and the body has no `## Guarded changes`) → there is
+   no second splice, so the Risk splice writes `pr-body.md` directly. Skipping it while still
+   writing `pr-body-risk.md` leaves step 5 with no `## Risk` in what it sends:
+
+   ```bash
+   bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-live.md .claude/artifacts/risk-section.md "Risk" > .claude/artifacts/pr-body.md
+   ```
+
+   (Start the Risk splice from `pr-body-handover.md` or the QA splice's output instead of
+   `pr-body-live.md` when those ran first; the fetched original is never overwritten.) After a
+   Risk refresh in which a lens fires, apply the `guarded` label exactly as *Open it* does,
+   non-fatally.
 
    Each splice replaces its one section, or inserts it before `## Not proven by this run` when the
    body has no such section yet. **A non-zero exit means the heading is ambiguous** — it appears
@@ -675,7 +823,7 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    ```
 
    ```bash
-   rm -f .claude/artifacts/pr-body.md .claude/artifacts/pr-body-live.md .claude/artifacts/pr-body-handover.md .claude/artifacts/handover-section.md .claude/artifacts/qa-section.md
+   rm -f .claude/artifacts/pr-body.md .claude/artifacts/pr-body-live.md .claude/artifacts/pr-body-handover.md .claude/artifacts/pr-body-risk.md .claude/artifacts/handover-section.md .claude/artifacts/qa-section.md .claude/artifacts/risk-section.md .claude/artifacts/guarded-section.md .claude/artifacts/risk-source.md
    ```
 
    **Clean up only after the edit succeeded** — the same rule the create path states for
@@ -691,7 +839,7 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
 
 The branch is fully shipped: PR open, nothing left to push.
 
-**First, run *Refresh the handover and QA sections* above — unless stage 4 already routed you through it on
+**First, run *Refresh the handover, QA and Risk sections* above — unless stage 4 already routed you through it on
 the way here**, in which case it has just run and a second pass would only spend another
 `gh pr view` and repeat its report. Then come back here. A handover written after the PR opened
 reaches nobody otherwise, and this is the stage a run lands on once there is nothing left to commit
@@ -729,6 +877,12 @@ the executing-plugin check concluded: the version that ran, that the check was i
 repo is not a plugin, that it was suppressed because the plugin root and the repo are the same
 tree, or that the version could not be determined. The driver journals this from what you report,
 so an omission here becomes an omission in an append-only log.
+
+**The risk**: the `Risk level:` the body carries and what set it (the review's level, which lens
+floor, a one-step raise for open risks — or `unassessed`, and that integrate will skip the PR until
+a review runs); every lens that fired and its matched-file count; whether `risk_floor.sh` could not
+evaluate the lenses; whether the `guarded` label was applied, or why not; and on a refresh, whether
+the Risk section was refreshed.
 
 **The clean-tree check**, every time a commit was made: `CLEAN`, or the `PATH:` lines that stopped
 the push, with nothing pushed.

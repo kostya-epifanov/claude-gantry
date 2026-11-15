@@ -47,8 +47,18 @@
 # With no qa.md the answer is NO-QA. The section defaults to `handover`, so
 # every existing call keeps its meaning.
 #
+# `--section risk` asks it of the `## Risk` section (marker
+# `<!-- gantry:risk sha256=... -->`). There is no single source file for that
+# one: ship COMPOSES the Risk and Guarded-changes text from review.md and
+# lib/risk_floor.sh, writes it (without the marker) to a file, and passes that
+# file here, so the digest moves exactly when the composed sections would
+# change. The case it exists for: a pull request opened before review lenses
+# existed has no `## Risk` at all (MISSING), and a re-review after the PR
+# opened changes the level or the guarded list (STALE). With no composed file
+# the answer is NO-RISK.
+#
 # stdout: one word — CURRENT | STALE | MISSING | NO-HANDOVER (NO-QA under
-# --section qa) — or, under --marker, the marker line.
+# --section qa, NO-RISK under --section risk) — or, under --marker, the marker line.
 # Exit codes: 0 = answered · 2 = usage, or no SHA-256 tool on PATH.
 set -uo pipefail
 
@@ -67,7 +77,10 @@ if [ "${1:-}" = "--section" ]; then
     qa) HEADING='## Exercised by this run'
         MARKER_PREFIX='<!-- gantry:qa sha256='
         ABSENT_WORD='NO-QA' ;;
-    *)  die "--section takes handover or qa" ;;
+    risk) HEADING='## Risk'
+        MARKER_PREFIX='<!-- gantry:risk sha256='
+        ABSENT_WORD='NO-RISK' ;;
+    *)  die "--section takes handover, qa or risk" ;;
   esac
   shift 2
 fi

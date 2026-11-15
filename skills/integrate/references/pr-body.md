@@ -49,6 +49,28 @@ needed it. Skip the heading when there were none.
 reconciled and the PR it was for; or the literal `no docs change needed`. Never skipped, unlike
 *Fixes*: an absent heading would be indistinguishable from a run that never looked.
 
+**`## Risk summary`** — the exact heading; a CI check in the target repo looks for it on any
+`integration/*` branch. First line `Risk level: <level>`, the **maximum** over the included PRs'
+own `Risk level:` lines (`low < medium < high < critical`), raised to the floor of any lens that
+fired on the integration's own lines when that is higher. Then a table with exactly the columns
+`PR`, `Risk level` and `Guarded files`: one row per included PR, its level copied from its body,
+and its guarded files as the comma-separated paths from its `## Guarded changes` section (or
+`none`). Then `Blast radius:` and the union of the included PRs' blast-radius bullets, each
+prefixed with the PR it came from, duplicates removed. Every included PR has a level — stage 2
+skipped the ones that do not.
+
+**`## Guarded changes`** — only when any included PR has one, or a lens fired on the integration's
+own lines. One sub-list per source PR, introduced by a link to that PR (`#21`), carrying its own
+`## Guarded changes` bullets verbatim, its `Open risk:` lines included. A reader who must read the
+guarded lines before merging finds every one of them here, without opening N pull requests.
+
+**`## Lines written by the integration`** — never skipped. The lens notes from stage 8 on the
+integration's own commits: for each lens that fired, the lens name, then one bullet per matched
+file with the commit it is in and what to look at, then the lens's findings and what was done about
+each. When `risk_floor.sh --commits` printed nothing, the section is the single line `None.` —
+which is information: the merges resolved nothing and the lane's own commits touched no guarded
+path.
+
 **`## Not proven by this run`** — the exact heading, because its absence is meant to be
 information. It carries every source PR's own `## Not proven by this run` items, attributed to the
 PR they came from, plus anything this run could not prove: a `NO-GATES` override, a PR whose CI

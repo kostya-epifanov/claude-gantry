@@ -243,6 +243,7 @@ write_review() {  # write_review <repo> <pending|clean|applied|noheading|garbage
     applied-mid) printf '# Review\n\n## Address now\n- `a.sh:3` — the line reads\napplied: at column 1 and is wrong. Failure: x.\n- `b.sh:1` — also wrong.\n' ;;
     none-prefix) printf '# Review\nbranch: b\n\n## Address now\nNone of these are safe to skip:\n- `a.sh:3` — wrong. Failure: x.\n' ;;
     none-bold)   printf '# Review\n\n## Address now\n\n**None.**\n' ;;
+    clean-risk)  printf '# Review\n\n## Address now\n\nNone.\n\n## Risk\nRisk level: high\nBlast radius:\n- Breaks if wrong: x\n- Live after merge: yes\n- Rollback: revert\n\n## Lens: security\nfloor: critical\n- Open risk: `bin/x` widens a permission.\n### What to look at\n- `bin/x`: the sudo line\n' ;;
     noheading) printf '# Review\nbranch: b\n\nprose only, no section\n' ;;
     garbage)   printf '\000\001 not markdown at all' ;;
   esac >"$1/review.md"
@@ -289,6 +290,13 @@ assert_contains "$STAGE_OUT" "PHASE:review" "and still routes to the fix step"
 write_review "$rv" none-bold
 run_stage "$rv"
 assert_contains "$STAGE_OUT" "REVIEW:clean" "a bold-wrapped None. is still clean"
+# 0.8.0 adds ## Risk and ## Lens: <name> sections after Address now, with
+# `- Open risk:` bullets in them. Those are not findings to apply, and must not
+# turn a clean file pending (which would send the chain to a fix step with
+# nothing to fix).
+write_review "$rv" clean-risk
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:clean" "Risk and Lens sections after a clean Address now stay clean"
 
 # The permissive direction is pending: a file the parser cannot read makes the
 # fix step look and refuse with a reason, rather than skipping it silently.
