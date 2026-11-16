@@ -368,7 +368,7 @@ is unproven code:
 
 ```bash
 bash "$GANTRY/lib/run_gates.sh"            # supervised
-bash "$GANTRY/lib/run_gates.sh" --strict   # unattended
+bash "$GANTRY/lib/run_gates.sh" --strict --fast   # unattended — the fast in-run gate, as implement's
 ```
 
 Same exit-code contract as `/gantry:implement`: `0` green · `1`+ red · `2` could not run · `3`
@@ -378,8 +378,11 @@ Same exit-code contract as `/gantry:implement`: `0` green · `1`+ red · `2` cou
 **Then append one line to `review.md`, last, with the gate's final exit code:**
 
 ```
-applied: <ISO-8601 UTC date> gate=<exit>
+applied: <ISO-8601 UTC date> gate=<exit> mode=<fast|full> seconds=<n>
 ```
+
+`mode=` and `seconds=` are copied from the gate transcript's `== gate mode=… seconds=… ==` line
+(`mode=`, not `requested=`); the driver journals them, since it never sees this run's output.
 
 That line is how the detector reports `REVIEW:applied` and how the headless launcher reads
 `GATE_EXIT:` back for the driver, so it is written on every `--fix` run that applied anything —

@@ -11,6 +11,16 @@
 #   exit 1+    red   — a check failed; nothing gets pushed or opened as a PR
 #   exit 2     reserved for "the gate could not run" (bad env, missing tool)
 #
+# THE MODE SIGNAL. gantry sets GANTRY_GATE_MODE=fast|full in this script's
+# environment (full when unset — treat it so). The unattended chain's implement
+# and review-fix steps ask for `fast`: an in-run gate whose job is quick
+# feedback, because the full suite runs again before merge. Integrate and the
+# readiness hook always hand you `full`. What `fast` skips is your call — the
+# checks related to the change, a smoke subset — and ignoring it is valid: you
+# then run the full suite every time, as before.
+#
+#   if [ "${GANTRY_GATE_MODE:-full}" = fast ]; then ...; fi
+#
 # Two rules worth internalising:
 #   1. A tree you cannot prove is not a pass. If you have no tests yet, it is
 #      more honest to exit non-zero than to exit 0 and call it green.

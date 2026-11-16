@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+**An optional fast in-run gate for unattended runs, recorded in the journal** (BASE-420). A
+detached run paid for the full suite after implement and again after review fixes, though a full
+gate runs before merge anyway.
+
+- **`lib/run_gates.sh --fast`.** Hands `GANTRY_GATE_MODE=fast` to a repo-owned `.claude/gates.sh`,
+  which decides what its fast gate runs (`examples/gates.sh` documents the variable). Without the
+  flag the gate is handed `full` — set from the flag only, never inherited, so the readiness hook
+  and `/gantry:integrate` keep the full suite even inside an environment that carries the variable.
+  With no `.claude/gates.sh` there is nothing to narrow and the full detected suite runs. Every
+  exit path prints `== gate mode=<fast|full> requested=<fast|full> seconds=<n> ==`. Exit codes are
+  unchanged. Tested in `tests/cases/gate_fast_mode.sh`.
+- **The unattended chain uses it.** `/gantry:implement` and `/gantry:review --fix` run
+  `--strict --fast` under `mode: unattended`; supervised runs, qa, integrate and the hook do not.
+  `review.md`'s closing line becomes `applied: <date> gate=<exit> mode=<m> seconds=<n>`.
+- **The journal records it.** The `gate` event gains optional `gate_mode` and `seconds`
+  (`journal_append.sh --gate-mode fast|full --seconds <n>`), absent on older lines. `gate_mode` is
+  the mode handed to the gate, not proof that a repo gate narrowed anything.
+
 ## 0.8.0
 
 **Review lenses, a `## Risk` section on every PR, and guarded changes** (BASE-341). The protection a

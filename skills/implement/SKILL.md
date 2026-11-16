@@ -131,8 +131,14 @@ covers a standalone `/gantry:implement` and a supervised `/gantry:auto`, neither
 
 ```bash
 bash "$GANTRY/lib/run_gates.sh" >"$log" 2>&1; rc=$?            # supervised — this one, or
-bash "$GANTRY/lib/run_gates.sh" --strict >"$log" 2>&1; rc=$?   # unattended — this one. Not both.
+bash "$GANTRY/lib/run_gates.sh" --strict --fast >"$log" 2>&1; rc=$?   # unattended — this one. Not both.
 ```
+
+**`--fast` is unattended-only.** It hands `GANTRY_GATE_MODE=fast` to a repo-owned
+`.claude/gates.sh`, which decides what its fast in-run gate runs; without one the full detected
+suite runs. The full suite still runs at integrate and in the readiness hook, neither of which
+passes it. The transcript's `== gate mode=… seconds=… ==` line is what the driver journals as
+`gate_mode` and `seconds` — report it.
 
 **Redirect, then read `$?` on the same line. Never pipe.** `run_gates.sh ... | tee "$log"` yields
 **`tee`'s** exit status, so a red gate reads as `0`, `status: implemented` gets set, and the run
