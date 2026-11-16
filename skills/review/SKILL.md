@@ -353,11 +353,14 @@ because nothing changed.
 With `--fix`, first — **in apply mode only** — check that `review.md` describes this tree:
 
 ```bash
-bash "$GANTRY/lib/diff_fingerprint.sh" <base from review.md's base: line>
+bash "$GANTRY/lib/review_fresh.sh" --findings
 ```
 
-Its `branch:` must equal the current branch and its `diff:` must equal the token just printed.
-**Otherwise stop**: say the file describes a different diff (or a different branch) and name
+It compares `review.md`'s `branch:` with the current branch and its `diff:` with the token
+`diff_fingerprint.sh` prints for `base:` now — `--findings` means `diff:` alone, never the `diff=` on
+an `applied:` line, so a second `--fix` on a tree already fixed is refused. Exit `0` (`FRESH:yes`)
+means apply. **Anything else, stop** — `1` the file describes another branch or a moved diff, `3` there
+is no `review.md`, `2` it is malformed: say the file describes a different diff (or a different branch) and name
 `/gantry:review` to review the tree as it is now. Applying stale findings to a moved tree is worse
 than applying none.
 
@@ -378,8 +381,14 @@ Same exit-code contract as `/gantry:implement`: `0` green · `1`+ red · `2` cou
 **Then append one line to `review.md`, last, with the gate's final exit code:**
 
 ```
-applied: <ISO-8601 UTC date> gate=<exit>
+applied: <ISO-8601 UTC date> gate=<exit> diff=<the token diff_fingerprint.sh prints now, after the fixes>
 ```
+
+Run `bash "$GANTRY/lib/diff_fingerprint.sh" <BASE>` once more after the gate, for the `diff=`: the
+fixes moved the tree, so `diff:` above describes the tree *before* them. `diff=` is what lets
+`lib/review_fresh.sh` (and so `gantry:ship`) tell a review whose fixes are applied from one that
+describes an older diff. A line without it still reads, falling back to `diff:` — which the fixes
+have already moved, so such a review counts as stale.
 
 That line is how the detector reports `REVIEW:applied` and how the headless launcher reads
 `GATE_EXIT:` back for the driver, so it is written on every `--fix` run that applied anything —

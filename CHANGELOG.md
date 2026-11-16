@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+**A stale review no longer sets the PR's risk level** (BASE-346). `gantry:ship` quoted `Risk level:` and
+the blast radius from `review.md` without checking they still described the branch, so content changes landing
+after the review left the old level on the PR — and `/gantry:integrate`'s `## Risk` summary took its
+maximum from it. A review of an older diff now counts as a missing one.
+
+- **`lib/review_fresh.sh` (new).** `FRESH:yes|stale|absent|error` for `review.md` against the tree: the
+  branch, and the token `diff_fingerprint.sh` prints for `base:`. `gantry:ship` runs it before reading the
+  review (stale or unverifiable → `Risk level: unassessed`, bullets say the risk was not assessed, nothing
+  quoted from the file, so the pr-risk check fails and integrate skips the PR until `/gantry:review` runs
+  again); `/gantry:review --fix` runs the same comparison (`--findings`). Tested in
+  `tests/cases/review_fresh.sh`; added to the review children's allowlist.
+- **`review.md`'s `applied:` line gains `diff=<token>`**, the tree after the fixes, so a fixed review
+  reads fresh and an unfixed one stale.
+- **`lib/diff_fingerprint.sh` is now content-keyed**: the token hashes each changed path's content against
+  the merge-base, not `git status` or diff text, so committing the reviewed tree (ship does) and a
+  fetch that moves the base leave it alone. Any `review.md` written before this release carries the old
+  token and reads stale: re-run `/gantry:review`.
+
 ## 0.8.0
 
 **Review lenses, a `## Risk` section on every PR, and guarded changes** (BASE-341). The protection a

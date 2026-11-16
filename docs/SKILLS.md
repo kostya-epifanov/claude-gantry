@@ -214,10 +214,12 @@ absorb what review turned up is how a focused diff becomes an unreviewable one.
 
 **`review.md` is the findings file**, written at the worktree root on every review: the branch,
 the base, a fingerprint of the diff from `lib/diff_fingerprint.sh`, the source that ran, the tier,
-the two tallies, and the address-now findings (file, line, what is wrong, the failure) — or
+the two tallies, an `applied:` line carrying the post-fix `diff=` once fixes are applied, and the address-now findings (file, line, what is wrong, the failure) — or
 `None.`, so the fix step can tell "reviewed, nothing to apply" from "never reviewed".
 `lib/detect_stage.sh` reports it as `REVIEW:absent|pending|applied|clean`, and a `reviewed` task
-whose file is still `pending` stays at the fix step rather than moving to ship.
+whose file is still `pending` stays at the fix step rather than moving to ship. `lib/review_fresh.sh`
+is the freshness check `--fix` and `gantry:ship` share: a review of an older diff is a missing one, so ship
+publishes `Risk level: unassessed`.
 
 **`--fix` is stage-aware.** With `REVIEW:pending` and `status: reviewed` it is **apply mode**: it
 checks the file's branch and fingerprint against the tree, applies the listed findings without
@@ -252,7 +254,7 @@ uncommitted at this point and a three-dot range would come back empty.
   `implementing`.
 - **Invokes:** `gantry:handover` for everything deferred, with or without `--fix`.
 - **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`;
-  `lib/risk_floor.sh`.
+  `lib/review_fresh.sh`; `lib/risk_floor.sh`.
 - **Shared:** its verify, triage and hand-over steps (3, 4 and 6) are the ones `qa` applies to a
   failing scenario, by reference — one procedure, two phases.
 
