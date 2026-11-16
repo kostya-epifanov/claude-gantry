@@ -232,9 +232,9 @@ if it prints `FETCH:failed`, say so and carry `prune-worktrees` step 2's warning
 may be stale.
 
 **Before splitting rows into buckets, check whether `merged_into` can even speak to `$BASE`.**
-`detect_candidates.sh` only tests ancestry against `develop`, `master`, and `main` — it has no way
-to report a merge into any other branch. If the base resolved in Stage 3 is not one of those
-three (an explicit `--base trunk`, a `BASE_BRANCH` pointing at a release branch, or detection
+`detect_candidates.sh` only tests ancestry against `develop`, `master`, `main` (and, when none of
+those match, `origin/integration/*`, which can never be `$BASE`) — it has no way to report a merge
+into any other branch. If the base resolved in Stage 3 is not one of those three (an explicit `--base trunk`, a `BASE_BRANCH` pointing at a release branch, or detection
 landing elsewhere), say so plainly in the report: **merge classification is unavailable for base
 `<base>`; the prunable report below is incomplete and may be missing worktrees that are actually
 merged.** Do not fall silently into "nothing became prunable" in that case — an honest "I can't
@@ -247,7 +247,8 @@ Split the `candidate` rows into three buckets:
    ones this sync just made dead. Lead the report with them. **Each line names that row's
    artifacts** (`none` for `-`, `unknown` for `?`).
 2. **Merged into another branch, not `<base>`** — `merged_into` is non-`-` but does not contain
-   `<base>` (e.g. `merged_into=develop` while `$BASE=master`). This is still a `candidate` row
+   `<base>` (e.g. `merged_into=develop` while `$BASE=master`, or `merged_into=integration/<name>` — merged only
+   into an integration lane on origin, not into `$BASE`; say so, it is provisional). This is still a `candidate` row
    that `gantry:prune-worktrees` will offer to remove in Stage 7, so it must be shown here too — one
    line per row (or a count plus the branch names) rather than being dropped. Same artifacts note
    per line.
