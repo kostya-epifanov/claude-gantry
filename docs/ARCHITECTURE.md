@@ -464,6 +464,31 @@ print NO-GATES  ──▶ exit 0, or exit 3 under --strict
 The subproject scan is why a monorepo with `app/pubspec.yaml` and `landing/package.json` is covered
 rather than silently green. The scan prunes `node_modules`, `build`, `.dart_tool` and friends.
 
+### The heavy slot
+
+Before any of that, `run_gates.sh` re-execs itself through `lib/heavy_slot.sh`, a box-wide counting
+lock: at most `GANTRY_HEAVY_SLOTS` gates (default `1`; `0` disables it) run at once on the box, in
+any repo or lane. A gate that finds every slot busy waits, and its transcript names each holder
+(PID, how long it has held the slot, the root it gates); once it runs, the transcript carries
+`== heavy-slot: acquired slot=<i> slots=<N> waited=<s>s ==` for the journal to read. It exists
+because a gate is the heaviest thing a lane does, and several lanes gating at once took an 8 GB box
+out of memory on 2026-11-15.
+
+- **Nested gates skip it.** `GANTRY_HEAVY_SLOT_HELD` is exported to everything the gate starts, and
+  `run_gates.sh` does not take a slot while it is set. gantry's own gate runs tests that call
+  `run_gates.sh`; without this they would wait forever on the slot their outer run holds.
+  `tests/lib.sh` sets it by default for the same reason.
+- **Slots are files** in `GANTRY_HEAVY_SLOT_DIR` (default `/tmp/gantry-heavy-slots-<uid>`, not
+  `$TMPDIR`, which can be per-session), created with noclobber like `ensure_excluded.sh`'s lock.
+  A slot is freed when its holder's PID is gone, not by age, since a gate can hold one for many
+  minutes.
+- **It fails open.** An unusable slot directory runs the gate unlocked, with one note in the
+  transcript. The lock guards memory, not correctness.
+- **Limits.** Box-wide only among processes sharing this `/tmp` and PID namespace: a private `/tmp`
+  makes it per-sandbox, a holder in another PID namespace looks dead. There is no wait timeout, so
+  a caller's own timeout includes the wait — the readiness hook's harness timeout among them, and a
+  hook killed that way lets the stop through unchecked. Under heavy contention that is a real gap.
+
 ## The agent roster
 
 Three agents ship, and **every one of them is read-only**. The tool list is the boundary — not an

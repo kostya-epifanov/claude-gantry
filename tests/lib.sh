@@ -28,6 +28,15 @@ TESTS_DIR="${TESTS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 GANTRY_ROOT="$(cd "$TESTS_DIR/.." && pwd)"
 
 RUN_GATES="$GANTRY_ROOT/lib/run_gates.sh"
+HEAVY_SLOT="$GANTRY_ROOT/lib/heavy_slot.sh"
+
+# Every case runs run_gates.sh, which takes a BOX-WIDE heavy slot
+# (lib/heavy_slot.sh). A suite run outside a gate must neither wait on a real
+# gate elsewhere on the box nor write to its slot directory, so cases start as
+# if a slot were already held. tests/cases/heavy_slot.sh clears this and points
+# the slot directory into its own temp root.
+GANTRY_HEAVY_SLOT_HELD="${GANTRY_HEAVY_SLOT_HELD:-tests}"
+export GANTRY_HEAVY_SLOT_HELD
 HOOK="$GANTRY_ROOT/hooks/readiness-gate.sh"
 DETECT_STAGE="$GANTRY_ROOT/lib/detect_stage.sh"
 
