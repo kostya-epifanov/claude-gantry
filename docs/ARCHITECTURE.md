@@ -229,7 +229,10 @@ exposed — the phase still works, it is just back where it was.
 its review children on Opus because a `/model` command in an unrelated session had just saved that
 default, and the review ran on a model nobody chose for it. The drivers therefore pass `--model`
 every time — `--review-model`'s alias when given, otherwise their own model — and the launcher
-raises a `NOTE:` when nobody did.
+raises a `NOTE:` when nobody did. `--model` is also exported as `CLAUDE_CODE_SUBAGENT_MODEL`
+(unset when no `--model`), so the sub-agents the child starts are meant to follow the pin (not proven: that the variable
+outranks a sub-agent's own frontmatter `model:`, and `gantry-reviewer` pins one); a `MODEL:` line
+naming more than one model raises a `NOTE:`.
 
 **What the orchestrator's context holds afterwards.** The launcher's labeled lines — `SESSION:`,
 `MODEL:`, `EFFORT:`, `TURNS:`, `SUBTYPE:`, `COST_USD:`, `DENIALS:` and one `DENIED:` per denial,

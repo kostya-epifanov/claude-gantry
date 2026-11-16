@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`--model` now reaches a review child's sub-agents** (BASE-370). `lib/run_phase_headless.sh` exports `CLAUDE_CODE_SUBAGENT_MODEL` from `--model` (unset without it), `/gantry:review` passes it as `model` on each dispatch, and a `MODEL:` naming more than one model is a `NOTE:`.
+
 ## 0.8.0
 
 **Review lenses, a `## Risk` section on every PR, and guarded changes** (BASE-341). The protection a
