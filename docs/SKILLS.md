@@ -23,7 +23,7 @@ One chain of phases, three ways to run it.
 | A failing scenario | you decide | triaged; stop on `blocked` | triaged, deferred; `blocked` only on an acceptance criterion observably false |
 | Stops | after every phase | a grill conversation, then nothing | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
-| Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
+| Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict --fast` (implement, review-fix) |
 | No checks found | continue, flagged | continue, flagged | **refuse to ship** (exit 3) |
 | PR | ready | **draft** | **draft** |
 
@@ -214,14 +214,16 @@ absorb what review turned up is how a focused diff becomes an unreviewable one.
 
 **`review.md` is the findings file**, written at the worktree root on every review: the branch,
 the base, a fingerprint of the diff from `lib/diff_fingerprint.sh`, the source that ran, the tier,
-the two tallies, and the address-now findings (file, line, what is wrong, the failure) — or
+the two tallies, an `applied:` line carrying the post-fix `diff=` once fixes are applied, and the address-now findings (file, line, what is wrong, the failure) — or
 `None.`, so the fix step can tell "reviewed, nothing to apply" from "never reviewed".
 `lib/detect_stage.sh` reports it as `REVIEW:absent|pending|applied|clean`, and a `reviewed` task
-whose file is still `pending` stays at the fix step rather than moving to ship.
+whose file is still `pending` stays at the fix step rather than moving to ship. `lib/review_fresh.sh`
+is the freshness check `--fix` and `gantry:ship` share: a review of an older diff is a missing one, so ship
+publishes `Risk level: unassessed`.
 
 **`--fix` is stage-aware.** With `REVIEW:pending` and `status: reviewed` it is **apply mode**: it
 checks the file's branch and fingerprint against the tree, applies the listed findings without
-reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit>` to the file. A
+reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit> mode=<fast|full> seconds=<n> diff=<token>` to the file. A
 fingerprint that no longer matches is a refusal — the file describes a different diff — and so is a
 `pending` file under any other status, which means the review that wrote it did not finish. With
 `REVIEW:absent` it reviews and then fixes, as before.
@@ -252,7 +254,7 @@ uncommitted at this point and a three-dot range would come back empty.
   `implementing`.
 - **Invokes:** `gantry:handover` for everything deferred, with or without `--fix`.
 - **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`;
-  `lib/risk_floor.sh`.
+  `lib/review_fresh.sh`; `lib/risk_floor.sh`.
 - **Shared:** its verify, triage and hand-over steps (3, 4 and 6) are the ones `qa` applies to a
   failing scenario, by reference — one procedure, two phases.
 
@@ -619,7 +621,7 @@ then the optional external profile resolver, then `ship`'s detection.
 
 `/gantry:prune-worktrees`
 
-Buckets every worktree (stale at 7+ days idle, or merged into develop/master/main), summarises each
+Buckets every worktree (stale at 7+ days idle, or merged into develop/master/main or an origin/integration/* branch), summarises each
 candidate's last five commits and **which chain artifacts it is holding**, then asks: review
 individually, prune all, or abort. Review is batched in groups of four with **nothing checked by
 default**, and every selected path is archived, re-checked with `git status --porcelain`, and

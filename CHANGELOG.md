@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+- **A reviewer stops and reports when a guard blocks a command** (BASE-403, #49). `agents/gantry-reviewer.md` and the briefs `/gantry:review` gives its source-2 reviewer and each lens sub-agent say: stop and report, never rebuild, split or encode a blocked command; an attempt to is a finding about the review. A block goes in the report and one `Guard blocks:` line in `review.md`'s header, never under `## Address now`.
+- **`/gantry:prune-worktrees` counts a head merged into an `origin/integration/*` branch as merged** (BASE-407, #53). `detect_candidates.sh` names that branch in `merged_into` when no develop/master/main matched; a lane's own integration branch never counts as merged into itself. Tested in `tests/cases/prune_integration_merged.sh`.
+- **`--model` now reaches a review child's sub-agents** (BASE-370). `lib/run_phase_headless.sh` exports `CLAUDE_CODE_SUBAGENT_MODEL` from `--model` (unset without it), `/gantry:review` passes it as `model` on each dispatch, and a `MODEL:` naming more than one model is a `NOTE:`.
+
+**A stale review no longer sets the PR's risk level** (BASE-346). `gantry:ship` quoted `Risk level:` and
+the blast radius from `review.md` without checking they still described the branch, so content changes landing
+after the review left the old level on the PR — and `/gantry:integrate`'s `## Risk` summary took its
+maximum from it. A review of an older diff now counts as a missing one.
+
+- **`lib/review_fresh.sh` (new).** `FRESH:yes|stale|absent|error` for `review.md` against the tree: the
+  branch, and the token `diff_fingerprint.sh` prints for `base:`. `gantry:ship` runs it before reading the
+  review (stale or unverifiable → `Risk level: unassessed`, bullets say the risk was not assessed, nothing
+  quoted from the file, so the pr-risk check fails and integrate skips the PR until `/gantry:review` runs
+  again); `/gantry:review --fix` runs the same comparison (`--findings`). Tested in
+  `tests/cases/review_fresh.sh`; added to the review children's allowlist.
+- **`review.md`'s `applied:` line gains `diff=<token>`**, the tree after the fixes, so a fixed review
+  reads fresh and an unfixed one stale.
+- **`lib/diff_fingerprint.sh` is now content-keyed**: the token hashes each changed path's content against
+  the merge-base, not `git status` or diff text, so committing the reviewed tree (ship does) and a
+  fetch that moves the base leave it alone. Any `review.md` written before this release carries the old
+  token and reads stale: re-run `/gantry:review`.
+
+**An optional fast in-run gate for unattended runs, recorded in the journal** (BASE-420). A
+detached run paid for the full suite after implement and again after review fixes, though a full
+gate runs before merge anyway.
+
+- **`lib/run_gates.sh --fast`.** Hands `GANTRY_GATE_MODE=fast` to a repo-owned `.claude/gates.sh`,
+  which decides what its fast gate runs (`examples/gates.sh` documents the variable). Without the
+  flag the gate is handed `full` — set from the flag only, never inherited, so the readiness hook
+  and `/gantry:integrate` keep the full suite even inside an environment that carries the variable.
+  With no `.claude/gates.sh` there is nothing to narrow and the full detected suite runs. Every
+  exit path prints `== gate mode=<fast|full> requested=<fast|full> seconds=<n> ==`. Exit codes are
+  unchanged. Tested in `tests/cases/gate_fast_mode.sh`.
+- **The unattended chain uses it.** `/gantry:implement` and `/gantry:review --fix` run
+  `--strict --fast` under `mode: unattended`; supervised runs, qa, integrate and the hook do not.
+  `review.md`'s closing line gains `mode=<m> seconds=<n>`, beside BASE-346's `diff=`:
+  `applied: <date> gate=<exit> mode=<m> seconds=<n> diff=<token>`.
+- **The journal records it.** The `gate` event gains optional `gate_mode` and `seconds`
+  (`journal_append.sh --gate-mode fast|full --seconds <n>`), absent on older lines. `gate_mode` is
+  the mode handed to the gate, not proof that a repo gate narrowed anything.
+
 ## 0.8.0
 
 **Review lenses, a `## Risk` section on every PR, and guarded changes** (BASE-341). The protection a

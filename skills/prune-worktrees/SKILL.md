@@ -1,12 +1,12 @@
 ---
 name: prune-worktrees
-description: Reviews every git worktree for staleness (no commits in 7+ days) or branches already merged into master/develop/main, shows a concise summary of each candidate's commit history, archives the chain artifacts it holds outside the repo, and removes the ones you approve. Use when the user types "/gantry:prune-worktrees", or asks to clean up, prune, or remove old or merged worktrees.
+description: Reviews every git worktree for staleness (no commits in 7+ days) or branches already merged into master/develop/main or an origin/integration/* branch, shows a concise summary of each candidate's commit history, archives the chain artifacts it holds outside the repo, and removes the ones you approve. Use when the user types "/gantry:prune-worktrees", or asks to clean up, prune, or remove old or merged worktrees.
 ---
 
 # gantry:prune-worktrees
 
 Find worktrees that are stale (no commits in 7+ days) or whose branch is already merged into
-`master`/`develop`/`main`, show a concise summary of each one's git state, and remove the ones the
+`master`/`develop`/`main` or an `origin/integration/*` branch, show a concise summary of each one's git state, and remove the ones the
 user approves.
 
 **Scope**: this skill removes worktree checkouts only. It never deletes branches, even fully
@@ -37,6 +37,12 @@ every worktree. It never modifies worktrees itself — only the removal step in 
 Output: a `FETCH:ok`/`FETCH:failed` line, then one pipe-delimited line per worktree —
 `path|branch|status|days_idle|merged_into|head_sha|artifacts` — where `status` is one of `main`,
 `current`, `bare`, `locked`, `dirty`, `candidate`, `keep`.
+
+`merged_into` names develop/master/main when the head is an ancestor of them. When none match,
+it names the `origin/integration/*` branches the head is an ancestor of (`integration/<name>`),
+so work merged only into an integration lane still counts as merged. A lane's own pushed branch
+never counts as merged into itself. The integration branch stays on origin, so a dropped
+integration can still be checked out again; nothing on the remote is touched.
 
 `artifacts` is the last field: the chain artifacts that worktree is holding, comma-separated —
 `-` when it holds none, and **`?` when the worktree could not be read** (registered with git but
@@ -83,7 +89,7 @@ empty by definition (that's what "merged" means), so it wouldn't show anything u
 
 ### 5. Print the summary (plain text, not a tool call)
 
-One block per candidate: path (relative to `$MAIN_ROOT`), branch, reason(s) — `merged->master`,
+One block per candidate: path (relative to `$MAIN_ROOT`), branch, reason(s) — `merged->master` or `merged->integration/<name>`,
 `stale 19d`, or both — an `artifacts:` line carrying that row's seventh field verbatim (`none` for
 `-`, `unknown` for `?`), and the commit lines from step 4. Also state the bucket counts from step 3
 (checked / candidates / kept / locked / dirty) so the user sees the full picture, not just the
@@ -93,7 +99,7 @@ candidates.
 
 Use **AskUserQuestion**, one question:
 
-- question: "Found N prune candidate(s) (stale >7d or merged into master/develop); M carry chain
+- question: "Found N prune candidate(s) (stale >7d or merged into master/develop or an integration branch); M carry chain
   artifacts (archived before removal). How do you want to proceed?"
 - options:
   1. "Review individually (Recommended)" — "Pick which of the N to remove, one by one"
@@ -188,5 +194,5 @@ skill does.
   step failed** (say which file could not be copied, from the script's stderr), or not selected
   during individual review.
 - Branch names that are now unreferenced by any worktree and were merged, as an FYI, with the
-  manual command to delete them (`git branch -d <branch>`) — not run automatically.
+  manual command to delete them (`git branch -d <branch>`; for a branch whose row said `merged->integration/<name>`, `-d` will refuse and `-D` is needed — first confirm with `git branch -r --contains <branch>` that the integration branch on origin still holds it) — not run automatically.
 - Any warnings, e.g. a failed fetch and what that means for the merge-status shown.

@@ -149,9 +149,20 @@ about the thing it exists to record.)
    otherwise `gantry-reviewer`. Give it the worktree path, the base branch, and `task.md`'s path —
    let it read the diff itself. Ask for correctness defects first, then reuse and simplification,
    each with a concrete failure or a concrete saving.
+   Tell it that when a guard blocks a command it stops and reports, and never rebuilds, splits or
+   encodes the command. A guard block it reports is not a finding about the diff and not an
+   address-now item: see *Guard blocks* below.
 3. **Self-review**, only if neither is available, and **disclose it**. You reviewing your own
    change is the weakest source by a wide margin; the value of saying so is that the reader can
    weigh it correctly.
+
+**Sub-agents and the model.** When the prompt that launched you carries a line `Sub-agent model:
+pass model: <alias>` (`lib/run_phase_headless.sh` writes it when `--model` is a bare alias —
+`sonnet`, `opus`, `haiku` or `fable`), pass that alias as the `model` argument of every Agent
+dispatch in this skill (source 2 and the lens reviewers in 2b), so a review pinned to a model runs
+on it. No such line: pass no `model` and let the agent's own setting stand; never guess one, and
+never read your environment for it. `/code-review`'s own finders cannot be given one here and follow
+`CLAUDE_CODE_SUBAGENT_MODEL`, which the launcher exports, alone.
 
 ### 2b. Run the review lenses the diff fires
 
@@ -215,9 +226,25 @@ for **one "what to look at" note per matched file**: the specific lines and what
 check in them. A file the lens matched but found nothing in still gets a note — "touched only the
 comment block" tells the reader something.
 
+Give each lens sub-agent the same guard rule as source 2: stop and report a blocked command, never
+rebuild, split or encode it.
+
 **Lenses run in addition to source 1, never instead of it.** `/code-review` (or the fallback) still
 reviews the whole diff; a lens reads only its own paths, with its own threat model. Lens findings go
 through step 3's verification exactly like any other.
+
+### Guard blocks
+
+A reviewer, from any source, may report that a guard blocked a command, or that it tried to get around
+one. Treat it the same way whichever source it came from. This skill never retries the blocked command
+itself, never rebuilds it, and never asks a sub-agent to try again by another route. A block is not a
+finding about the diff and names no file in it, so it never goes under `## Address now`: that section
+flips `REVIEW:pending` with nothing to fix. An attempt to get around a guard is a finding about the
+review itself: step 3 does not drop it for naming no file, and it is kept out of `## Address now` but
+always written down. Put every block and every attempt in the report, and add one `Guard blocks:` line
+to `review.md`'s header, after `tallies:`, naming the command and the block message (or the attempt).
+Leave the line out when nothing was blocked or attempted. If the reviewer reports that a workaround got
+through, set `status: blocked` and hand over: a guard was defeated during this review.
 
 ### 3. Verify every finding before it counts as one
 
@@ -295,6 +322,7 @@ diff: <the token diff_fingerprint.sh printed>
 source: code-review | gantry-reviewer | self-review
 tier: <tier>
 tallies: returned=<n> verified=<n> address-now=<n> deferred=<n> dropped=<n>
+Guard blocks: <command and block message>   (only when a guard blocked something)
 
 ## Address now
 - `<path>:<line>` — <what is wrong>. Failure: <inputs → wrong result>.
@@ -353,11 +381,14 @@ because nothing changed.
 With `--fix`, first — **in apply mode only** — check that `review.md` describes this tree:
 
 ```bash
-bash "$GANTRY/lib/diff_fingerprint.sh" <base from review.md's base: line>
+bash "$GANTRY/lib/review_fresh.sh" --findings
 ```
 
-Its `branch:` must equal the current branch and its `diff:` must equal the token just printed.
-**Otherwise stop**: say the file describes a different diff (or a different branch) and name
+It compares `review.md`'s `branch:` with the current branch and its `diff:` with the token
+`diff_fingerprint.sh` prints for `base:` now — `--findings` means `diff:` alone, never the `diff=` on
+an `applied:` line, so a second `--fix` on a tree already fixed is refused. Exit `0` (`FRESH:yes`)
+means apply. **Anything else, stop** — `1` the file describes another branch or a moved diff, `3` there
+is no `review.md`, `2` it is malformed: say the file describes a different diff (or a different branch) and name
 `/gantry:review` to review the tree as it is now. Applying stale findings to a moved tree is worse
 than applying none.
 
@@ -368,7 +399,7 @@ is unproven code:
 
 ```bash
 bash "$GANTRY/lib/run_gates.sh"            # supervised
-bash "$GANTRY/lib/run_gates.sh" --strict   # unattended
+bash "$GANTRY/lib/run_gates.sh" --strict --fast   # unattended — the fast in-run gate, as implement's
 ```
 
 Same exit-code contract as `/gantry:implement`: `0` green · `1`+ red · `2` could not run · `3`
@@ -378,8 +409,17 @@ Same exit-code contract as `/gantry:implement`: `0` green · `1`+ red · `2` cou
 **Then append one line to `review.md`, last, with the gate's final exit code:**
 
 ```
-applied: <ISO-8601 UTC date> gate=<exit>
+applied: <ISO-8601 UTC date> gate=<exit> mode=<fast|full> seconds=<n> diff=<the token diff_fingerprint.sh prints now, after the fixes>
 ```
+
+Run `bash "$GANTRY/lib/diff_fingerprint.sh" <BASE>` once more after the gate, for the `diff=`: the
+fixes moved the tree, so `diff:` above describes the tree *before* them. `diff=` is what lets
+`lib/review_fresh.sh` (and so `gantry:ship`) tell a review whose fixes are applied from one that
+describes an older diff. A line without it still reads, falling back to `diff:` — which the fixes
+have already moved, so such a review counts as stale.
+
+`mode=` and `seconds=` are copied from the gate transcript's `== gate mode=… seconds=… ==` line
+(`mode=`, not `requested=`); the driver journals them, since it never sees this run's output.
 
 That line is how the detector reports `REVIEW:applied` and how the headless launcher reads
 `GATE_EXIT:` back for the driver, so it is written on every `--fix` run that applied anything —
@@ -413,7 +453,8 @@ byte-identical by a check in `scripts/verify.sh` — which is another reason not
 conditional. Gating it on `--fix` would strand a
 read-only review outside the state machine, leaving the detector to report `/gantry:review` as the
 next command against a diff that was just reviewed. In apply mode the status is already `reviewed`
-and stays so, unless step 5 set `blocked`.
+and stays so, unless step 5 set `blocked`. A defeated guard (see *Guard blocks*) is the same: the
+`blocked` it set is final, and this step must not overwrite it with `reviewed`.
 
 If review found something that makes the change unsafe to ship at all, set `status: blocked`
 instead, hand it over, and say so. Blocking here is cheap; blocking after the merge is not. When
@@ -430,6 +471,9 @@ say what happened when you invoked it; "unavailable" with no cause is how a down
 Then how many were addressed, deferred, and dropped — and under `--headless`, how many were
 deferred because they would otherwise have been asked about. A run that reports "12 findings" when
 5 were untrue has told the reader something false about the diff.
+
+**Guard blocks**: each command a guard blocked and its message, any attempt to get around one, and
+whether a workaround got through (which sets `status: blocked`); or that none occurred.
 
 **The lenses**: which fired (name, floor, matched-file count), or that none did, or that they could
 not be evaluated and why; any `LENS_IN_DIFF:` line; the `Risk level:` you wrote; and every open

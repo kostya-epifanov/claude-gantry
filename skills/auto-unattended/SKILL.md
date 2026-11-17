@@ -206,17 +206,22 @@ bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase crit
 **Invoke `/gantry:implement`.** It works from the artifacts on disk, never a restatement of them.
 
 `implement` owns the gate: it sets `status: implementing`, carries out the plan, runs
-`run_gates.sh --strict`, and iterates on red at most twice. **Journal a `gate` event with the
+`run_gates.sh --strict --fast`, and iterates on red at most twice. **Journal a `gate` event with the
 literal exit code every time it runs**, with `attempt` incrementing:
 
 ```bash
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event stage --from critique --to implement --mode unattended
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --check <name> --coverage-verdict <verdict> --coverage-changed <n> --coverage-covered <n> --coverage-root <root> --artifact .claude/artifacts/gate-1.log
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --check <name> --coverage-verdict <verdict> --coverage-changed <n> --coverage-covered <n> --coverage-root <root> --gate-mode <fast|full> --seconds <n> --artifact .claude/artifacts/gate-1.log
 ```
 
 `--exit` takes the number the gate actually returned. Write it in literally — each of these runs
 in a fresh shell, so a `"$RC"` would expand to empty and be refused. `--result` is `pass` for 0,
 `fail` for 1 or 2, `no-gates` for 3.
+
+`--gate-mode` and `--seconds` come from the transcript's `== gate mode=… seconds=… ==` line, verbatim:
+`mode=`, not `requested=`. `--fast` asks a repo-owned `.claude/gates.sh` for its fast in-run gate
+through `GANTRY_GATE_MODE`; with none, the full detected suite runs and the line says `mode=full`.
+The full suite still runs at integrate and in the readiness hook, which never pass `--fast`.
 
 Carry the phase's **coverage** report into that event's `coverage` field through the
 `--coverage-*` flags — the verdict, the counts, and one `--coverage-root` per root, verbatim from
@@ -294,17 +299,20 @@ independent scrutiny at all.
 
 - `REVIEW:pending` → launch the fix child the same way, with the same `--model`, `--effort` and
   `--plugin-dir`, and wait for it. It runs `/gantry:review --fix --headless` under `acceptEdits`,
-  applies what `review.md` lists, re-runs the gate `--strict`, and appends `applied: … gate=<exit>`
-  to the file. Read `GATE_EXIT:` from the launcher and journal it as a `gate` event with the
-  literal code, exactly as stage 4 does; non-zero after the child's own two attempts → `status:
+  applies what `review.md` lists, re-runs the gate `--strict --fast`, and appends
+  `applied: … gate=<exit> mode=<fast|full> seconds=<n> diff=<token>` to the file. Read `GATE_EXIT:` from the
+  launcher, and `mode=` and `seconds=` from that last line of `review.md`, and journal it as a `gate` event with the
+  literal code, exactly as stage 4 does. When that line carries no `mode=` or no `seconds=` (an
+  older-format `applied: … gate=<exit>`), omit `--gate-mode` or `--seconds` from the journal call —
+  never invent a value for either; non-zero after the child's own two attempts → `status:
   blocked`, journal the `escalation`, stop. A launcher exit of `1` or `3` is the same stop as above.
 - `REVIEW:clean` → nothing in scope to fix; say so, launch nothing.
 
 ```bash
 bash "$GANTRY/lib/run_phase_headless.sh" --phase review-fix --root <worktree>
 bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase review-fix --result ok --session <fix child session id> --summary <what was applied> --artifact review.md
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result pass --exit <literal exit code> --attempt 1 --artifact review.md
-bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --artifact review.md
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result pass --exit <literal exit code> --attempt 1 --gate-mode <fast|full> --seconds <n> --artifact review.md
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event gate --result fail --exit <literal exit code> --attempt 1 --gate-mode <fast|full> --seconds <n> --artifact review.md
 ```
 
 The `gate` lines are the pass and the fail shape; write the one `GATE_EXIT:` says happened, with
