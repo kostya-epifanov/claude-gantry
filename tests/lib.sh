@@ -28,6 +28,8 @@ TESTS_DIR="${TESTS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 GANTRY_ROOT="$(cd "$TESTS_DIR/.." && pwd)"
 
 RUN_GATES="$GANTRY_ROOT/lib/run_gates.sh"
+# Used by tests/cases/heavy_slot.sh, which shellcheck cannot see from here.
+# shellcheck disable=SC2034
 HEAVY_SLOT="$GANTRY_ROOT/lib/heavy_slot.sh"
 
 # Every case runs run_gates.sh, which takes a BOX-WIDE heavy slot
