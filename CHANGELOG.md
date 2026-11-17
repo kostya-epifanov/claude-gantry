@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **A reviewer stops and reports when a guard blocks a command** (BASE-403, #49). `agents/gantry-reviewer.md` and the briefs `/gantry:review` gives its source-2 reviewer and each lens sub-agent say: stop and report, never rebuild, split or encode a blocked command; an attempt to is a finding about the review. A block goes in the report and one `Guard blocks:` line in `review.md`'s header, never under `## Address now`.
+- **`/gantry:prune-worktrees` counts a head merged into an `origin/integration/*` branch as merged** (BASE-407, #53). `detect_candidates.sh` names that branch in `merged_into` when no develop/master/main matched; a lane's own integration branch never counts as merged into itself. Tested in `tests/cases/prune_integration_merged.sh`.
 - **`--model` now reaches a review child's sub-agents** (BASE-370). `lib/run_phase_headless.sh` exports `CLAUDE_CODE_SUBAGENT_MODEL` from `--model` (unset without it), `/gantry:review` passes it as `model` on each dispatch, and a `MODEL:` naming more than one model is a `NOTE:`.
 
 **A stale review no longer sets the PR's risk level** (BASE-346). `gantry:ship` quoted `Risk level:` and
@@ -35,7 +37,8 @@ gate runs before merge anyway.
   unchanged. Tested in `tests/cases/gate_fast_mode.sh`.
 - **The unattended chain uses it.** `/gantry:implement` and `/gantry:review --fix` run
   `--strict --fast` under `mode: unattended`; supervised runs, qa, integrate and the hook do not.
-  `review.md`'s closing line becomes `applied: <date> gate=<exit> mode=<m> seconds=<n>`.
+  `review.md`'s closing line gains `mode=<m> seconds=<n>`, beside BASE-346's `diff=`:
+  `applied: <date> gate=<exit> mode=<m> seconds=<n> diff=<token>`.
 - **The journal records it.** The `gate` event gains optional `gate_mode` and `seconds`
   (`journal_append.sh --gate-mode fast|full --seconds <n>`), absent on older lines. `gate_mode` is
   the mode handed to the gate, not proof that a repo gate narrowed anything.

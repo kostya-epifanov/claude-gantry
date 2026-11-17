@@ -300,7 +300,7 @@ independent scrutiny at all.
 - `REVIEW:pending` → launch the fix child the same way, with the same `--model`, `--effort` and
   `--plugin-dir`, and wait for it. It runs `/gantry:review --fix --headless` under `acceptEdits`,
   applies what `review.md` lists, re-runs the gate `--strict --fast`, and appends
-  `applied: … gate=<exit> mode=<fast|full> seconds=<n>` to the file. Read `GATE_EXIT:` from the
+  `applied: … gate=<exit> mode=<fast|full> seconds=<n> diff=<token>` to the file. Read `GATE_EXIT:` from the
   launcher, and `mode=` and `seconds=` from that last line of `review.md`, and journal it as a `gate` event with the
   literal code, exactly as stage 4 does. When that line carries no `mode=` or no `seconds=` (an
   older-format `applied: … gate=<exit>`), omit `--gate-mode` or `--seconds` from the journal call —

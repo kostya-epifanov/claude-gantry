@@ -223,7 +223,7 @@ publishes `Risk level: unassessed`.
 
 **`--fix` is stage-aware.** With `REVIEW:pending` and `status: reviewed` it is **apply mode**: it
 checks the file's branch and fingerprint against the tree, applies the listed findings without
-reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit> mode=<fast|full> seconds=<n>` to the file. A
+reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit> mode=<fast|full> seconds=<n> diff=<token>` to the file. A
 fingerprint that no longer matches is a refusal — the file describes a different diff — and so is a
 `pending` file under any other status, which means the review that wrote it did not finish. With
 `REVIEW:absent` it reviews and then fixes, as before.

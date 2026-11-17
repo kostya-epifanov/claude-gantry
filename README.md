@@ -137,6 +137,10 @@ how you reproduce your real CI. Otherwise auto-detected checks, at the repo root
 subproject a bounded scan finds. Otherwise `NO-GATES`: a supervised run passes and says nothing was
 enforced; an unattended run (`--strict`) refuses.
 
+`--fast` hands a repo-owned `.claude/gates.sh` `GANTRY_GATE_MODE=fast`, so it can run a narrower
+in-run gate; the unattended chain uses it after implement and review fixes. Without the flag the
+gate is handed `full`, so the readiness hook and `/gantry:integrate` always run the full gate.
+
 ## The readiness hook
 
 The gate script is a rule the chain follows. The hook makes it a rule the model **cannot** skip.
