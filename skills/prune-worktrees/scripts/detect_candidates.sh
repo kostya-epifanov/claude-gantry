@@ -10,7 +10,9 @@
 #   one line per worktree, pipe-delimited:
 #     path|branch|status|days_idle|merged_into|head_sha|artifacts
 #   status:      main | current | bare | locked | dirty | candidate | keep
-#   merged_into: comma-separated base names (develop,master,main) or -
+#   merged_into: comma-separated base names (develop,master,main) or -. When no
+#                base matches but the head is an ancestor of an origin/integration/*
+#                branch, those branches are named instead (`integration/<name>`).
 #   artifacts:   comma-separated chain artifacts the worktree holds, `-` for
 #                none, `?` when the worktree could not be read
 #
@@ -44,6 +46,18 @@ for name in develop master main; do
     BASES+=("refs/heads/$name"); BASE_LABELS+=("$name")
   fi
 done
+
+# origin/integration/* branches (gantry:integrate's lanes). A head merged into one
+# counts as merged: the branch stays on origin, so a dropped integration can be
+# checked out again. Kept apart from BASES so the integration names only show up
+# when no develop/master/main matched (every older head is an ancestor of every
+# later integration cut from the base, and would otherwise flood the field).
+INTEG_REFS=()
+INTEG_LABELS=()
+while IFS= read -r ref; do
+  [ -n "$ref" ] || continue
+  INTEG_REFS+=("$ref"); INTEG_LABELS+=("${ref#refs/remotes/origin/}")
+done < <(git -C "$MAIN_ROOT" for-each-ref --format='%(refname)' refs/remotes/origin/integration/ 2>/dev/null)
 
 path="" branch="" locked=0 bare=0 headsha=""
 
@@ -81,6 +95,17 @@ emit() {
       merged+=("${BASE_LABELS[$i]}")
     fi
   done
+  if [ ${#merged[@]} -eq 0 ] && [ ${#INTEG_REFS[@]} -gt 0 ]; then
+    for i in "${!INTEG_REFS[@]}"; do
+      # A lane's own pushed branch is not "merged" — its PR is still open.
+      [ "${INTEG_LABELS[$i]}" = "$branch" ] && continue
+      # A detached lane worktree has no branch name; its head is the pushed tip.
+      [ -z "$branch" ] && [ "$(git -C "$MAIN_ROOT" rev-parse "${INTEG_REFS[$i]}" 2>/dev/null)" = "$headsha" ] && continue
+      if git -C "$MAIN_ROOT" merge-base --is-ancestor "$ref_for_check" "${INTEG_REFS[$i]}" 2>/dev/null; then
+        merged+=("${INTEG_LABELS[$i]}")
+      fi
+    done
+  fi
   if [ ${#merged[@]} -gt 0 ]; then
     local IFS=,; merged_into="${merged[*]}"; unset IFS
   fi

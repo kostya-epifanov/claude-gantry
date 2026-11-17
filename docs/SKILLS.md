@@ -619,7 +619,7 @@ then the optional external profile resolver, then `ship`'s detection.
 
 `/gantry:prune-worktrees`
 
-Buckets every worktree (stale at 7+ days idle, or merged into develop/master/main), summarises each
+Buckets every worktree (stale at 7+ days idle, or merged into develop/master/main or an origin/integration/* branch), summarises each
 candidate's last five commits and **which chain artifacts it is holding**, then asks: review
 individually, prune all, or abort. Review is batched in groups of four with **nothing checked by
 default**, and every selected path is archived, re-checked with `git status --porcelain`, and
