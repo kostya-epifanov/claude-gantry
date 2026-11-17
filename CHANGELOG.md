@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1
+
+Patch: one new wrapper, no new skill or flag. #52, merged directly after its CI went green.
+
+- **A box-wide heavy-slot lock around every gate** (BASE-405, #52). `lib/run_gates.sh` re-execs itself through the new `lib/heavy_slot.sh`, which takes one of `GANTRY_HEAVY_SLOTS` slots (default 1; 0 disables) before any check runs and releases it on exit, waiting while all slots are busy. Exit codes pass through unchanged. A nested gate inherits `GANTRY_HEAVY_SLOT_HELD` and does not wait on its outer gate's slot. Slot files live in `GANTRY_HEAVY_SLOT_DIR` (default `/tmp/gantry-heavy-slots-<uid>`); a process with a private `/tmp` must point it at a shared directory or the lock is per-sandbox. Each acquire prints `== heavy-slot: acquired slot=<i> slots=<N> waited=<s>s ==`. Documented in `docs/ARCHITECTURE.md`; tested in `tests/cases/heavy_slot.sh`.
+
 ## 0.9.0
 
 Minor: one new flag (`run_gates.sh --fast`) and one new script (`lib/review_fresh.sh`), plus reviewer and prune fixes. Integration PR #55 (#49, #50, #51, #53, #54). #52 (BASE-405, heavy-slot lock) is not in this release: its CI failed shellcheck.
