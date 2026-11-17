@@ -149,6 +149,9 @@ about the thing it exists to record.)
    otherwise `gantry-reviewer`. Give it the worktree path, the base branch, and `task.md`'s path —
    let it read the diff itself. Ask for correctness defects first, then reuse and simplification,
    each with a concrete failure or a concrete saving.
+   Tell it that when a guard blocks a command it stops and reports, and never rebuilds, splits or
+   encodes the command. A guard block it reports is not a finding about the diff and not an
+   address-now item: see *Guard blocks* below.
 3. **Self-review**, only if neither is available, and **disclose it**. You reviewing your own
    change is the weakest source by a wide margin; the value of saying so is that the reader can
    weigh it correctly.
@@ -215,9 +218,25 @@ for **one "what to look at" note per matched file**: the specific lines and what
 check in them. A file the lens matched but found nothing in still gets a note — "touched only the
 comment block" tells the reader something.
 
+Give each lens sub-agent the same guard rule as source 2: stop and report a blocked command, never
+rebuild, split or encode it.
+
 **Lenses run in addition to source 1, never instead of it.** `/code-review` (or the fallback) still
 reviews the whole diff; a lens reads only its own paths, with its own threat model. Lens findings go
 through step 3's verification exactly like any other.
+
+### Guard blocks
+
+A reviewer, from any source, may report that a guard blocked a command, or that it tried to get around
+one. Treat it the same way whichever source it came from. This skill never retries the blocked command
+itself, never rebuilds it, and never asks a sub-agent to try again by another route. A block is not a
+finding about the diff and names no file in it, so it never goes under `## Address now`: that section
+flips `REVIEW:pending` with nothing to fix. An attempt to get around a guard is a finding about the
+review itself: step 3 does not drop it for naming no file, and it is kept out of `## Address now` but
+always written down. Put every block and every attempt in the report, and add one `Guard blocks:` line
+to `review.md`'s header, after `tallies:`, naming the command and the block message (or the attempt).
+Leave the line out when nothing was blocked or attempted. If the reviewer reports that a workaround got
+through, set `status: blocked` and hand over: a guard was defeated during this review.
 
 ### 3. Verify every finding before it counts as one
 
@@ -295,6 +314,7 @@ diff: <the token diff_fingerprint.sh printed>
 source: code-review | gantry-reviewer | self-review
 tier: <tier>
 tallies: returned=<n> verified=<n> address-now=<n> deferred=<n> dropped=<n>
+Guard blocks: <command and block message>   (only when a guard blocked something)
 
 ## Address now
 - `<path>:<line>` — <what is wrong>. Failure: <inputs → wrong result>.
@@ -413,7 +433,8 @@ byte-identical by a check in `scripts/verify.sh` — which is another reason not
 conditional. Gating it on `--fix` would strand a
 read-only review outside the state machine, leaving the detector to report `/gantry:review` as the
 next command against a diff that was just reviewed. In apply mode the status is already `reviewed`
-and stays so, unless step 5 set `blocked`.
+and stays so, unless step 5 set `blocked`. A defeated guard (see *Guard blocks*) is the same: the
+`blocked` it set is final, and this step must not overwrite it with `reviewed`.
 
 If review found something that makes the change unsafe to ship at all, set `status: blocked`
 instead, hand it over, and say so. Blocking here is cheap; blocking after the merge is not. When
@@ -430,6 +451,9 @@ say what happened when you invoked it; "unavailable" with no cause is how a down
 Then how many were addressed, deferred, and dropped — and under `--headless`, how many were
 deferred because they would otherwise have been asked about. A run that reports "12 findings" when
 5 were untrue has told the reader something false about the diff.
+
+**Guard blocks**: each command a guard blocked and its message, any attempt to get around one, and
+whether a workaround got through (which sets `status: blocked`); or that none occurred.
 
 **The lenses**: which fired (name, floor, matched-file count), or that none did, or that they could
 not be evaluated and why; any `LENS_IN_DIFF:` line; the `Risk level:` you wrote; and every open
