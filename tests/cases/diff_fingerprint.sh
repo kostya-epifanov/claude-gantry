@@ -98,6 +98,28 @@ fp "$tracked" master; t_code="$FP_TOKEN"
 [ "$t_code" != "$t_after" ] && _pass "a code change beside them still moves it" \
   || _fail "a code change beside tracked artifacts left the token unchanged"
 
+# Committing exactly what was reviewed must not move the token (ship commits after
+# review records it), nor must the base branch moving on with unrelated work.
+cm="$(mkrepo fp-commit)"
+git -C "$cm" branch -m master >/dev/null 2>&1
+git -C "$cm" checkout -q -b feat/c >/dev/null 2>&1
+printf 'edit\n' > "$cm/README"; printf 'brand new\n' > "$cm/added.txt"
+fp "$cm" master; pre_commit="$FP_TOKEN"
+commit_all "$cm" "commit the reviewed content"
+fp "$cm" master; post_commit="$FP_TOKEN"
+[ "$pre_commit" = "$post_commit" ] && _pass "committing the same content leaves the token unchanged" \
+  || _fail "committing the reviewed content moved the token"
+git -C "$cm" checkout -q master >/dev/null 2>&1
+printf 'unrelated\n' > "$cm/other.txt"; commit_all "$cm" "base moves on"
+git -C "$cm" checkout -q feat/c >/dev/null 2>&1
+fp "$cm" master; post_move="$FP_TOKEN"
+[ "$pre_commit" = "$post_move" ] && _pass "the base moving on with unrelated work leaves the token unchanged" \
+  || _fail "an advanced base moved the token"
+rm "$cm/added.txt"
+fp "$cm" master; post_del="$FP_TOKEN"
+[ "$post_del" != "$pre_commit" ] && _pass "deleting a changed file moves the token" \
+  || _fail "deleting a changed file left the token unchanged"
+
 # Two different trees give different tokens.
 other="$(mkrepo fp-other)"
 git -C "$other" branch -m master >/dev/null 2>&1

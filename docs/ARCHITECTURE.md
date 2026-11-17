@@ -24,7 +24,8 @@ gantry/
 │   ├── lead_reply.sh        a lead's reply → one accepted token, or rejected
 │   ├── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
 │   ├── run_phase_headless.sh  a phase in a fresh `claude -p` child → labeled lines + exit code
-│   ├── diff_fingerprint.sh  one token for the diff, so review.md can be tied to it
+│   ├── diff_fingerprint.sh  one token for the diff (content-keyed, same before and after a commit)
+│   ├── review_fresh.sh      does review.md still describe this branch and diff? ship and review --fix share it
 │   └── risk_floor.sh        which review lenses a diff fires, read from the base ref — no model
 ├── agents/gantry-*.md       → the delegation roster    (3)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
@@ -194,8 +195,8 @@ read-only by tool list, and a review child needs to write three artifacts, so th
 not apply. Instead the launcher runs the review child under `--permission-mode dontAsk
 --permission-prompts none`, where everything that would prompt is denied, plus `--allowedTools`
 naming exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`, `handover.md`
-and `task.md`, `Skill(gantry:handover)`, and Bash rules for five read-only gantry scripts:
-`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh`, `diff_fingerprint.sh` and
+and `task.md`, `Skill(gantry:handover)`, and Bash rules for six read-only gantry scripts:
+`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh`, `diff_fingerprint.sh`, `review_fresh.sh` and
 `risk_floor.sh` (the review-lens matcher, added in 0.8.0 so the child can decide which lenses fire
 and read a lens's body from the base ref without a `git show` rule of its own). The forms were
 probed on CLI 2.1.270 and corrected after the first real runs: an `Edit(<file>)` rule governs the
@@ -269,7 +270,7 @@ the launcher prints it. Whether gantry's own `Stop` hook fires inside a `-p` chi
 and it is inert in both children by status anyway, since the hook arms only on `implementing` and
 `gantry:review` refuses that status. And `review.md` is tied to a diff by `lib/diff_fingerprint.sh`:
 the fix step refuses when the branch or the token no longer matches, so stale findings are never
-applied to a tree that moved.
+applied to a tree that moved. `lib/review_fresh.sh` is that comparison as one script: `gantry:ship` runs it too, and a stale review is published as `Risk level: unassessed`.
 
 ## ship is a stage machine
 

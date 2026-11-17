@@ -397,7 +397,23 @@ malformed or the script could not run. Then the `## Risk` section says `Lenses: 
 evaluated — <the stderr line>`, the same sentence goes under `## Not proven by this run`, and no
 `guarded` label is claimed either way.
 
-Then read `review.md`'s `## Risk` and `## Lens: <name>` sections, if the file exists and has them.
+**First, is the review current?** A review of an older diff is a missing one, not a lower one:
+
+```bash
+bash "$GANTRY/lib/review_fresh.sh"
+```
+
+`FRESH:yes` (exit `0`) → read `review.md` as below. `FRESH:stale` (exit `1`: the tree's content
+changed after the review — a new commit alone does not — or it is for another branch), `FRESH:error` (exit `2`: the check could
+not run or the file is malformed — fail closed) and `FRESH:absent` (exit `3`) all mean **no review
+assessed the risk**, in the next paragraph's sense. On stale and error, do not quote anything from
+`review.md` — not the level, not the blast radius, not `Open risk:` lines or lens notes: they describe
+another diff. The bullets then read `not assessed — the review describes an older diff` (stale) or
+`not assessed — the review could not be checked against this diff` (error), and the report names the
+`REASON:` line and says to run `/gantry:review` again. This is the same comparison
+`/gantry:review --fix` makes (`lib/review_fresh.sh`), so the two cannot disagree.
+
+Then read `review.md`'s `## Risk` and `## Lens: <name>` sections, if the file exists, is current and has them.
 
 **The level.** `Risk level:` is the highest of:
 
@@ -432,7 +448,7 @@ Blast radius:
 
 - `Floor:` appears **only when a lens fired**, and names every lens and every matched file.
 - The three `Blast radius:` bullets are quoted from `review.md`. When no review assessed the risk,
-  each says `not assessed — no review ran on this diff`.
+  each says `not assessed — no review ran on this diff` (or the stale/error wording above).
 - The marker line is how a later run can tell whether this section is current (see *Refresh*
   below). Compose the section **without** it first, together with the `## Guarded changes` section
   when there is one, and write that text with the Write tool to
@@ -704,7 +720,8 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    only on success makes a failed fetch an **absent** file, which step 3 rejects instead.
 
 3. Ask whether each section needs refreshing — three questions. For the third, first compose the
-   Risk text exactly as *Risk, and the guarded changes* describes, for the tree as it is now, and
+   Risk text exactly as *Risk, and the guarded changes* describes — including its `review_fresh.sh`
+   check, so a body refreshed after a later commit goes `unassessed` — for the tree as it is now, and
    write it with the Write tool to `<ROOT>/.claude/artifacts/risk-source.md`:
 
    ```bash

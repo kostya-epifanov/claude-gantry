@@ -12,12 +12,12 @@
 # worktree-isolated session refuses a command with a pipe or a substitution in
 # it (see lib/journal_append.sh for the history).
 #
-# WHAT IT HASHES: `git diff <base>` — committed plus working-tree changes, the
-# same view gantry:review reads — then the short status with every untracked
-# path, then the content hash of each untracked file. The last part is what
-# makes an edit to a new file change the token: its status line would not.
+# WHAT IT HASHES: the content hash of every path that differs from the merge-base
+# with <base> — committed plus working-tree changes, the same view gantry:review
+# reads — and of every untracked path, with its mode (symlink target, gitlink commit). Content, not `git status` or diff text,
+# so committing the reviewed tree leaves the token alone (see paths_and_hashes).
 # The chain's own artifacts (task.md, plan.md, handover.md, review.md, the gate
-# logs, journal.jsonl) are excluded from all three BY PATHSPEC, not only by
+# logs, journal.jsonl) are excluded from both inputs BY PATHSPEC, not only by
 # trusting .git/info/exclude: in a repo where they are still tracked (the case
 # lib/detect_stage.sh's task_is_inherited() exists for) the status write a
 # review makes to task.md would otherwise move the token review.md just
@@ -43,23 +43,39 @@ cd "$ROOT" || die "could not enter $ROOT"
 # "everything except". A bare name matches only that path at the root.
 EXCLUDE=(':!task.md' ':!plan.md' ':!handover.md' ':!review.md' ':!.claude/artifacts' ':!journal.jsonl')
 
-untracked_hashes() {
-  git ls-files --others --exclude-standard -z -- "${EXCLUDE[@]}" 2>/dev/null \
+# One "<path> <mode+content hash | link/gitlink id | deleted>" line per path the change touches: every
+# path that differs from the merge-base with <base> (committed or in the working
+# tree) plus every untracked path. The token reads CONTENT, never `git status`
+# or the diff text, so it is the same whether the change is committed or not —
+# gantry:ship commits after gantry:review has recorded the token, and a token
+# that moved on commit would make every review read stale. Keying on the
+# merge-base rather than <base>'s tip keeps a fetch that moves origin/<base>
+# from moving it too.
+paths_and_hashes() {
+  local from
+  from="$(git merge-base "$BASE" HEAD 2>/dev/null)" || from=""
+  [ -n "$from" ] || from="$BASE"
+  {
+    git diff --no-renames --name-only -z "$from" -- "${EXCLUDE[@]}" 2>/dev/null
+    git ls-files --others --exclude-standard -z -- "${EXCLUDE[@]}" 2>/dev/null
+  } | sort -zu \
     | while IFS= read -r -d '' f; do
-        [ -f "$f" ] || continue
         printf '%s ' "$f"
-        git hash-object -- "$f" 2>/dev/null || printf 'unreadable\n'
+        # mode and object id belong to the token: a chmod, a symlink retarget or a
+        # gitlink bump changes the change without changing any file's content.
+        if [ -L "$f" ]; then
+          printf 'link %s\n' "$(readlink -- "$f" | git hash-object --stdin 2>/dev/null)"
+        elif [ -d "$f" ]; then
+          printf 'gitlink %s\n' "$(git -C "$f" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+        elif [ -f "$f" ]; then
+          if [ -x "$f" ]; then printf '755 '; else printf '644 '; fi
+          git hash-object -- "$f" 2>/dev/null || printf 'unreadable\n'
+        else
+          printf 'deleted\n'
+        fi
       done
 }
 
-TOKEN="$(
-  {
-    git diff "$BASE" -- "${EXCLUDE[@]}" 2>/dev/null
-    printf '\n--status--\n'
-    git status --short --untracked-files=all -- "${EXCLUDE[@]}" 2>/dev/null
-    printf '\n--untracked--\n'
-    untracked_hashes
-  } | git hash-object --stdin 2>/dev/null
-)"
+TOKEN="$(paths_and_hashes | git hash-object --stdin 2>/dev/null)"
 [ -n "$TOKEN" ] || die "could not compute the token"
 printf '%s\n' "$TOKEN"
