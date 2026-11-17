@@ -56,8 +56,8 @@ case "${FAKE_CLAUDE_WRITES:-none}" in
   applied)
     printf 'applied: 2026-10-22T00:00:00Z gate=0\n' >> review.md ;;
   applied-red)
-    # The BASE-420 shape: mode= and seconds= trail gate=, and must not move GATE_EXIT.
-    printf 'applied: 2026-10-22T00:00:00Z gate=1 mode=fast seconds=37\n' >> review.md ;;
+    # The combined BASE-420 + BASE-346 shape: mode=, seconds= and diff= trail gate=, and must not move GATE_EXIT.
+    printf 'applied: 2026-10-22T00:00:00Z gate=1 mode=fast seconds=37 diff=0123abcd\n' >> review.md ;;
   applied-mid)
     printf 'applied: 2026-10-22T00:00:00Z gate=0\n- `b.sh:1` — a finding written after it.\n' >> review.md ;;
   none) ;;

@@ -59,6 +59,10 @@ rf "$repo"
 assert_rc 0 "$RF_RC" "an applied: diff= that matches the tree is fresh"
 rf "$repo" --findings
 assert_rc 1 "$RF_RC" "--findings ignores applied: and compares diff: only (a second --fix is refused)"
+# the combined BASE-346 + BASE-420 line: mode= and seconds= sit between gate= and diff=
+write_review "$repo" feat/x "$t0" "applied: 2026-11-16T00:00:00Z gate=0 mode=fast seconds=37 diff=$t1"
+rf "$repo"
+assert_rc 0 "$RF_RC" "diff= is still read when mode= and seconds= come before it"
 write_review "$repo" feat/x "$t0" "applied: 2026-11-16T00:00:00Z gate=0 diff=$t0"
 rf "$repo"
 assert_rc 1 "$RF_RC" "an applied: diff= that does not match is stale"
