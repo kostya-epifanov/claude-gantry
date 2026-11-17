@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
+
+Minor: one new flag (`run_gates.sh --fast`) and one new script (`lib/review_fresh.sh`), plus reviewer and prune fixes. Integration PR #55 (#49, #50, #51, #53, #54). #52 (BASE-405, heavy-slot lock) is not in this release: its CI failed shellcheck.
 
 - **A reviewer stops and reports when a guard blocks a command** (BASE-403, #49). `agents/gantry-reviewer.md` and the briefs `/gantry:review` gives its source-2 reviewer and each lens sub-agent say: stop and report, never rebuild, split or encode a blocked command; an attempt to is a finding about the review. A block goes in the report and one `Guard blocks:` line in `review.md`'s header, never under `## Address now`.
 - **`/gantry:prune-worktrees` counts a head merged into an `origin/integration/*` branch as merged** (BASE-407, #53). `detect_candidates.sh` names that branch in `merged_into` when no develop/master/main matched; a lane's own integration branch never counts as merged into itself. Tested in `tests/cases/prune_integration_merged.sh`.
