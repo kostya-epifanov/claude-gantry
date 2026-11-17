@@ -27,6 +27,9 @@
 # `mode` is the mode HANDED to the gate, not proof that a repo-owned gate
 # narrowed anything — that script is as opaque here as its coverage is.
 #
+# Before anything below runs, the gate takes one of the box-wide heavy slots
+# (lib/heavy_slot.sh, GANTRY_HEAVY_SLOTS, default 1) and may wait for it.
+#
 # Resolution order:
 #   1. If <repo>/.claude/gates.sh exists, run THAT and use its exit code. A repo
 #      owns its gate — this is how it reproduces its real CI, and it beats any
@@ -159,8 +162,31 @@ fi
 # gate below is handed the requested mode.
 export GANTRY_GATE_MODE="full"
 
+# Resolved before the cd below: BASH_SOURCE and the dirname it yields may be
+# relative to the caller's cwd, and the heavy-slot re-exec needs this script.
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die_env "run_gates: not in a git repo"
 cd "$ROOT" || die_env "run_gates: cannot enter $ROOT"
+
+# --- 0. Heavy slot -----------------------------------------------------------
+# Before any check, take one of the box-wide heavy slots: re-exec this script
+# through lib/heavy_slot.sh, which waits for a slot, runs us with
+# GANTRY_HEAVY_SLOT_HELD set, releases on exit and returns our exit code
+# verbatim. The lock lives in a wrapper because this script deliberately has no
+# EXIT trap (see the coverage note above). GANTRY_HEAVY_SLOT_HELD is what stops
+# a nested gate — this repo's own gate runs tests that call run_gates.sh — from
+# waiting forever on the slot its outer run holds. After argument parsing and
+# the repo checks, so neither a usage error nor a broken environment ever
+# waits, and so the holder line records the repo root this gate runs in. A
+# missing wrapper (a partial install) runs unlocked.
+if [ -z "${GANTRY_HEAVY_SLOT_HELD:-}" ]; then
+  heavy_slot="$SELF_DIR/heavy_slot.sh"
+  if [ -f "$heavy_slot" ]; then
+    exec bash "$heavy_slot" -- bash "$SELF_DIR/$(basename "${BASH_SOURCE[0]}")" ${1+"$@"}
+  fi
+  echo "== heavy-slot: $heavy_slot missing; running unlocked =="
+fi
 
 # --- 1. Repo-owned gate wins -------------------------------------------------
 if [ -f "$ROOT/.claude/gates.sh" ]; then
