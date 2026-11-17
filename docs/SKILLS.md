@@ -23,7 +23,7 @@ One chain of phases, three ways to run it.
 | A failing scenario | you decide | triaged; stop on `blocked` | triaged, deferred; `blocked` only on an acceptance criterion observably false |
 | Stops | after every phase | a grill conversation, then nothing | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
-| Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
+| Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict --fast` (implement, review-fix) |
 | No checks found | continue, flagged | continue, flagged | **refuse to ship** (exit 3) |
 | PR | ready | **draft** | **draft** |
 
@@ -223,7 +223,7 @@ publishes `Risk level: unassessed`.
 
 **`--fix` is stage-aware.** With `REVIEW:pending` and `status: reviewed` it is **apply mode**: it
 checks the file's branch and fingerprint against the tree, applies the listed findings without
-reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit>` to the file. A
+reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit> mode=<fast|full> seconds=<n>` to the file. A
 fingerprint that no longer matches is a refusal — the file describes a different diff — and so is a
 `pending` file under any other status, which means the review that wrote it did not finish. With
 `REVIEW:absent` it reviews and then fixes, as before.

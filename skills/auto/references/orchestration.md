@@ -36,7 +36,7 @@ often it stops, and one phase: `grill` is human-only, so `gantry:auto-unattended
 | Stops | after every phase | a grill conversation, then nothing | never |
 | Red gate | you decide | stop and report | fix, capped at 2 attempts |
 | Open fork | `implement` warns; you decide | settled inside `grill`, in priced options | **stop**, journal `escalation`, `blocked` |
-| Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
+| Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict --fast` (implement, review-fix) |
 | No gates found | continue, flagged | continue, flagged | **refuse to push** |
 | PR | ready | **draft** | **draft** |
 | `mode:` in `task.md` | `semi-auto` | `auto` | `unattended` |

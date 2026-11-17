@@ -399,7 +399,7 @@ is unproven code:
 
 ```bash
 bash "$GANTRY/lib/run_gates.sh"            # supervised
-bash "$GANTRY/lib/run_gates.sh" --strict   # unattended
+bash "$GANTRY/lib/run_gates.sh" --strict --fast   # unattended — the fast in-run gate, as implement's
 ```
 
 Same exit-code contract as `/gantry:implement`: `0` green · `1`+ red · `2` could not run · `3`
@@ -409,7 +409,7 @@ Same exit-code contract as `/gantry:implement`: `0` green · `1`+ red · `2` cou
 **Then append one line to `review.md`, last, with the gate's final exit code:**
 
 ```
-applied: <ISO-8601 UTC date> gate=<exit> diff=<the token diff_fingerprint.sh prints now, after the fixes>
+applied: <ISO-8601 UTC date> gate=<exit> mode=<fast|full> seconds=<n> diff=<the token diff_fingerprint.sh prints now, after the fixes>
 ```
 
 Run `bash "$GANTRY/lib/diff_fingerprint.sh" <BASE>` once more after the gate, for the `diff=`: the
@@ -417,6 +417,9 @@ fixes moved the tree, so `diff:` above describes the tree *before* them. `diff=`
 `lib/review_fresh.sh` (and so `gantry:ship`) tell a review whose fixes are applied from one that
 describes an older diff. A line without it still reads, falling back to `diff:` — which the fixes
 have already moved, so such a review counts as stale.
+
+`mode=` and `seconds=` are copied from the gate transcript's `== gate mode=… seconds=… ==` line
+(`mode=`, not `requested=`); the driver journals them, since it never sees this run's output.
 
 That line is how the detector reports `REVIEW:applied` and how the headless launcher reads
 `GATE_EXIT:` back for the driver, so it is written on every `--fix` run that applied anything —

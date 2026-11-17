@@ -1,11 +1,31 @@
 #!/usr/bin/env bash
 # run_gates.sh — gantry's one hard gate. Its exit code IS the gate:
 # non-zero blocks push and PR, and nothing the model decides can override it.
-# Run with: bash run_gates.sh [--strict]   (from anywhere inside the target repo/worktree)
+# Run with: bash run_gates.sh [--strict] [--fast]   (from anywhere inside the target repo/worktree)
 #
 #   --strict  Treat "no gates detected" as a hard FAILURE (exit 3) instead of a
 #             pass. /gantry:auto-unattended uses this: with no human
 #             watching, pushing code that ran zero checks is exactly what to refuse.
+#   --fast    Ask a repo-owned .claude/gates.sh for its fast in-run gate. The
+#             signal is GANTRY_GATE_MODE=fast|full in that script's environment;
+#             what "fast" narrows to is the repo's call, never this script's.
+#             The unattended chain's implement and review-fix steps pass it.
+#             Integrate and the readiness hook do not, and get "full".
+#
+# GANTRY_GATE_MODE is set from the flag ONLY, never inherited: a detached run's
+# environment may already carry GANTRY_GATE_MODE=fast, and the hook and
+# integrate call this script without --fast precisely because they must run the
+# full suite. Reading the variable from the environment would let it leak there.
+# The auto-detect path has nothing to narrow, so --fast there runs the full
+# detected suite and says so: mode=full requested=fast.
+#
+# Every exit path also prints one timing line, which is what the journal's gate
+# event records (gate_mode, seconds):
+#
+#   == gate mode=<fast|full> requested=<fast|full> seconds=<n> ==
+#
+# `mode` is the mode HANDED to the gate, not proof that a repo-owned gate
+# narrowed anything — that script is as opaque here as its coverage is.
 #
 # Resolution order:
 #   1. If <repo>/.claude/gates.sh exists, run THAT and use its exit code. A repo
@@ -81,6 +101,10 @@ COV_DIR="."          # root-relative dir the check now running was run in
 cov_roots=""         # space-delimited, distinct, in the order first seen
 cov_undeclared=0     # 1 once a repo-owned gate has been run
 cov_summary_done=0   # the summary is printed exactly once
+# Mode defaults sit up here for the same reason: the unknown-argument and
+# not-a-repo exits print the summary before any flag has been read.
+GATE_REQUESTED="full"  # what the caller asked for (--fast or not)
+SECONDS=0             # bash builtin; elapsed wall time for the timing line
 
 cov_note() {  # cov_note <root-relative dir> — remember a root, once.
   case " $cov_roots " in *" $1 "*) return 0 ;; esac
@@ -90,7 +114,10 @@ cov_note() {  # cov_note <root-relative dir> — remember a root, once.
 coverage_summary() {  # print the one summary line; safe to call more than once.
   [ "$cov_summary_done" -eq 1 ] && return 0
   cov_summary_done=1
-  local roots
+  local roots mode
+  # The mode handed to the gate that ran: only a repo-owned gate is handed the
+  # requested mode; auto-detect, NO-GATES and the early exits are always full.
+  if [ "$cov_undeclared" -eq 1 ]; then mode="$GATE_REQUESTED"; else mode="full"; fi
   if [ "$cov_undeclared" -eq 1 ]; then
     roots="UNDECLARED"
   elif [ -z "$cov_roots" ]; then
@@ -101,6 +128,7 @@ coverage_summary() {  # print the one summary line; safe to call more than once.
   # The caveat is a token on the line, not a pointer at this file's header: a
   # captured transcript is the primary consumer and never carries the header.
   echo "== coverage roots=$roots heuristic=dirs-checks-ran-in-not-files-they-read =="
+  echo "== gate mode=$mode requested=$GATE_REQUESTED seconds=$SECONDS =="
 }
 
 die_env() {  # die_env <message> — an environment failure: summarise, then exit 2.
@@ -110,24 +138,38 @@ die_env() {  # die_env <message> — an environment failure: summarise, then exi
 }
 
 STRICT=0
+bad_arg=""
 for arg in "$@"; do
   case "$arg" in
     --strict) STRICT=1 ;;
-    *) echo "run_gates: unknown argument: $arg" >&2; coverage_summary; exit 2 ;;
+    --fast)   GATE_REQUESTED="fast" ;;
+    *) [ -n "$bad_arg" ] || bad_arg="$arg" ;;
   esac
 done
+# Summarise only after every flag is read, so `requested=` does not depend on
+# whether --fast came before or after the bad argument.
+if [ -n "$bad_arg" ]; then
+  echo "run_gates: unknown argument: $bad_arg" >&2
+  coverage_summary
+  exit 2
+fi
+
+# Overwrite whatever the environment carried (see the header): every check this
+# script runs — auto-detected ones included — sees full unless the repo-owned
+# gate below is handed the requested mode.
+export GANTRY_GATE_MODE="full"
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die_env "run_gates: not in a git repo"
 cd "$ROOT" || die_env "run_gates: cannot enter $ROOT"
 
 # --- 1. Repo-owned gate wins -------------------------------------------------
 if [ -f "$ROOT/.claude/gates.sh" ]; then
-  echo "== gate: .claude/gates.sh (repo-owned) =="
+  echo "== gate: .claude/gates.sh (repo-owned) mode=$GATE_REQUESTED =="
   # A repo-owned gate is opaque: it may run anything, anywhere. The only honest
   # report is that it did not declare its coverage.
   cov_undeclared=1
   echo "COVERAGE undeclared check=.claude/gates.sh"
-  bash "$ROOT/.claude/gates.sh"
+  GANTRY_GATE_MODE="$GATE_REQUESTED" bash "$ROOT/.claude/gates.sh"
   rc=$?
   echo "== .claude/gates.sh exit $rc =="
   coverage_summary
