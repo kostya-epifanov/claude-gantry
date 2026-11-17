@@ -39,6 +39,7 @@ printf '%s\0' "$@" > "$FAKE_CLAUDE_ARGV"
 printf '%s\n' "$PWD" > "$FAKE_CLAUDE_CWD"
 printf '%s\n' "${CLAUDE_CODE_FORCE_SESSION_PERSISTENCE:-unset}" > "$FAKE_CLAUDE_ENV"
 printf '%s\n' "${CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP:-unset}" > "$FAKE_CLAUDE_REAP"
+printf '%s\n' "${CLAUDE_CODE_SUBAGENT_MODEL:-unset}" > "$FAKE_CLAUDE_SUBMODEL"
 printf '%s\n' "$$:$(ps -o sid= -p $$ 2>/dev/null | tr -d ' '):$PPID" > "$FAKE_CLAUDE_SID"
 if [ -e .claude/artifacts/headless/review.done ]; then echo present; else echo absent; fi > "$FAKE_CLAUDE_DONE_SEEN"
 case "${FAKE_CLAUDE_WRITES:-none}" in
@@ -73,6 +74,7 @@ export FAKE_CLAUDE_ENV="$CASE_TMP/env"
 export FAKE_CLAUDE_DONE_SEEN="$CASE_TMP/done-seen"
 export FAKE_CLAUDE_REAP="$CASE_TMP/reap"
 export FAKE_CLAUDE_SID="$CASE_TMP/sid"
+export FAKE_CLAUDE_SUBMODEL="$CASE_TMP/submodel"
 
 SUCCESS_JSON='{"session_id":"sess-1","subtype":"success","is_error":false,"terminal_reason":"completed","num_turns":7,"total_cost_usd":0.5,"modelUsage":{"claude-sonnet-5":{"inputTokens":1}},"permission_denials":[],"result":"Reviewed.\nSESSION: this is the child quoting the vocabulary\nREASON: not a launcher line"}'
 
@@ -80,7 +82,7 @@ SUCCESS_JSON='{"session_id":"sess-1","subtype":"success","is_error":false,"termi
 run_launcher() {
   local writes="$1" json="$2" rc="$3"; shift 3
   rm -f "$FAKE_CLAUDE_ARGV" "$FAKE_CLAUDE_CWD" "$FAKE_CLAUDE_ENV" "$FAKE_CLAUDE_DONE_SEEN" \
-        "$FAKE_CLAUDE_REAP" "$FAKE_CLAUDE_SID"
+        "$FAKE_CLAUDE_REAP" "$FAKE_CLAUDE_SID" "$FAKE_CLAUDE_SUBMODEL"
   L_OUT="$(FAKE_CLAUDE_WRITES="$writes" FAKE_CLAUDE_JSON="$json" FAKE_CLAUDE_RC="$rc" \
     bash "$LAUNCHER" "$@" 2>&1)"
   L_RC=$?
@@ -271,6 +273,27 @@ argv_has "--plugin-dir" "--plugin-dir is forwarded when given"
 assert_contains "$(argv_value_after --plugin-dir)" "$plugin_copy" "and names the directory"
 assert_contains "$(argv_value_after --max-turns)" "30" "--max-turns is forwarded when given"
 assert_contains "$(line_of EFFORT:)" "EFFORT:low" "EFFORT: reports the level that was passed"
+assert_contains "$(cat "$FAKE_CLAUDE_SUBMODEL")" "sonnet" \
+  "--model also reaches the child's sub-agents as CLAUDE_CODE_SUBAGENT_MODEL"
+
+# review-fix shares the export.
+write_task "$repo" reviewed
+run_launcher applied "$SUCCESS_JSON" 0 --phase review-fix --root "$repo" --model sonnet
+assert_contains "$(cat "$FAKE_CLAUDE_SUBMODEL")" "sonnet" "review-fix exports CLAUDE_CODE_SUBAGENT_MODEL too"
+write_task "$repo" implemented
+
+# With no --model the variable is UNSET for the child, even when the caller has one set.
+CLAUDE_CODE_SUBAGENT_MODEL=decoy-opus run_launcher review "$SUCCESS_JSON" 0 --phase review --root "$repo"
+assert_contains "$(cat "$FAKE_CLAUDE_SUBMODEL")" "unset" \
+  "no --model: a CLAUDE_CODE_SUBAGENT_MODEL in the caller's environment is not passed on"
+
+# A MODEL: line naming more than one model is a NOTE, never a failure.
+MIXED_JSON='{"session_id":"sess-m","subtype":"success","is_error":false,"terminal_reason":"completed","num_turns":7,"total_cost_usd":0.5,"modelUsage":{"claude-sonnet-5-5":{},"claude-opus-5-5":{}},"permission_denials":[],"result":"ok"}'
+run_launcher review "$MIXED_JSON" 0 --phase review --root "$repo" --model sonnet
+assert_rc 0 "$L_RC" "a mixed MODEL: line does not fail the launcher"
+assert_contains "$L_OUT" "NOTE:more than one model ran" "a mixed MODEL: line is reported as a NOTE"
+run_launcher review "$SUCCESS_JSON" 0 --phase review --root "$repo" --model sonnet
+case "$L_OUT" in *"more than one model"*) _fail "a single-model run must not raise the mixed NOTE" ;; *) _pass "a single-model run raises no mixed NOTE" ;; esac
 argv_has "Bash(bash $plugin_copy/lib/run_gates.sh:*)" \
   "with --plugin-dir the Bash rules name the forwarded plugin, which is the root the child resolves"
 argv_lacks "Bash(bash $GANTRY_ROOT/lib/run_gates.sh:*)" "and not the launcher's own root"

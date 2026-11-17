@@ -83,7 +83,7 @@ below). Strip the recognised flags out; what remains, cleaned up, is the task.
 | `--base <branch>` | Override the PR base branch. Passed through to `gantry:ship` (and its detector). |
 | `--lead <session>` | **`gantry:auto` only.** Every question the run would ask in a dialog goes to that lead session by `SendMessage`, and only a narrow reply vocabulary is accepted. Protocol: `references/lead.md`. `gantry:auto-unattended` refuses the flag. |
 | `--explain` | **`gantry:auto` only.** Print a short plain-language explainer of the task before anything else, including before the worktree is created and under `--here`. Takes no value; not part of the task. Nothing is written to disk and nothing is asked. `gantry:auto-unattended` does not recognise it, so there it stays in the task text. |
-| `--review-model <alias>` | The model the review children run on, passed to the launcher as `--model`. Absent, the child inherits the user's default. `sonnet` is a cost-neutral choice for a review. `gantry:ship` takes it too. |
+| `--review-model <alias>` | The model the review children run on, passed to the launcher as `--model`. Absent, the child inherits the user's default. `sonnet` is a cost-neutral choice for a review. `gantry:ship` takes it too. The launcher also exports it as `CLAUDE_CODE_SUBAGENT_MODEL`, so the sub-agents the child starts are meant to run on it too (unproven against a sub-agent's own frontmatter `model:`). |
 | `--review-effort <level>` | The effort level for the review children, passed as `--effort`. Absent, neither flag is passed and the child inherits. |
 
 Everything not a flag is the task. If nothing remains after stripping them, stop and ask what the
@@ -218,6 +218,15 @@ nothing else. The fix step is a **second child**, `gantry:review --fix`
 under `acceptEdits` with the same Bash rules, which applies what `review.md` lists and re-runs the
 gate. The driver never sees the child's transcript; a human who wants it uses
 `claude --resume <session id>`, and the id is in the driver's report and the journal.
+
+**`--model` pins the sub-agents too.** On its own it pins only the child; the lens reviewers and
+`/code-review`'s finders took the user default from `settings.json`, and in the BASE-348 assessment
+5 of 8 Sonnet children reported `MODEL:claude-opus-5-5,claude-sonnet-5-5`. The launcher exports
+`CLAUDE_CODE_SUBAGENT_MODEL` from `--model` (both phases), unsets it when no `--model` is given so a
+caller's value cannot leak in, and, when `--model` is a bare alias, the launcher's prompt tells the
+review skill to pass it as `model` on each Agent dispatch it makes. A `MODEL:` line naming more than one model is reported as a `NOTE:`, never a
+failure. Not proven by the fixtures: that the variable outranks a sub-agent's own frontmatter
+`model:` (`gantry-reviewer` pins one).
 
 What the launcher's exit code means, and what a `DENIED:` line does not: `docs/ARCHITECTURE.md`
 § *Headless phases*.

@@ -156,6 +156,14 @@ about the thing it exists to record.)
    change is the weakest source by a wide margin; the value of saying so is that the reader can
    weigh it correctly.
 
+**Sub-agents and the model.** When the prompt that launched you carries a line `Sub-agent model:
+pass model: <alias>` (`lib/run_phase_headless.sh` writes it when `--model` is a bare alias —
+`sonnet`, `opus`, `haiku` or `fable`), pass that alias as the `model` argument of every Agent
+dispatch in this skill (source 2 and the lens reviewers in 2b), so a review pinned to a model runs
+on it. No such line: pass no `model` and let the agent's own setting stand; never guess one, and
+never read your environment for it. `/code-review`'s own finders cannot be given one here and follow
+`CLAUDE_CODE_SUBAGENT_MODEL`, which the launcher exports, alone.
+
 ### 2b. Run the review lenses the diff fires
 
 A **review lens** is a file the *target* repo keeps at `.claude/review-lenses/<name>.md`: a
