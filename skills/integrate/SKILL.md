@@ -1,7 +1,7 @@
 ---
 name: integrate
 description: Merges the ready open PRs one at a time into a fresh integration branch, resolving conflicts by what each PR is for, running the repo's checks after every merge, and opening one integration PR. Use when the user types "/gantry:integrate", or asks to integrate or combine the open PRs.
-argument-hint: [<pr#> ...] [--base <branch>]
+argument-hint: [<pr#> ...] [--base <branch>] [--unattended]
 allowed-tools: Bash, Read, Write, Edit, Grep, Glob, Skill, Agent, AskUserQuestion
 ---
 
@@ -21,19 +21,21 @@ tables, counts, a version, a shared script — and a PR that passed alone can br
 others. **A green check on a PR says nothing about the combined tree.** This skill is what says
 something about it.
 
-**Supervised only.** Two checkpoints: the queue, before any work starts, and the pull request,
-before anything outward-facing. There is no `--unattended` flag, on purpose — see
-`docs/SKILLS.md`.
+**Supervised by default.** Two checkpoints: the queue, before any work starts, and the pull request,
+before anything outward-facing. `--unattended` prepares the same integration with nobody there: it
+answers every one of those questions by a fixed rule, publishes the PR as a **draft**, and still
+never merges it. See *Unattended mode* below and `docs/SKILLS.md`.
 
 ## What it will not do
 
 - **Never touches a source PR's branch.** No push, no rebase, no close, no edit. The only write to a
-  source PR is one comment, after you confirm it.
+  source PR is one comment, after you confirm it (`--unattended` posts none).
 - **Never squashes or rebases.** Merge commits keep each PR's commits reachable, which is what lets
   GitHub mark the source PRs merged when the integration PR lands — see `references/pr-body.md`.
 - **Never takes `--ours` or `--theirs` wholesale, and never drops a hunk.** A resolution is made
   from both PRs' stated intent, and recorded in the merge commit.
-- **Never merges the integration PR.** That is yours.
+- **Never merges the integration PR.** That is yours — in `--unattended` too, and it never runs
+  `gh pr ready` either.
 - **Never continues past a red gate** by moving on to the next PR and hoping. It resets that merge
   out and says so.
 
@@ -49,12 +51,53 @@ hardcoding a path.
 **Every command below is flat**: one invocation, no substitutions, no pipes, no chaining. Run them
 one at a time and read the output. `tests/cases/integrate_flat_commands.sh` keeps that true.
 
+## Unattended mode
+
+`--unattended` is for a routine that prepares an integration while the owner is away. It is the same
+skill with the same guards — the base is gated first, every merge is gated, `--strict` throughout,
+two fix attempts, the reset guard, the lens review of the integration's own lines. What changes is
+that **nothing is asked**: each place the supervised skill would ask has one fixed rule, and where
+no rule can be safe the run stops or the PR is skipped. It never guesses a decision into the tree.
+
+Every other stage's ask carries a pointer back here, by the rule's name. Read the rule *before* the
+stage.
+
+| Rule | Where supervised mode asks | Under `--unattended` |
+|---|---|---|
+| `lane` | Stage 2: an integration lane is already open | Resume only if this run is **already on that lane's branch**. Otherwise **stop** and name the lane: a second lane is how one integration PR silently becomes two. A routine that starts outside the lane therefore stops, by design, until the owner merges or removes the open one. |
+| `queue` | Stage 4: merge these N PRs in this order | Take the queue `order_queue.sh` printed. **On a fresh run, an empty queue stops the run** before any lane exists, and the report says why each PR is out. On a re-run an empty queue is not a stop: everything is already `integrated`, so the run goes on as `NEXT:nothing` — docs, review and publish. |
+| `parent` | Stage 5: which parent `gantry:worktree` should cut from | `<BASE>`, always — the skill already says so. A HEAD that is neither fresh `origin/<BASE>` nor the planned base sha is the wrong-parent **stop**, as in supervised mode. |
+| `base-moved` | Stage 5: re-ask the queue when base moved | Re-run `order_queue.sh` and continue with the queue it now prints. No re-ask. |
+| `no-gates` | Stage 5: baseline gate exits `3` (`NO-GATES`) | **Stop.** Never continue with no enforced checks; suggest `.claude/gates.sh`. The baseline runs before `task.md` exists, so there is no status to set: the `UNATTENDED: stopped` line is the record. |
+| `conflict` | Merge loop: the two intents do not settle a conflict, or a version bump is not additive | Skip that PR by the ordinary skip procedure in stage 6 — reset the merge out under the reset guard, delete its pre-merge ref, record `unresolved-conflict (unattended)` under `## Skipped`, cascade to stacked children. It is never a coin-flip resolution. A conflict in the **base-into-lane** merge (`NEXT:merge-base`, *Base moved* in `references/merge-loop.md`) has no PR to skip: `git merge --abort`, set `status: blocked`, and **stop**. |
+| `published-reset` | Merge loop: a reset that would discard a merge already pushed | **Stop**, `status: blocked`. Never reset or revert a published merge. |
+| `finish-merge` | Re-run: a session died mid-conflict | `git merge --abort`, reset to that PR's pre-merge ref if one is left, re-queue the PR. |
+| `rewritten` | Re-run: a PR was force-pushed since it was merged | **Stop**, `status: blocked`, and name the PR. Never merge its new head — and skipping is not safe either: its earlier merge is already in the lane, and a skip never takes it out, so the draft would carry the stale commits under a row saying "skipped". |
+| `lens-error` | Stage 8: `risk_floor.sh` exits `2` | `status: blocked` and **stop before any push**; the report says the lens is malformed or could not run. |
+| `pr` | Stage 9: push, open the PR, comment on the included PRs | Re-read reality; if a PR is now `stale`, re-merge its new commits **once** — through the gate and stage 8 again — and list any PR still stale in the body. Then publish with `gh pr create --draft`. **No comments** on the source PRs: say in the report that none were posted. |
+
+**Where the run leaves a record.** `task.md` is written in stage 5, so a stop before it (`lane`,
+`queue`, `parent`, `no-gates`) has no file to mark. **Every** unattended stop therefore begins the
+report with the line `UNATTENDED: stopped — <rule> — <reason>`, which is what a caller reads. `<rule>`
+is the rule's name from the table, or — for a stop no rule names (wrong arguments, `gh` missing or
+unauthenticated, a red baseline, gate exit `2`, a red docs gate after two fixes, a PR that keeps
+moving) — the stage's name, e.g. `stage-1` or `stage-7`; never free text. Once `task.md` exists, the
+stop also sets `status: blocked` first, as the loop already requires. A run that
+publishes ends with `UNATTENDED: published draft <url>` instead. The `mode:` in `task.md` is
+`unattended`; it is a label for a reader, and the hook behaves as in any other mode.
+
+**What the PR body says.** It opens by stating the PR was prepared unattended, is a draft, and has
+not been merged by anyone: **draft means unwatched, not unverified** — the reviewer reads the
+resolutions as nobody has. See `references/pr-body.md`.
+
 ## Stage 0 — Arguments
 
-`$ARGUMENTS` is one string. Recognise PR numbers and `--base <branch>`. Numbers are an **explicit
-list** and override discovery. Anything else, say what you did not understand and stop.
+`$ARGUMENTS` is one string. Recognise PR numbers, `--base <branch>` and `--unattended`. Numbers are
+an **explicit list** and override discovery. Anything else, say what you did not understand and stop.
 
-State the mode back in one line: which PRs (or "discover"), and the base if one was given.
+State the mode back in one line: which PRs (or "discover"), the base if one was given, and whether
+it is supervised or `--unattended`. Under `--unattended`, never call AskUserQuestion — not in this
+skill and not in a skill it invokes; the table above is the whole answer to every question.
 
 ## Stage 1 — Where this run stands
 
@@ -123,7 +166,7 @@ A `CONTRACT:none` PR still works. You have its title, its diff and its comments,
 report that you had no stated intent for it.
 
 **An `INTEGRATION_PR:` line, or an existing `integration/*` worktree**, means a lane is already
-open. Ask (AskUserQuestion) whether to resume it — which means re-running this command from *that*
+open. Ask (AskUserQuestion; under `--unattended`, rule `lane`) whether to resume it — which means re-running this command from *that*
 worktree — or to start a new one.
 
 ## Stage 3 — The queue, planned before anything is touched
@@ -173,16 +216,17 @@ and the queue. It creates no commit and moves no ref.
 
 **Compare each `ITEM:` sha against that PR's `HEAD_SHA`.** A difference means the PR moved between
 listing and fetching — go back to stage 2 rather than planning against a head that no longer
-exists.
+exists. Under `--unattended`, go back **once**; a second mismatch stops the run (`stage-3`), so a PR
+under active pushes cannot loop it.
 
 On a **re-run**, also run the state script (stage 5's command) and fold it in: `integrated` items
 leave the queue, `stale` items re-enter it, `unverified` items go to the front (their merge is in and
 unproven, so it is gated before anything is added to it), a `STRAY_PRE:` ref is deleted before its
-item is re-queued, and `rewritten` items are shown for a decision.
+item is re-queued, and `rewritten` items are shown for a decision (`--unattended`: rule `rewritten`, stop).
 
 ## Stage 4 — Checkpoint: the queue
 
-**AskUserQuestion.** Nothing has been created yet. Show:
+**AskUserQuestion** (under `--unattended`, rule `queue`). Nothing has been created yet. Show:
 
 - the queue in order, each item with why it sits there (`isolated`, `overlapping`, `stacked`), its
   CI class and its `RISK:` level;
@@ -201,7 +245,7 @@ branch, the fetch and entering the worktree.
 **It picks its own parent, and that is the one thing it cannot be told.** `gantry:worktree` prefers
 `develop`, then `origin/HEAD`, then `master`/`main`, and asks when the current branch is something
 else — so under `--base <branch>` it can cut the lane from a branch this run is not integrating
-into. If it asks which parent to use, the answer is `<BASE>`. Then check, rather than assume:
+into. If it asks which parent to use, the answer is `<BASE>` (rule `parent` under `--unattended`). Then check, rather than assume:
 
 ```bash
 git rev-parse HEAD
@@ -216,7 +260,7 @@ Three outcomes, and they are not the same problem:
 - **HEAD equals the fresh `origin/<BASE>`** → right lane, current base. Go on.
 - **HEAD equals the `BASE:` sha `order_queue.sh` printed, but `origin/<BASE>` has moved** → base
   moved while you were at the checkpoint. Re-run `order_queue.sh`, and re-ask stage 4 **only if** the
-  queue, the conflicts or the skips changed.
+  queue, the conflicts or the skips changed (`--unattended`: rule `base-moved`, no re-ask).
 - **HEAD is neither** → the lane was cut from the wrong parent. **Stop.** Do not merge anything into
   it and do not "fix" it by merging the base in: the lane would then carry every difference between
   that parent and `<BASE>`, and the PR would offer all of it for review. Say which branch it was cut
@@ -233,7 +277,7 @@ A red base makes every later red gate ambiguous, so it is proved first:
 - `0` → go on.
 - `1`+ → **stop.** The base itself is red. Nothing merged here could be blamed fairly.
 - `2` → stop. The gate could not run.
-- `3` → `NO-GATES` under `--strict`. **AskUserQuestion**: continue with no enforced checks (which
+- `3` → `NO-GATES` under `--strict`. **AskUserQuestion** (under `--unattended`, rule `no-gates`): continue with no enforced checks (which
   goes in the PR body under *Not proven by this run*), or stop and add `.claude/gates.sh` first.
   This is the one place the strict default can be overridden, and only by you.
 
@@ -251,7 +295,7 @@ title: Integrate PRs <numbers> into <BASE>
 project: <repo>
 branch: integration/<date>
 base: <BASE>
-mode: auto
+mode: <auto, or unattended under --unattended>
 status: implementing
 ---
 ```
@@ -476,7 +520,7 @@ mechanical merge, so a merge that went in cleanly contributes nothing and a PR's
 are not counted twice. It prints one block per lens that fired (`LENS:`, `FLOOR:`, `FILE:` lines,
 `END`), or **nothing** — in which case the PR body's `## Lines written by the integration` says
 `None.`. **Exit `2` is not nothing**: a lens is malformed or the script could not run. Stop at the
-checkpoint and say so; a `None.` published over lines nobody checked is the false all-clear this
+checkpoint and say so (`--unattended`: rule `lens-error`, no checkpoint — `status: blocked`, no push); a `None.` published over lines nobody checked is the false all-clear this
 section exists to prevent.
 
 For each lens that fired, dispatch **one more** reviewer (Agent) with a fresh context, the same role
@@ -508,9 +552,9 @@ bash "$GANTRY/skills/integrate/scripts/list_candidates.sh" --base <BASE>
 bash "$GANTRY/skills/integrate/scripts/integration_state.sh" --base <BASE> 21=refs/integrate/<lane-branch>/pr/21
 ```
 
-Anything now `stale` is shown with the offer to merge the new commits first.
+Anything now `stale` is shown with the offer to merge the new commits first (`--unattended`: rule `pr`, one re-merge, no offer).
 
-**AskUserQuestion**, with the included table (number, title, merge commit, conflicts y/n, gate
+**AskUserQuestion** (under `--unattended`, rule `pr`), with the included table (number, title, merge commit, conflicts y/n, gate
 result, risk level), the overall risk level, every lens that fired on the integration's own lines,
 the skipped list with reasons, every resolution and its reasoning, the docs commit (or
 that none was needed), and what the review found: "Push the lane, open the integration PR against `<BASE>`, and comment on the N included
@@ -539,6 +583,12 @@ git push -u origin HEAD
 gh pr create --base <BASE> --head integration/<date> --title "<title>" --body-file .claude/artifacts/integration-pr-body.md
 ```
 
+Under `--unattended` the command is this one instead — the same body file, always a draft:
+
+```bash
+gh pr create --draft --base <BASE> --head integration/<date> --title "<title>" --body-file .claude/artifacts/integration-pr-body.md
+```
+
 The body file stays inside the checkout and is passed by a relative path, run from the worktree
 root with no `cd` in the same command: a body file from outside the repository is an upload by
 path, which a privileged-command gate asks a human about. Once the PR is open — or, on a lane that
@@ -554,7 +604,7 @@ rm -f .claude/artifacts/integration-pr-body.md
 gh pr comment 21 --body "Included in the integration PR <url>, merged as <sha>. Nothing on this branch was changed."
 ```
 
-One comment per **newly** included PR — a re-run does not comment again on a PR it commented on
+Under `--unattended` skip these comments entirely. One comment per **newly** included PR — a re-run does not comment again on a PR it commented on
 before. If the lane already has a PR, the push is the whole of this stage, and then:
 
 ```bash
@@ -587,5 +637,10 @@ gh pr checks
   head reaches the base and none of them will be marked merged — and **a stacked child PR may stay
   open** even then, because its base branch is its parent's, which the integration merge never
   updates.
+
+Under `--unattended`, the first line is `UNATTENDED: published draft <url>` or `UNATTENDED: stopped — <rule> — <reason>`
+(see *Unattended mode*), and the report also says that the PR is a draft, that no comments were
+posted on the source PRs, and every skip made by a rule rather than by a person
+(`unresolved-conflict (unattended)`).
 
 Be honest about anything skipped, unverified, or self-reviewed.
