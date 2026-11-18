@@ -493,7 +493,7 @@ branch whose PR is already open.
 
 ## `/gantry:integrate` — N pull requests into one
 
-`/gantry:integrate [<pr#> ...] [--base <branch>]`
+`/gantry:integrate [<pr#> ...] [--base <branch>] [--unattended]`
 
 Reads the open PRs, states why each unready one is out, plans a merge order **before touching
 anything**, then merges the rest one at a time with `--no-ff` into a fresh `integration/<date>`
@@ -546,15 +546,15 @@ as well as PR numbers, which is how `tests/cases/` proves them against fixture r
   pre-merge ref shows a merge whose gate never went green. Plus `MERGE_IN_PROGRESS` and how far base
   has moved. Its refs are named after the lane's branch, because `refs/` lives in the git directory
   every worktree shares — two lanes on one `refs/integrate/pre/21` would each delete the other's only
-  undo ref, and two lanes at once is a state the skill offers you.
+  undo ref, and two lanes at once is a state the supervised skill offers you (`--unattended` refuses it).
 
 - **Refuses:** to push to, close, rebase or edit a source PR's branch — the only write is one
-  comment, after you confirm it; to squash or rebase anywhere; to take `--ours` or `--theirs`
+  comment, after you confirm it (`--unattended` writes none); to squash or rebase anywhere; to take `--ours` or `--theirs`
   wholesale, or drop a hunk; to merge the integration PR itself; to reset a merge that has already
   been published, or to revert one (which would leave the source PR marked merged with its change
   gone).
 - **Checkpoints:** two. The queue, before anything is created, and the pull request, before anything
-  outward-facing.
+  outward-facing. `--unattended` answers both by fixed rules (below).
 - **Invokes:** `gantry:worktree` for the lane, the reviewer role for the resolutions,
   `gantry:handover` for findings that belong to a source PR's author.
 - **Gate:** `lib/run_gates.sh --strict`, once as a baseline on the fresh lane, again after every
@@ -564,13 +564,36 @@ as well as PR numbers, which is how `tests/cases/` proves them against fixture r
   attempt.
 - **Detail:** `references/merge-loop.md` and `references/pr-body.md`.
 
-**There is no `--unattended` flag, and this is the same argument as `--autonomous`.** A flag that
-removes both checkpoints is one word away from a command you meant to supervise — and here the two
-decisions it would remove are the ones with the least recoverable consequences: which PRs to merge
-at all, and whether to publish a merge of other people's work. Conflict resolution is judgment
-about somebody else's intent, read out of a PR body they wrote; getting it wrong produces a tree
-that compiles and means something different. A headless variant is written up in the handover of
-the change that added this skill, not shipped as a flag.
+**`--unattended` prepares; it never decides what ships.** The flag exists because both integrations
+on 2026-11-16 waited hours on the two checkpoints. The owner's decision is that *preparing* an
+integration can run unattended and *merging* stays theirs, so the mode removes the questions and
+keeps every guard: the baseline and every merge are gated `--strict`, a red merge gets two fix
+attempts and is then reset out, the lens review of the integration's own lines still runs, and
+the PR is opened as a **draft** that it never marks ready and never merges. Each place the
+supervised skill would ask has one fixed rule, written as a table in `skills/integrate/SKILL.md`
+under *Unattended mode*:
+
+- **Queue and parent.** The computed queue is taken as printed; on a fresh run an empty queue stops
+  the run before a lane exists, while on a re-run it means everything is in and the run goes on to
+  publish. The lane's parent is `<BASE>`, and a base that moved is re-planned, not re-asked.
+- **Where no rule is safe, stop or skip — never guess.** An open lane the run is not on, a `NO-GATES`
+  baseline, a lens that cannot run, a reset that would discard a published merge, a PR force-pushed
+  after its merge went into the lane (`rewritten` — a skip would leave the stale merge in), and a
+  base-into-lane conflict the intents do not settle all **stop** (`status: blocked` once `task.md`
+  exists). A conflict the two PRs' stated intents do not settle skips that PR as
+  `unresolved-conflict (unattended)`, with its stacked children. Nothing is resolved by taking a side.
+- **Publish.** `gh pr create --draft`, with a body that says it was prepared unwatched — *draft means
+  unwatched, not unverified*. A source PR that moved while the loop ran is re-merged once, through
+  the gate and the review again. **No comments are posted on the source PRs.**
+- **The caller's signal.** The report's first line is `UNATTENDED: published draft <url>` or
+  `UNATTENDED: stopped — <rule> — <reason>`, on every stop, because a stop before stage 5 has no
+  `task.md` to mark; `<rule>` is the rule's name, or the stage's (`stage-1`) when no rule applies.
+  A scheduled run that starts outside an open lane therefore stops, by design, until the owner merges
+  or removes it.
+
+The same argument as `--autonomous` still holds for the *merge*, which is why there is no flag for
+it: conflict resolution is judgment about somebody else's intent, and publishing it for a human to
+read is the most the unattended mode does.
 
 **Merge the integration PR with a merge commit.** Then every source PR's head reaches the base and
 GitHub marks those PRs merged by itself, drafts included — observed twice here, on PRs #11 and #4.
