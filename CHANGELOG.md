@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
+
+Minor: one new flag (`/gantry:integrate --unattended`) and a change to which PRs integrate takes. #58 (BASE-428) and #60 (BASE-429), each merged directly after its CI went green.
 
 - **`/gantry:integrate --unattended` prepares an integration and publishes a draft without asking** (BASE-429). It reverses the earlier decision to ship no such flag, for the preparing half only. Every question the supervised skill asks has one fixed rule (`skills/integrate/SKILL.md`, *Unattended mode*): the computed queue is taken as printed, the lane's parent is the base, a conflict the PRs' intents do not settle skips that PR as `unresolved-conflict (unattended)`, and a `NO-GATES` baseline, an open lane the run is not on, a force-pushed PR already in the lane, a base-into-lane conflict, a lens that cannot run or a reset of a published merge stop the run. The PR opens with `gh pr create --draft`, is never marked ready or merged, and no comments are posted on the source PRs. The report opens with `UNATTENDED: published draft <url>` or `UNATTENDED: stopped — <rule> — <reason>`. Supervised behaviour is unchanged. Tested in `tests/cases/integrate_unattended.sh`.
 
 - **`list_candidates.sh` judges CI on the latest run per check, and skips `hold`** (BASE-428). A re-run adds a second entry with the same check name to `statusCheckRollup`; only the newest (by `startedAt`, else `completedAt`) now counts, so a stale red `pr-risk` run no longer skips a PR whose later run passed. A re-run still in flight — including one queued with no timestamp yet — makes the class `pending`, which is a candidate, where it was `failing` before. `hold` joins `blocked`/`wip`/`do-not-merge` as a blocking label. Tested in `tests/cases/integrate_candidates.sh`.
+- Known limits of BASE-428, not fixed here: push and pull_request runs of one workflow share a key, so a newer green push run hides an older red pull_request run; same-named checks from different GitHub Apps share one key too.
 
 ## 0.9.1
 
