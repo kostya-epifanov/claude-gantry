@@ -246,6 +246,71 @@ assert_contains "$(pr_block 34)" "VERDICT:skip no-risk-section" "## Risk summary
 assert_contains "$(pr_block 35)" "VERDICT:skip no-risk-section" "a ## Risk inside a fence does not count"
 assert_contains "$OUT" "CANDIDATES:31" "only the assessed PR is a candidate"
 
+# --- CI: the latest run of each check decides --------------------------------
+# A re-run is a second entry with the same name. Several of these list the
+# entries against time order, so a "last in the list wins" shortcut fails them.
+CFIX="$CASE_TMP/ci.json"
+cat >"$CFIX" <<'JSON'
+[
+  {"number":41,"title":"old red then new green","url":"u41","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/c41","headRefOid":"c41","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z",
+   "statusCheckRollup":[
+     {"__typename":"CheckRun","name":"pr-risk","workflowName":"risk","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-18T10:00:00Z","completedAt":"2026-11-18T10:01:00Z"},
+     {"__typename":"CheckRun","name":"pr-risk","workflowName":"risk","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-17T10:00:00Z","completedAt":"2026-11-17T10:01:00Z"}],
+   "body":"## Risk\nRisk level: low"},
+  {"number":42,"title":"old green then new red","url":"u42","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/c42","headRefOid":"c42","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z",
+   "statusCheckRollup":[
+     {"__typename":"CheckRun","name":"verify","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-18T10:00:00Z","completedAt":"2026-11-18T10:01:00Z"},
+     {"__typename":"CheckRun","name":"verify","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-17T10:00:00Z","completedAt":"2026-11-17T10:01:00Z"}],
+   "body":"## Risk\nRisk level: low"},
+  {"number":43,"title":"old red, re-run in flight","url":"u43","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/c43","headRefOid":"c43","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z",
+   "statusCheckRollup":[
+     {"__typename":"CheckRun","name":"verify","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-17T10:00:00Z","completedAt":"2026-11-17T10:01:00Z"},
+     {"__typename":"CheckRun","name":"verify","workflowName":"ci","status":"IN_PROGRESS","conclusion":"","startedAt":"2026-11-18T10:00:00Z","completedAt":"0001-01-01T00:00:00Z"}],
+   "body":"## Risk\nRisk level: low"},
+  {"number":44,"title":"old run still going, new run red","url":"u44","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/c44","headRefOid":"c44","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z",
+   "statusCheckRollup":[
+     {"__typename":"CheckRun","name":"verify","workflowName":"ci","status":"IN_PROGRESS","conclusion":"","startedAt":"2026-11-17T10:00:00Z","completedAt":"0001-01-01T00:00:00Z"},
+     {"__typename":"CheckRun","name":"verify","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-18T10:00:00Z","completedAt":"2026-11-18T10:01:00Z"}],
+   "body":"## Risk\nRisk level: low"},
+  {"number":45,"title":"same name, different workflows","url":"u45","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/c45","headRefOid":"c45","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z",
+   "statusCheckRollup":[
+     {"__typename":"CheckRun","name":"test","workflowName":"a","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-17T10:00:00Z","completedAt":"2026-11-17T10:01:00Z"},
+     {"__typename":"CheckRun","name":"test","workflowName":"b","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-18T10:00:00Z","completedAt":"2026-11-18T10:01:00Z"}],
+   "body":"## Risk\nRisk level: low"},
+  {"number":46,"title":"held","url":"u46","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/c46","headRefOid":"c46","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[{"name":"Hold"}],"createdAt":"2026-11-01T00:00:00Z","statusCheckRollup":[],
+   "body":"## Risk\nRisk level: low"},
+  {"number":47,"title":"old red, re-run queued with no timestamps","url":"u47","isDraft":false,"baseRefName":"master",
+   "headRefName":"feat/c47","headRefOid":"c47","mergeable":"MERGEABLE","reviewDecision":"",
+   "labels":[],"createdAt":"2026-11-01T00:00:00Z",
+   "statusCheckRollup":[
+     {"__typename":"CheckRun","name":"verify","workflowName":"ci","status":"QUEUED","conclusion":"","startedAt":"0001-01-01T00:00:00Z","completedAt":"0001-01-01T00:00:00Z"},
+     {"__typename":"CheckRun","name":"verify","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-17T10:00:00Z","completedAt":"2026-11-17T10:01:00Z"}],
+   "body":"## Risk\nRisk level: low"}
+]
+JSON
+OUT="$(bash "$LIST" --base master --json "$CFIX" 2>&1)"
+assert_contains "$(pr_block 41)" "CI:passing" "an old red run does not outweigh a newer green one, whatever the list order"
+assert_contains "$(pr_block 41)" "VERDICT:candidate" "so the PR is a candidate"
+assert_contains "$(pr_block 42)" "CI:failing" "a newer red run outweighs an older green one, whatever the list order"
+assert_contains "$(pr_block 42)" "VERDICT:skip ci-failing" "and the PR is skipped"
+assert_contains "$(pr_block 43)" "CI:pending" "a re-run in flight over an old red is pending"
+assert_contains "$(pr_block 44)" "CI:failing" "an old run still going does not hide a newer red"
+assert_contains "$(pr_block 45)" "CI:failing" "the same check name in another workflow is a different check: its red is not outvoted"
+assert_contains "$(pr_block 46)" "VERDICT:skip label:Hold" "a hold label is a skip, matched case-insensitively"
+assert_contains "$(pr_block 47)" "CI:pending" "a queued re-run with no timestamps over an old red is pending, whatever the list order"
+
 # --- usage errors -------------------------------------------------------------
 OUT="$(bash "$LIST" --json "$FIX" 2>&1)"; RC=$?
 assert_rc 2 "$RC" "a missing --base is a usage error"
