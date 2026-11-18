@@ -28,6 +28,14 @@ because that is what people search for.
 **An opening line.** What this is: N pull requests merged one at a time into a branch cut from
 `<base>`, with the repo's checks run after every merge.
 
+**Under `--unattended`, a second line, always.** The PR was prepared with nobody watching, is a draft,
+and has not been merged or approved by anyone; every conflict resolution and every skip made by a
+rule rather than a person is listed below for a reader who was not there. **Draft means unwatched,
+not unverified**: no person watched it, and the gate after every merge and the automated review
+(stage 8's reviewer and lenses) did run. Name any PR still `stale` at
+publish time, and say that no comment was posted on the source PRs. `scripts/check_pr_body.sh` reads
+it like any other body.
+
 **`## Included`** — one table row per PR: number and title, its merge commit sha, whether it
 conflicted (y/n), the gate result after it, and its own CI class at the time it was taken
 (`passing`, `pending`, `none`). That last column is a disclosure, not decoration: `none` means that
@@ -108,3 +116,5 @@ close, no edit of its branch. Short, and enough to act on:
 > is merged with a merge commit, GitHub will mark this one merged automatically.
 
 A re-run does not comment again on a PR it has already commented on.
+
+**Under `--unattended`, none.** No comment is posted on any source PR; the body says so instead.
