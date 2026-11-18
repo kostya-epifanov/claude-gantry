@@ -531,8 +531,8 @@ Three scripts carry the parts that must be reproducible, and all three take loca
 as well as PR numbers, which is how `tests/cases/` proves them against fixture repos with no `gh`:
 
 - `scripts/list_candidates.sh` — `gh` JSON (or `--json <file>`) to one labeled line per field, with
-  a verdict per PR. Skips: changes requested, a `blocked`/`wip`/`do-not-merge` label, failing CI on
-  the head commit, a body with no `## Risk` section or no assessed `Risk level:`, a stacked parent
+  a verdict per PR. Skips: changes requested, a `blocked`/`wip`/`do-not-merge`/`hold` label, failing CI on
+  the head commit (judged on the latest run of each check, so a re-run that passed clears an older red one), a body with no `## Risk` section or no assessed `Risk level:`, a stacked parent
   that is not itself selected (to a fixpoint, so grandchildren go too), and a base that is neither the target nor another candidate's head. **A draft is a
   candidate** — unattended runs open drafts, and those are the PRs this gathers. `CI:none` is a
   candidate too, and is carried through as its own class everywhere it is shown: the PR's own checks

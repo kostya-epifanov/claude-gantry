@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`list_candidates.sh` judges CI on the latest run per check, and skips `hold`** (BASE-428). A re-run adds a second entry with the same check name to `statusCheckRollup`; only the newest (by `startedAt`, else `completedAt`) now counts, so a stale red `pr-risk` run no longer skips a PR whose later run passed. A re-run still in flight — including one queued with no timestamp yet — makes the class `pending`, which is a candidate, where it was `failing` before. `hold` joins `blocked`/`wip`/`do-not-merge` as a blocking label. Tested in `tests/cases/integrate_candidates.sh`.
+
 ## 0.9.1
 
 Patch: one new wrapper, no new skill or flag. #52, merged directly after its CI went green.
