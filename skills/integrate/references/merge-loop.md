@@ -186,6 +186,9 @@ unhelpful when the skill has decided to stop *because* something is wrong.
 So **set `status: blocked` before any deliberate stop** — a red baseline, a gate exit `2`, a
 rewritten PR nobody has ruled on, a reset that cannot be made safely. The status is the record of
 why the run ended, and it stops the hook from arguing with a decision the skill already made.
+Under `--unattended`, also write `integrate-stop.txt` with the rule, reason and date (SKILL.md,
+*Where the run leaves a record*): `status: blocked` holds no reason, and the next run's `lane` stop
+reads the record back.
 
 ## Base moved
 

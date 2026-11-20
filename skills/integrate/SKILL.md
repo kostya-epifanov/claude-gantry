@@ -64,11 +64,11 @@ stage.
 
 | Rule | Where supervised mode asks | Under `--unattended` |
 |---|---|---|
-| `lane` | Stage 2: an integration lane is already open | Resume only if this run is **already on that lane's branch**. Otherwise **stop** and name the lane: a second lane is how one integration PR silently becomes two. A routine that starts outside the lane therefore stops, by design, until the owner merges or removes the open one. |
+| `lane` | Stage 2: an integration lane is already open | Resume only if this run is **already on that lane's branch**. Otherwise **stop** and name the lane: a second lane is how one integration PR silently becomes two. Find the lane's worktree with `git worktree list --porcelain` (the entry whose branch is that `integration/*` lane), read `integrate-stop.txt` at its root, and put that record's rule, reason and date in the stop line after the lane's name — so the owner sees why the lane is stuck, not only that it is. With no record there, say none was found, and give `task.md`'s `status` if it exists. A routine that starts outside the lane therefore stops, by design, until the owner merges or removes the open one. |
 | `queue` | Stage 4: merge these N PRs in this order | Take the queue `order_queue.sh` printed. **On a fresh run, an empty queue stops the run** before any lane exists, and the report says why each PR is out. On a re-run an empty queue is not a stop: everything is already `integrated`, so the run goes on as `NEXT:nothing` — docs, review and publish. |
 | `parent` | Stage 5: which parent `gantry:worktree` should cut from | `<BASE>`, always — the skill already says so. A HEAD that is neither fresh `origin/<BASE>` nor the planned base sha is the wrong-parent **stop**, as in supervised mode. |
 | `base-moved` | Stage 5: re-ask the queue when base moved | Re-run `order_queue.sh` and continue with the queue it now prints. No re-ask. |
-| `no-gates` | Stage 5: baseline gate exits `3` (`NO-GATES`) | **Stop.** Never continue with no enforced checks; suggest `.claude/gates.sh`. The baseline runs before `task.md` exists, so there is no status to set: the `UNATTENDED: stopped` line is the record. |
+| `no-gates` | Stage 5: baseline gate exits `3` (`NO-GATES`) | **Stop.** Never continue with no enforced checks; suggest `.claude/gates.sh`. The baseline runs before `task.md` exists, so there is no status to set: the `UNATTENDED: stopped` line and `integrate-stop.txt` (below) are the record. |
 | `conflict` | Merge loop: the two intents do not settle a conflict, or a version bump is not additive | Skip that PR by the ordinary skip procedure in stage 6 — reset the merge out under the reset guard, delete its pre-merge ref, record `unresolved-conflict (unattended)` under `## Skipped`, cascade to stacked children. It is never a coin-flip resolution. A conflict in the **base-into-lane** merge (`NEXT:merge-base`, *Base moved* in `references/merge-loop.md`) has no PR to skip: `git merge --abort`, set `status: blocked`, and **stop**. |
 | `published-reset` | Merge loop: a reset that would discard a merge already pushed | **Stop**, `status: blocked`. Never reset or revert a published merge. |
 | `finish-merge` | Re-run: a session died mid-conflict | `git merge --abort`, reset to that PR's pre-merge ref if one is left, re-queue the PR. |
@@ -76,8 +76,17 @@ stage.
 | `lens-error` | Stage 8: `risk_floor.sh` exits `2` | `status: blocked` and **stop before any push**; the report says the lens is malformed or could not run. |
 | `pr` | Stage 9: push, open the PR, comment on the included PRs | Re-read reality; if a PR is now `stale`, re-merge its new commits **once** — through the gate and stage 8 again — and list any PR still stale in the body. Then publish with `gh pr create --draft`. **No comments** on the source PRs: say in the report that none were posted. |
 
-**Where the run leaves a record.** `task.md` is written in stage 5, so a stop before it (`lane`,
-`queue`, `parent`, `no-gates`) has no file to mark. **Every** unattended stop therefore begins the
+**Where the run leaves a record.** `task.md` is written in stage 5, so a stop before it (`parent`,
+`no-gates`, a red baseline, gate exit `2`) has no file to mark — and `task.md` never holds a reason or
+a date even after it exists. So **every unattended stop made once this run's lane worktree exists**
+also writes `integrate-stop.txt` at the lane's root: exactly three lines, `rule: <rule>`,
+`reason: <reason>`, `date: <UTC date, from date -u +%F>`. The reason is one line — the same text as
+the `UNATTENDED: stopped` line's `<reason>`, never pasted gate output. Run
+`bash "$GANTRY/lib/ensure_excluded.sh" /integrate-stop.txt` first, so the record is never committed.
+A later stop overwrites it; a run that publishes deletes it (stage 10). A stop before this run has a
+lane (`queue`) writes no record. The `lane` stop never writes or overwrites one either: the open lane
+is not this run's, and its record holds the cause the owner needs — the `lane` stop only reads it
+back (see that rule). **Every** unattended stop also begins the
 report with the line `UNATTENDED: stopped — <rule> — <reason>`, which is what a caller reads. `<rule>`
 is the rule's name from the table, or — for a stop no rule names (wrong arguments, `gh` missing or
 unauthenticated, a red baseline, gate exit `2`, a red docs gate after two fixes, a PR that keeps
@@ -261,10 +270,11 @@ Three outcomes, and they are not the same problem:
 - **HEAD equals the `BASE:` sha `order_queue.sh` printed, but `origin/<BASE>` has moved** → base
   moved while you were at the checkpoint. Re-run `order_queue.sh`, and re-ask stage 4 **only if** the
   queue, the conflicts or the skips changed (`--unattended`: rule `base-moved`, no re-ask).
-- **HEAD is neither** → the lane was cut from the wrong parent. **Stop.** Do not merge anything into
-  it and do not "fix" it by merging the base in: the lane would then carry every difference between
-  that parent and `<BASE>`, and the PR would offer all of it for review. Say which branch it was cut
-  from, and that the remedy is to remove the lane (`git worktree remove`) and re-run from `<BASE>`.
+- **HEAD is neither** → the lane was cut from the wrong parent (`--unattended`: write
+  `integrate-stop.txt`, rule `parent`). **Stop.** Do not merge anything into it and do not "fix" it
+  by merging the base in: the lane would then carry every difference between that parent and
+  `<BASE>`, and the PR would offer all of it for review. Say which branch it was cut from, and that
+  the remedy is to remove the lane (`git worktree remove`) and re-run from `<BASE>`.
 
 ### The baseline gate, before `task.md` exists
 
@@ -275,9 +285,11 @@ bash "$GANTRY/lib/run_gates.sh" --strict
 A red base makes every later red gate ambiguous, so it is proved first:
 
 - `0` → go on.
-- `1`+ → **stop.** The base itself is red. Nothing merged here could be blamed fairly.
-- `2` → stop. The gate could not run.
-- `3` → `NO-GATES` under `--strict`. **AskUserQuestion** (under `--unattended`, rule `no-gates`): continue with no enforced checks (which
+- `1`+ → **stop** (`--unattended`: write `integrate-stop.txt`, rule `stage-5`). The base itself is
+  red. Nothing merged here could be blamed fairly.
+- `2` → stop (`--unattended`: write `integrate-stop.txt`, rule `stage-5`). The gate could not run.
+- `3` → `NO-GATES` under `--strict`. **AskUserQuestion** (under `--unattended`, rule `no-gates`,
+  which writes `integrate-stop.txt`): continue with no enforced checks (which
   goes in the PR body under *Not proven by this run*), or stop and add `.claude/gates.sh` first.
   This is the one place the strict default can be overridden, and only by you.
 
@@ -594,10 +606,11 @@ root with no `cd` in the same command: a body file from outside the repository i
 path, which a privileged-command gate asks a human about. Once the PR is open — or, on a lane that
 already has one, once the push is done — remove it, so a later run never reads a stale body as its
 own. If `gh pr create` failed, leave it: it is excluded from git, and the next run composes it
-afresh.
+afresh. At the same point, in every mode, delete the lane's stop record too: a published lane is no
+longer stuck, and a record left behind would be read back by the next `lane` stop as its cause.
 
 ```bash
-rm -f .claude/artifacts/integration-pr-body.md
+rm -f .claude/artifacts/integration-pr-body.md integrate-stop.txt
 ```
 
 ```bash
