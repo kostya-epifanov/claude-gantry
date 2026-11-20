@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`gantry:ship` keeps a launcher-written `## Guarded changes` section on refresh** (BASE-474). A section carrying `<!-- homebase-launcher-guarded -->` is never replaced by `None — no lens fires`; `lib/splice_pr_section.sh` leaves the body unchanged (apart from the CR / trailing-newline normalisation every splice applies), or appends only the lens bullets not already present. Tested in `tests/cases/guarded_launcher_section.sh`.
+
 ## 0.10.0
 
 Minor: one new flag (`/gantry:integrate --unattended`) and a change to which PRs integrate takes. #58 (BASE-428) and #60 (BASE-429), each merged directly after its CI went green.

@@ -35,6 +35,15 @@
 #     costs one line and removes the hazard either way, so it is unconditional
 #     and the premise stays recorded as unconfirmed.
 #
+#   - A `## Guarded changes` section carrying the marker
+#     `homebase-launcher-guarded` (an HTML comment the launcher writes into it)
+#     is owned by someone else. It is never replaced and never shortened: the
+#     replacement's `- ` bullets are APPENDED to it, each only if not already
+#     present verbatim, and a replacement with no bullets (ship's "None — no
+#     lens fires") leaves the body unchanged, apart from the CR / trailing-
+#     newline normalisation every splice applies. Only that heading is guarded:
+#     another section that merely quotes the marker is replaced as usual.
+#
 # stdout: the spliced body. Nothing is printed on any non-zero exit.
 # Exit codes: 0 = spliced · 1 = the heading is ambiguous, nothing changed
 # · 2 = usage.
@@ -73,6 +82,29 @@ if [ "$COUNT" -gt 1 ]; then
 fi
 
 if [ "$COUNT" -eq 1 ]; then
+  OLD="$(printf '%s\n' "$BODY" | awk -v h="$WANT" '
+    { raw = $0; l = raw; sub(/[ \t]+$/, "", l)
+      isfence = (l ~ /^ {0,3}(```|~~~)/)
+      if (!infence && on && l ~ /^## /) on = 0
+      if (!infence && !on && l == h) { on = 1 }
+      if (isfence) infence = !infence
+      if (on) print raw }
+  ')"
+  # Here-strings, not `printf | grep -q`: under pipefail a grep that exits on
+  # its first match can SIGPIPE the printf and turn a hit into a miss.
+  if [ "$HEADING" = "Guarded changes" ] && grep -q 'homebase-launcher-guarded' <<<"$OLD"; then
+    ADD=""
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        '- '*) grep -qxF -- "$line" <<<"$OLD" || ADD="${ADD}${line}"$'\n' ;;
+      esac
+    done <"$SECTION_FILE"
+    if [ -z "$ADD" ]; then printf '%s\n' "$BODY"; exit 0; fi
+    MERGED="$(mktemp)" || die "mktemp failed"
+    trap 'rm -f "$MERGED"' EXIT
+    { printf '%s\n' "$OLD" | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}'; printf '%s' "$ADD"; } >"$MERGED"
+    SECTION_FILE="$MERGED"
+  fi
   # Replace in place. Fence state is tracked while skipping too, so a fenced
   # `## ` inside the old section cannot end it early.
   printf '%s\n' "$BODY" | awk -v h="$WANT" -v sec="$SECTION_FILE" '

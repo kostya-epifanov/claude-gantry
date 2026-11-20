@@ -768,6 +768,11 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
      has a `## Guarded changes` section, that file holds the heading and `None — no lens fires on
      the current diff.`; when no lens fires and the body has none, write no guarded file and skip
      its splice — the Risk splice is then the last one and writes `pr-body.md` itself (below).
+     **A live `## Guarded changes` section carrying the marker `<!-- homebase-launcher-guarded -->`
+     belongs to the launcher**, not to ship: never delete or rewrite it. Splice as usual —
+     `splice_pr_section.sh` keeps that section whole, leaves the body unchanged (apart from the CR
+     / trailing-newline normalisation every splice applies) when no lens fires, and appends your lens bullets (without duplicating the launcher's) when one does. Do not
+     write the `None — no lens fires` text over it by hand.
 
    Then splice. One stale section goes straight from the fetched body to `pr-body.md`:
 
