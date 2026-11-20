@@ -226,6 +226,52 @@ rf "$repo" master
 assert_contains "$RF_OUT" "FILE:bin/café.sh medium" "a non-ASCII path under a prefix key fires the lens"
 rm -f "$repo/bin/café.sh"
 
+# --- a diff too large for one exec string still fires the lens --------------------------
+# Several thousand paths joined exceed the per-string limit of an exec (128 KiB on
+# Linux); the matcher used to fail to start, print nothing and exit 0.
+big="$(mkrepo rf-big)"
+git -C "$big" branch -m master >/dev/null 2>&1
+mkdir -p "$big/.claude/review-lenses" "$big/bin" "$big/gen"
+printf '%s\n' "$LENS" > "$big/.claude/review-lenses/security.md"
+printf 'x\n' > "$big/bin/tool"
+commit_all "$big" "lens"
+git -C "$big" checkout -q -b feat/big >/dev/null 2>&1
+n=0
+while [ "$n" -lt 4000 ]; do
+  printf '%s\n' "gen/a-rather-long-generated-file-name-to-pad-the-joined-list-$n.txt"
+  n=$((n + 1))
+done > "$big/list.txt"
+( cd "$big" && while IFS= read -r f; do : > "$f"; done < list.txt ) || _fail "fixture: could not create the generated files"
+rm -f "$big/list.txt"
+printf 'y\n' >> "$big/bin/tool"
+joined="$(cd "$big" && git ls-files --others --exclude-standard | wc -c | tr -d ' ')"
+[ "$joined" -gt 131072 ] && _pass "fixture: the joined path list is over 128 KiB ($joined bytes)" \
+  || _fail "fixture: the path list is only $joined bytes, too small to prove the overflow"
+rf "$big" master
+assert_rc 0 "$RF_RC" "a diff of thousands of paths is answered"
+assert_contains "$RF_OUT" "FILE:bin/tool medium" "a guarded file in a very large diff still fires its lens"
+assert_contains "$RF_OUT" "FLOOR:medium" "...and sets the floor"
+
+# A matcher that fails is exit 2 with nothing printed, never "no lens fired". The
+# stand-in awk fails whenever it is given -F (only the matcher is) and otherwise
+# runs the real awk by absolute path, so it cannot call itself.
+real_awk="$(command -v awk)"
+shimdir="$CASE_TMP/awk-shim"
+mkdir -p "$shimdir"
+{
+  printf '#!/bin/sh\n'
+  printf 'for a in "$@"; do [ "$a" = "-F" ] && exit 127; done\n'
+  printf 'exec "%s" "$@"\n' "$real_awk"
+} > "$shimdir/awk"
+chmod +x "$shimdir/awk"
+printf 'y\n' >> "$repo/bin/tool"
+RF_OUT="$(cd "$repo" && PATH="$shimdir:$PATH" bash "$RF" master 2>"$CASE_TMP/shim.err")"
+RF_RC=$?
+assert_rc 2 "$RF_RC" "a matcher that cannot run is exit 2"
+[ -z "$RF_OUT" ] && _pass "...and prints nothing" || _fail "a failed matcher printed: $RF_OUT"
+assert_contains "$(cat "$CASE_TMP/shim.err")" "the lens matcher failed on lens security" \
+  "...and the exit 2 is the matcher's own, not an earlier step's"
+
 # --- no lenses at all, and usage --------------------------------------------------------
 plainrepo="$(mkrepo rf-nolens)"
 git -C "$plainrepo" branch -m master >/dev/null 2>&1
@@ -233,6 +279,9 @@ mkdir -p "$plainrepo/bin"; printf 'x\n' > "$plainrepo/bin/tool"
 rf "$plainrepo" master
 assert_rc 0 "$RF_RC" "a base with no review-lenses directory"
 [ -z "$RF_OUT" ] && _pass "no lenses at the base prints nothing" || _fail "printed with no lenses: $RF_OUT"
+RF_OUT="$(cd "$plainrepo" && TMPDIR="$CASE_TMP/no-such-dir" bash "$RF" master 2>/dev/null)"
+RF_RC=$?
+assert_rc 0 "$RF_RC" "no lenses needs no writable temp directory"
 
 rf "$repo" no-such-base
 assert_rc 2 "$RF_RC" "a base that does not resolve is exit 2"
