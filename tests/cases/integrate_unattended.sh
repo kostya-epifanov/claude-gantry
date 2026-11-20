@@ -110,4 +110,19 @@ assert_file_contains "$BODY" 'not unverified' "pr-body.md keeps the draft-means-
 assert_file_contains "$section" 'UNATTENDED: stopped' "the stop signal for a caller is defined"
 assert_file_contains "$section" 'UNATTENDED: published draft' "the publish signal for a caller is defined"
 
+# --- the stop record (BASE-471) -----------------------------------------------------------------
+assert_file_contains "$SKILL" 'integrate-stop.txt' "the skill names the lane's stop record"
+assert_file_contains "$section" 'integrate-stop.txt' "the Unattended section defines the stop record"
+assert_file_contains "$section" 'git worktree list --porcelain' "the lane rule says how to find the lane's record"
+assert_file_contains "$section" 'ensure_excluded.sh" /integrate-stop.txt' "the record is excluded from git"
+baseline="$CASE_TMP/baseline.md"
+awk '/^### The baseline gate/ { on = 1; print; next } on && /^##/ { exit } on { print }' "$SKILL" >"$baseline"
+if [ -s "$baseline" ]; then _pass "carved out the baseline gate subsection"; else _fail "baseline gate subsection is empty"; fi
+assert_file_contains "$baseline" 'integrate-stop.txt' "the baseline stops write the record"
+assert_file_contains "$DOCS" 'integrate-stop.txt' "docs/SKILLS.md mentions the stop record"
+assert_file_contains "$LOOP" 'integrate-stop.txt' "merge-loop.md's stop procedure writes the record"
+# A publish in any mode deletes the record: the fenced rm, not an --unattended-only sentence.
+assert_file_contains "$fenced" '^rm -f .*integrate-stop.txt' "the publish step deletes the stop record in every mode"
+assert_file_contains "$section" 'never writes or overwrites' "the lane stop only reads the open lane's record"
+
 finish
