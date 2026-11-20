@@ -76,7 +76,10 @@
 # A file set touching no lens key and no lens file prints NOTHING, exit 0.
 #
 # Exit codes: 0 = answered (possibly with no output) · 2 = usage, not a
-# repository, a base or commit that does not resolve, or a malformed lens.
+# repository, a base or commit that does not resolve, a malformed lens, or the
+# matcher itself failing (a non-zero awk exit is never read as "no lens fired").
+# The file set reaches the matcher through a temp file, not the environment: a
+# diff of several thousand paths overflows the per-string limit of an exec.
 #
 # bash 3.2 (macOS): no associative arrays, no mapfile. awk does the parsing.
 set -uo pipefail
@@ -263,20 +266,31 @@ $part"
 fi
 
 # --- match each lens against the file set ---------------------------------------
+# Only when a lens exists: a repo with no lenses must not depend on a writable tmp.
+FILES_TMP=""
+if [ "${#LENS_PARSED[@]}" -gt 0 ]; then
+  FILES_TMP="$(mktemp "${TMPDIR:-/tmp}/risk_floor.XXXXXX")" || die "could not create a temp file"
+  trap 'rm -f "$FILES_TMP"' EXIT
+  printf '%s\n' "$FILES" > "$FILES_TMP" || die "could not write the file set to $FILES_TMP"
+fi
 OUT=""
 i=0
 while [ "$i" -lt "${#LENS_PARSED[@]}" ]; do
-  block="$(printf '%s\n' "${LENS_PARSED[$i]}" | RF_FILES="$FILES" awk -F '\t' '
+  block="$(printf '%s\n' "${LENS_PARSED[$i]}" | awk -F '\t' -v files_path="$FILES_TMP" '
     BEGIN {
       rank["low"] = 1; rank["medium"] = 2; rank["high"] = 3; rank["critical"] = 4
       name_of[1] = "low"; name_of[2] = "medium"; name_of[3] = "high"; name_of[4] = "critical"
-      nf = split(ENVIRON["RF_FILES"], F, "\n")
+      nf = 0; bad = 0
+      while ((rc = (getline line < files_path)) > 0) F[++nf] = line
+      if (rc < 0) { bad = 1; exit 2 }
+      close(files_path)
       nk = 0
     }
     $1 == "KEY"   { nk++; K[nk] = $2; L[nk] = rank[$3]; next }
     $1 == "NAME"  { name = $2; next }
     $1 == "DEFER" { defer = $2; next }
     END {
+      if (bad) exit 2
       floor = 0; nm = 0
       for (i = 1; i <= nf; i++) {
         f = F[i]; if (f == "") continue
@@ -296,7 +310,7 @@ while [ "$i" -lt "${#LENS_PARSED[@]}" ]; do
       for (i = 1; i <= nm; i++) print M[i]
       print "END"
     }
-  ')"
+  ')" || die "the lens matcher failed on lens ${LENS_NAME[$i]} (${LENS_PATH[$i]})"
   [ -n "$block" ] && OUT="$OUT$block
 "
   i=$((i + 1))
