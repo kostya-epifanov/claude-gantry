@@ -20,9 +20,12 @@ hit() { printf '\n!! %s\n' "$1"; fail=1; }
 # they look for, and a scanner that flags itself is a scanner nobody runs.
 files() { git ls-files -z -- ':!scripts/secret-scan.sh' ':!scripts/verify.sh'; }
 
-scan() { # scan <label> <extended-regex>
-  local label="$1" re="$2" out
+scan() { # scan <label> <extended-regex> [<literal token to exempt>]
+  local label="$1" re="$2" exempt="${3:-}" out
   out="$(files | xargs -0 grep -InE "$re" 2>/dev/null)"
+  if [ -n "$exempt" ]; then
+    out="$(printf '%s\n' "$out" | sed "s/$exempt//g" | grep -E "$re")"
+  fi
   if [ -n "$out" ]; then hit "$label"; printf '%s\n' "$out" | head -40; fi
 }
 
@@ -34,8 +37,13 @@ scan "public IPv4 address" \
 scan "Tailscale / tailnet identifiers" \
   '\.ts\.net|tailnet|taildrop|tailscale'
 
+# One exemption, and only here: `homebase-launcher-guarded` is the PR-body
+# marker the external launcher writes into `## Guarded changes`, and
+# lib/splice_pr_section.sh's contract requires matching that literal. The token
+# is stripped before re-matching, so any other `homebase` on the same line
+# still fires.
 scan "private-infrastructure vocabulary" \
-  'homebase|HOMEBASE_|projects\.d'
+  'homebase|HOMEBASE_|projects\.d' 'homebase-launcher-guarded'
 
 scan "personal identifiers" \
   '0xke|/Users/[a-z0-9]|epifanov\.lab|@gmail'
@@ -52,9 +60,10 @@ scan "hosting / deployment specifics" \
 scan "references to private documents" \
   'SECRETS\.local|RECOVERY\.md|ADD-DEVICE|CHEATSHEET|dev-setup\.sh|raw_specs|OPEN-QUESTIONS|SYSTEM\.md|Slice [0-9]'
 
-# No exceptions to the vocabulary rule. The optional base-branch resolver is
-# named `gantry-profile` and documented as a contract anyone can implement, so
-# nothing in this repo needs to name a private tool. Any match is a real leak.
+# Beyond the one marker exempted above, no exceptions to the vocabulary rule.
+# The optional base-branch resolver is named `gantry-profile` and documented as
+# a contract anyone can implement, so nothing in this repo needs to name a
+# private tool. Any other match is a real leak.
 
 echo
 echo "== S3: file-class scan =="
