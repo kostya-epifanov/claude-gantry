@@ -588,6 +588,8 @@ under *Unattended mode*:
 - **The caller's signal.** The report's first line is `UNATTENDED: published draft <url>` or
   `UNATTENDED: stopped — <rule> — <reason>`, on every stop, because a stop before stage 5 has no
   `task.md` to mark; `<rule>` is the rule's name, or the stage's (`stage-1`) when no rule applies.
+  Once the run's lane exists, a stop also writes `integrate-stop.txt` (rule, reason, date) at the
+  lane's root, a publish deletes it, and the next run's `lane` stop repeats it.
   A scheduled run that starts outside an open lane therefore stops, by design, until the owner merges
   or removes it.
 
