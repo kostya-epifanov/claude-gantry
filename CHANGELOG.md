@@ -3,7 +3,7 @@
 ## Unreleased
 
 - **`/gantry:integrate --unattended` records every in-lane stop** (BASE-471). Once the run's lane exists, a stop writes a three-line `integrate-stop.txt` (rule, reason, date) at the lane root, git-excluded and deleted on publish; the `lane` stop of a later run reads it and repeats the original cause instead of only "merge or remove". Tested in `tests/cases/integrate_unattended.sh`.
-- **`lib/risk_floor.sh` fails loud on a large file set** (BASE-363). The changed-file list now reaches awk through a temp file rather than the environment, so a diff of several thousand paths no longer hits `argument list too long` and reads as "no lens fired"; any non-zero awk exit is now exit 2. Tested in `tests/cases/risk_floor.sh`.
+- **`lib/risk_floor.sh` keeps firing on a large file set, and fails loud when its matcher fails** (BASE-363). The changed-file list now reaches awk through a temp file rather than the environment, so a diff of several thousand paths no longer hits `argument list too long` and reads as "no lens fired"; any non-zero awk exit is now exit 2. Tested in `tests/cases/risk_floor.sh`.
 - **`gantry:ship` keeps a launcher-written `## Guarded changes` section on refresh** (BASE-474). A section carrying `<!-- homebase-launcher-guarded -->` is never replaced by `None — no lens fires`; `lib/splice_pr_section.sh` leaves the body unchanged (apart from the CR / trailing-newline normalisation every splice applies), or appends only the lens bullets not already present. Tested in `tests/cases/guarded_launcher_section.sh`.
 
 ## 0.10.0
