@@ -1,0 +1,41 @@
+diff --git a/bin/show-env.sh b/bin/show-env.sh
+index b9ffebd..d408a7a 100644
+--- a/bin/show-env.sh
++++ b/bin/show-env.sh
+@@ -10,5 +10,5 @@ here="$(cd "$(dirname "$0")" && pwd)"
+ 
+ heading 'Environment'
+ for name in EDITOR PAGER TMPDIR; do
+-  printf '%-24s %s\n' "$name" "${!name:-(unset)}"
++  row "$name" "${!name:-(unset)}"
+ done
+diff --git a/bin/show-limits.sh b/bin/show-limits.sh
+index 0e08140..42457f8 100644
+--- a/bin/show-limits.sh
++++ b/bin/show-limits.sh
+@@ -9,6 +9,6 @@ here="$(cd "$(dirname "$0")" && pwd)"
+ . "$here/../lib/table.sh"
+ 
+ heading 'Limits'
+-printf '%-24s %s\n' 'open files' "$(ulimit -n)"
+-printf '%-24s %s\n' 'processes' "$(ulimit -u)"
+-printf '%-24s %s\n' 'file size' "$(ulimit -f)"
++row 'open files' "$(ulimit -n)"
++row 'processes' "$(ulimit -u)"
++row 'file size' "$(ulimit -f)"
+diff --git a/lib/table.sh b/lib/table.sh
+index 37ea5e3..0ca64a1 100644
+--- a/lib/table.sh
++++ b/lib/table.sh
+@@ -13,3 +13,11 @@ heading() {
+   printf '\n%s\n' "$text"
+   printf '%s\n' "${text//?/-}"
+ }
++
++# row <label> <value> — print one row of the two-column table. The width lived
++# as a literal in each caller's printf, which is why TABLE_LABEL_WIDTH could be
++# changed here without either of them noticing.
++row() {
++  local label="$1" value="$2"
++  printf '%-*s %s\n' "$TABLE_LABEL_WIDTH" "$label" "$value"
++}
