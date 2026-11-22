@@ -230,7 +230,7 @@ fingerprint that no longer matches is a refusal — the file describes a differe
 
 **Review lenses** run beside the source, never instead of it. A target repo may keep
 `.claude/review-lenses/<name>.md`: a frontmatter of `floors` — path keys (a trailing `/` is a
-directory prefix, anything else an exact path) each with a level `low < medium < high < critical` —
+directory prefix, `**/<name>` a file name at the root or any depth, anything else an exact path) each with a level `low < medium < high < critical` —
 an optional `defer: never`, and a prompt body with that repo's threat model. `lib/risk_floor.sh
 <base>` decides, with no model involved, which lenses the diff fires and which files fired them,
 reading the lens files **from the base ref** so a diff cannot rewrite the lens that judges it. Each
