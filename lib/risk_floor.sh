@@ -30,9 +30,13 @@
 #   ---
 #   <prompt body>
 #
-#   - A `floors` key ending in `/` is a directory prefix; any other key is an
-#     exact repo-root-relative path. The keys are also the trigger: the lens
-#     fires when the diff touches any of them.
+#   - A `floors` key has one of three forms. Ending in `/` it is a directory
+#     prefix. Starting with `**/` it is a file name at any depth: `**/<name>`
+#     matches `<name>` at the repo root or `<dir>/.../<name>` anywhere below,
+#     the same meaning as CI's pr-risk check (`<name>` or `*/<name>`). Anything
+#     else is an exact repo-root-relative path. `**/<name>/` and other uses of
+#     `*` are not defined. The keys are also the trigger: the lens fires when
+#     the diff touches any of them.
 #   - Levels are ordered low < medium < high < critical. A file matching several
 #     keys of one lens takes the highest; the lens's FLOOR is the highest over
 #     its matched files.
@@ -283,10 +287,25 @@ if [ "${#LENS_PARSED[@]}" -gt 0 ]; then
   trap 'rm -f "$FILES_TMP"' EXIT
   printf '%s\n' "$FILES" > "$FILES_TMP" || die "could not write the file set to $FILES_TMP"
 fi
+# keyhit: does path f match floor key k? `**/<name>` = <name> at the root or under
+# any directory; a trailing `/` is a directory prefix; else an exact path. Plain
+# substr comparison, never a regex: `.` in a name must stay literal. Held once and
+# prepended to both awk programs below — the lens matcher and the lens-file floor —
+# so the two can never disagree about which key matches a path.
+KEYHIT_AWK='
+    function keyhit(f, k,   n) {
+      if (substr(k, 1, 3) == "**/") {
+        n = substr(k, 4)
+        return (f == n || (length(f) > length(n) && substr(f, length(f) - length(n)) == "/" n))
+      }
+      if (substr(k, length(k), 1) == "/") return (substr(f, 1, length(k)) == k)
+      return (f == k)
+    }
+'
 OUT=""
 i=0
 while [ "$i" -lt "${#LENS_PARSED[@]}" ]; do
-  block="$(printf '%s\n' "${LENS_PARSED[$i]}" | awk -F '\t' -v files_path="$FILES_TMP" '
+  block="$(printf '%s\n' "${LENS_PARSED[$i]}" | awk -F '\t' -v files_path="$FILES_TMP" "$KEYHIT_AWK"'
     BEGIN {
       rank["low"] = 1; rank["medium"] = 2; rank["high"] = 3; rank["critical"] = 4
       name_of[1] = "low"; name_of[2] = "medium"; name_of[3] = "high"; name_of[4] = "critical"
@@ -307,8 +326,7 @@ while [ "$i" -lt "${#LENS_PARSED[@]}" ]; do
         best = 0
         for (j = 1; j <= nk; j++) {
           k = K[j]
-          if (substr(k, length(k), 1) == "/") hit = (substr(f, 1, length(k)) == k)
-          else hit = (f == k)
+          hit = keyhit(f, k)
           if (hit && L[j] > best) best = L[j]
         }
         if (best > 0) { nm++; M[nm] = "FILE:" f " " name_of[best]; if (best > floor) floor = best }
@@ -346,7 +364,7 @@ if [ -n "$IN_DIFF" ]; then
         i=$((i + 1))
       done
       printf '%s\n' "$IN_DIFF" | sed 's/^/PATH	/'
-    } | awk -F '\t' '
+    } | awk -F '\t' "$KEYHIT_AWK"'
       BEGIN {
         rank["low"] = 1; rank["medium"] = 2; rank["high"] = 3; rank["critical"] = 4
         name_of[1] = "low"; name_of[2] = "medium"; name_of[3] = "high"; name_of[4] = "critical"
@@ -357,8 +375,7 @@ if [ -n "$IN_DIFF" ]; then
         f = substr($0, 6); best = 0
         for (j = 1; j <= nk; j++) {
           k = K[j]
-          if (substr(k, length(k), 1) == "/") hit = (substr(f, 1, length(k)) == k)
-          else hit = (f == k)
+          hit = keyhit(f, k)
           if (hit && L[j] > best) best = L[j]
         }
         if (best > 0) print "LENS_IN_DIFF:" f " " name_of[best]

@@ -226,8 +226,9 @@ defer: never
 <what this lens checks, and the repo's threat model>
 ```
 
-A `floors` key ending in `/` is a directory prefix; any other key is an exact repo-root-relative
-path. The keys are also the trigger: a lens fires when the diff touches any of them. Levels are
+A `floors` key ending in `/` is a directory prefix; a key starting with `**/` is a file name at
+any depth (`**/pyproject.toml` matches `pyproject.toml` at the root and `bot/pyproject.toml`); any
+other key is an exact repo-root-relative path. The keys are also the trigger: a lens fires when the diff touches any of them. Levels are
 ordered `low < medium < high < critical`. A repo with no lenses fires none, and this step costs one
 command.
 

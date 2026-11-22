@@ -351,6 +351,80 @@ assert_rc 2 "$RF_RC" "a lens-file floor that cannot run is exit 2"
 [ -z "$RF_OUT" ] && _pass "...and prints nothing" || _fail "a failed lens-file floor printed: $RF_OUT"
 assert_contains "$(cat "$CASE_TMP/shim2.err")" "the lens-file floor failed" "...and names the lens-file floor"
 
+# --- `**/<name>` keys: a file name at the root or at any depth ------------------------
+# Same meaning as CI's pr-risk check: <name> at the repo root, or */<name> at any depth.
+# A fresh repo, so the stateful fixture above is untouched. The `bot/` prefix is lower
+# than the `**/` keys, so the level a file gets shows which key matched.
+GLOB_LENS='---
+name: globs
+description: test lens
+floors:
+  ".claude/": critical
+  "bot/": medium
+  "**/conftest.py": high
+  "**/pyproject.toml": high
+  "**/globs.md": low
+---
+Check the manifests.'
+grepo="$(mkrepo rf-glob)"
+git -C "$grepo" branch -m master >/dev/null 2>&1
+mkdir -p "$grepo/.claude/review-lenses" "$grepo/bot/tests" "$grepo/other"
+printf '%s\n' "$GLOB_LENS" > "$grepo/.claude/review-lenses/globs.md"
+for f in pyproject.toml conftest.py bot/pyproject.toml bot/tests/conftest.py other/pyproject.toml \
+         xpyproject.toml pyproject.toml.bak pyprojectXtoml bot/xpyproject.toml; do
+  printf 'x\n' > "$grepo/$f"
+done
+commit_all "$grepo" "lens and manifests"
+git -C "$grepo" checkout -q -b feat/g >/dev/null 2>&1
+for f in pyproject.toml conftest.py bot/pyproject.toml bot/tests/conftest.py other/pyproject.toml \
+         xpyproject.toml pyproject.toml.bak pyprojectXtoml bot/xpyproject.toml; do
+  printf 'y\n' >> "$grepo/$f"
+done
+rf "$grepo" master
+assert_rc 0 "$RF_RC" "a lens with **/ keys is exit 0"
+assert_contains "$RF_OUT" "FILE:pyproject.toml high" "**/<name> matches <name> at the repo root"
+assert_contains "$RF_OUT" "FILE:conftest.py high" "**/<name> matches a second name at the root"
+assert_contains "$RF_OUT" "FILE:bot/pyproject.toml high" "**/<name> outranks the bot/ prefix: high, not medium"
+assert_contains "$RF_OUT" "FILE:bot/tests/conftest.py high" "**/<name> matches at depth two"
+assert_contains "$RF_OUT" "FILE:other/pyproject.toml high" "**/<name> matches under a directory no other key names"
+assert_contains "$RF_OUT" "FILE:bot/xpyproject.toml medium" "a longer name is not matched by **/<name> (only bot/ matches)"
+assert_not_contains "$RF_OUT" "FILE:xpyproject.toml" "**/<name> does not match a name with a prefix"
+assert_not_contains "$RF_OUT" "pyproject.toml.bak" "**/<name> does not match a name with a suffix"
+assert_not_contains "$RF_OUT" "pyprojectXtoml" "the dot in the name is literal, not a regex wildcard"
+assert_contains "$RF_OUT" "FLOOR:high" "the floor is the highest over the matched files"
+
+# The trigger: a diff touching only a **/ path fires the lens.
+git -C "$grepo" checkout -q -- .
+git -C "$grepo" clean -qfd
+printf 'y\n' >> "$grepo/other/pyproject.toml"
+rf "$grepo" master
+assert_contains "$RF_OUT" "LENS:globs" "a diff touching only a **/ path fires the lens"
+assert_contains "$RF_OUT" "FLOOR:high" "and sets that key's level as the floor"
+
+# The lens-file floor uses the same matcher: the lens file is .claude/ (critical) and
+# also matches **/globs.md (low); the strictest wins, and it is reported as a plain level.
+git -C "$grepo" checkout -q -- .
+printf 'z\n' >> "$grepo/.claude/review-lenses/globs.md"
+rf "$grepo" master
+assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/globs.md critical" "the lens-file floor takes the strictest key"
+# A base whose only covering key is a **/ one: the lens-file floor must see it.
+glob2="$(mkrepo rf-glob2)"
+git -C "$glob2" branch -m master >/dev/null 2>&1
+mkdir -p "$glob2/.claude/review-lenses"
+printf '%s\n' '---
+name: only
+description: test lens
+floors:
+  "**/only.md": high
+---
+body' > "$glob2/.claude/review-lenses/only.md"
+commit_all "$glob2" "lens"
+git -C "$glob2" checkout -q -b feat/o >/dev/null 2>&1
+printf 'z\n' >> "$glob2/.claude/review-lenses/only.md"
+rf "$glob2" master
+assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/only.md high" "the lens-file floor honours **/<name> too"
+assert_not_contains "$RF_OUT" "no-base-lens" "a **/ key covering the lens file is a base lens, not no-base-lens"
+
 # --- no lenses at all, and usage --------------------------------------------------------
 plainrepo="$(mkrepo rf-nolens)"
 git -C "$plainrepo" branch -m master >/dev/null 2>&1
