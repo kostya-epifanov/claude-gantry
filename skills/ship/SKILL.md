@@ -154,7 +154,7 @@ launcher's lines: exit `1` or `3` → the review did not happen; stop with its `
 push, no PR**. Exit `2` → a broken environment (no `jq`, no `claude`); stop and say so. On exit
 `0`, run `bash "$GANTRY/lib/detect_stage.sh"`: `STATUS:blocked` → the review found the change
 unsafe; stop. Under `--review-fix`, `REVIEW:pending` → launch the fix child and read its
-`GATE_EXIT:`; `REVIEW:clean` → nothing to apply, say so. Carry every `DENIED:` line and both
+`GATE_EXIT:`; `REVIEW:clean` or `REVIEW:partial` → nothing to apply, say so (on `partial`, say a guard block reduced review coverage). Carry every `DENIED:` line and both
 `SESSION:` ids into the report.
 
 **The tier rides on the flag.** `--review=<tier>` and `--review-fix=<tier>` are forwarded to the
@@ -507,7 +507,7 @@ exists, so a missing label permission can never stop the PR from opening.
 
 #### What this run did not prove
 
-All three are **disclosures**. None withholds the PR, fails the gate, or blocks the push.
+All of them are **disclosures**. None withholds the PR, fails the gate, or blocks the push.
 
 **1. Acceptance criteria no gate could check.** Ship's own `detect_state.sh` reads git state and
 never opens `task.md`, so the answer comes from the other detector:
@@ -528,8 +528,19 @@ this line tells them is still undone. On `QA:exercised` the scenarios are under 
 run* above, verdicts included, and nothing about them goes here — a scenario that ran and
 **failed** is a failure the body reports under that heading, not an unproven claim.
 
-One source of truth for each half: the detector decides **whether** the heading appears, `task.md`
-supplies the **text**. The entries are multi-line and one labeled line per value is the detector's
+**2b. A review whose coverage was reduced.** When `review.md` is current (`FRESH:yes`) and carries a
+`Guard blocks:` header line whose text — after stripping bold/italic wrappers and one trailing period —
+is non-empty and not `none` (the detector's rule; it reports `REVIEW:partial` when `## Address now` is
+clean), the same heading carries that line **verbatim**, with one sentence in front: review coverage was
+reduced, because a guard blocked a command the reviewer tried to run, so the clean *Address now* checked
+less than usual. On `FRESH:stale` or `FRESH:error` quote nothing from `review.md`, this line included —
+it describes another diff. Read the line from the file; the detector only says it exists. This is a
+heading trigger in its own right: with `HUMAN_ONLY:absent` and no unrun e2e scenarios, a 2b line
+still opens `## Not proven by this run`. `REVIEW:partial` is one way to learn the line exists, not the
+only one — a guard line beside pending findings that were then applied still counts.
+
+One source of truth for each half: the detector (with `review_fresh.sh` for 2b) decides **whether**
+the heading appears; `task.md` supplies the **text** for 1 and 2, `review.md` for 2b. The entries are multi-line and one labeled line per value is the detector's
 whole output contract, so it cannot carry them. If the detector says `present` and you cannot find
 quotable entries, **emit the heading anyway** and say the block could not be read — failing toward
 the disclosure is the point.
@@ -921,7 +932,8 @@ that the commit stands and nothing was pushed. If it blocked the ship, lead with
 
 **All stage 4 disclosures, always — including under `--no-pr`, where the report is the only place
 they can land.** Say whether the *Not proven* heading was emitted and why (or why not) — the
-`human_only` entries, the e2e scenarios nobody ran, or both — what *Exercised by this run* carried
+`human_only` entries, the e2e scenarios nobody ran, the review's `Guard blocks:` line (reduced
+review coverage), or any combination — what *Exercised by this run* carried
 (the `QA:` value, and the verdicts on `exercised`), and what
 the executing-plugin check concluded: the version that ran, that the check was inert because the
 repo is not a plugin, that it was suppressed because the plugin root and the repo are the same

@@ -200,6 +200,8 @@ reviewing itself — the weakest possible reviewer. The phase skill still carrie
      Read `GATE_EXIT:` from its lines and treat it as `implement` treats the gate: non-zero →
      stop and hand the failure to the user. A launcher exit of `1` or `3` → stop with `REASON:`.
    - `clean` → the review found nothing in scope to fix. Say so and launch nothing.
+   - `partial` → as `clean`: nothing in scope to fix, launch nothing — but the report says review
+     coverage was reduced by a guard block, quoting the `Guard blocks:` line. Ship puts it under *Not proven*.
    - `absent` after exit `0` cannot happen — the launcher checks for the file before exiting
      `0`. If it does, say the launcher's contract was broken, and stop.
 

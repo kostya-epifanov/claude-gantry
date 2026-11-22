@@ -307,6 +307,9 @@ independent scrutiny at all.
   never invent a value for either; non-zero after the child's own two attempts → `status:
   blocked`, journal the `escalation`, stop. A launcher exit of `1` or `3` is the same stop as above.
 - `REVIEW:clean` → nothing in scope to fix; say so, launch nothing.
+- `REVIEW:partial` → as `clean`, launch nothing — but review coverage was reduced: a guard blocked the
+  reviewer and `review.md` carries a `Guard blocks:` line. Journal the phase summary with it, quote it in
+  the stage 7 report, and expect ship to put it under *Not proven by this run*.
 
 ```bash
 bash "$GANTRY/lib/run_phase_headless.sh" --phase review-fix --root <worktree>
@@ -388,7 +391,8 @@ bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event disclosure --stage
 
 Journal a **`disclosure`** event for anything ship reported that this run did not prove — a
 non-empty `human_only` block in `task.md`, e2e scenarios the task declared that QA did not run
-(`unexercised-e2e`), or a change to the plugin's own files that the run could
+(`unexercised-e2e`), a review whose coverage a guard reduced — ship's quoted `Guard blocks:` line
+(`review-guard-block`) — or a change to the plugin's own files that the run could
 not exercise. Repeat `--detail` once per item, and omit `--pr` under `--no-pr`, where the field is
 recorded as `null`. Take it **from ship's report**, not from your own reading of the tree: the journal is
 append-only and the project treats it as evidence, so an invented line is worse than a missing one.

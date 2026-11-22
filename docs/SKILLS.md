@@ -216,7 +216,7 @@ absorb what review turned up is how a focused diff becomes an unreviewable one.
 the base, a fingerprint of the diff from `lib/diff_fingerprint.sh`, the source that ran, the tier,
 the two tallies, an `applied:` line carrying the post-fix `diff=` once fixes are applied, and the address-now findings (file, line, what is wrong, the failure) — or
 `None.`, so the fix step can tell "reviewed, nothing to apply" from "never reviewed".
-`lib/detect_stage.sh` reports it as `REVIEW:absent|pending|applied|clean`, and a `reviewed` task
+`lib/detect_stage.sh` reports it as `REVIEW:absent|pending|applied|clean|partial`, and a `reviewed` task
 whose file is still `pending` stays at the fix step rather than moving to ship. `lib/review_fresh.sh`
 is the freshness check `--fix` and `gantry:ship` share: a review of an older diff is a missing one, so ship
 publishes `Risk level: unassessed`.
