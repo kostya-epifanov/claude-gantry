@@ -379,7 +379,8 @@ rule that already governs that path's disclosures.
 
 #### Risk, and the guarded changes
 
-Every body carries a `## Risk` section, and a `## Guarded changes` section when a review lens fired.
+Every body carries a `## Risk` section, and a `## Guarded changes` section when the change is
+**guarded** — a review lens fired, or the diff changes a lens file (a `LENS_IN_DIFF:` line).
 The exact headings below are an interface: a CI check in the target repo and `/gantry:integrate`
 both parse them, and integrate skips a PR whose body has no `## Risk`. Which files are guarded is
 **not** read from `review.md` or decided by you — ship computes it again, at ship time, against
@@ -392,7 +393,11 @@ bash "$GANTRY/lib/risk_floor.sh" origin/<BASE>
 `origin/<BASE>` when that ref exists, else `<BASE>` — the same rule `/gantry:review` resolves its
 base by, so the two read the same lens files and the same file set. It prints one block per lens
 that fired (`LENS:`, `FLOOR:`, optional `DEFER:never`, one `FILE:<path> <level>` per matched file,
-`END`), `LENS_IN_DIFF:` lines, or nothing at all. **Exit `2` is not "nothing fired"**: a lens is
+`END`), `LENS_IN_DIFF:` lines, or nothing at all. A `LENS_IN_DIFF:<path> <level>` line is a lens
+file this diff adds, edits or deletes, and it is guarded **on its own**, whether or not any lens
+fired: `<level>` is the strictest level any base lens assigns that path, and
+`LENS_IN_DIFF:<path> critical no-base-lens` means no lens at the base covers it — including a base
+with no lens at all — so nothing could judge it. **Exit `2` is not "nothing fired"**: a lens is
 malformed or the script could not run. Then the `## Risk` section says `Lenses: could not be
 evaluated — <the stderr line>`, the same sentence goes under `## Not proven by this run`, and no
 `guarded` label is claimed either way.
@@ -419,6 +424,7 @@ Then read `review.md`'s `## Risk` and `## Lens: <name>` sections, if the file ex
 
 - the `Risk level:` in `review.md`'s `## Risk` — the review run's judgement, never yours;
 - every `FLOOR:` the script printed;
+- the level on every `LENS_IN_DIFF:` line;
 
 raised **one step** (`low → medium → high → critical`, capped at `critical`) when there is any
 **open risk**. An open risk is a `- Open risk:` line under a `## Lens:` section of `review.md`, **or**
@@ -446,7 +452,10 @@ Blast radius:
 - Rollback: <from review.md>
 ```
 
-- `Floor:` appears **only when a lens fired**, and names every lens and every matched file.
+- `Floor:` appears **only when the change is guarded**, and names every lens and every matched file,
+  then each lens file in the diff as `lens-file: <path>` — hyphenated, so it never reads as a lens
+  named `file` — e.g. `Floor: critical (lens security: bin/x; lens-file: .claude/review-lenses/new.md)`.
+  Its level is the highest of the `FLOOR:` lines and the `LENS_IN_DIFF:` levels.
 - The three `Blast radius:` bullets are quoted from `review.md`. When no review assessed the risk,
   each says `not assessed — no review ran on this diff` (or the stale/error wording above).
 - The marker line is how a later run can tell whether this section is current (see *Refresh*
@@ -461,7 +470,7 @@ Blast radius:
   and put the line it prints directly under `## Risk` in the body. It is an HTML comment, invisible
   on GitHub.
 
-**`## Guarded changes`**, only when a lens fired, right after `## Risk`:
+**`## Guarded changes`**, only when the change is guarded, right after `## Risk`:
 
 ```
 ## Guarded changes
@@ -473,10 +482,17 @@ Blast radius:
 after each path is the bullet for that file under `review.md`'s `### What to look at`. A matched
 file with **no** note there is listed anyway, with `not seen by the lens — changed after the review,
 or no review ran`; that is also how a `review.md` that describes an older diff shows up. Then one
-`- Open risk:` bullet per open risk, as defined above. A `LENS_IN_DIFF:` line from the script adds
-one bullet saying that lens file is changed by this diff and was judged by the base's version.
+`- Open risk:` bullet per open risk, as defined above. Each `LENS_IN_DIFF:` line adds one bullet in
+the same `` - `<path>`: … `` shape — integrate collects the backticked paths — and its text depends
+on the line:
 
-When a lens fired, the PR also gets the GitHub label `guarded` — under *Open it* below, after the PR
+- `LENS_IN_DIFF:<path> <level>` → `` - `<path>`: lens file changed by this diff; judged by the
+  base's lenses at <level>, not by its own new text ``.
+- `LENS_IN_DIFF:<path> critical no-base-lens` → `` - `<path>`: lens file changed by this diff; no
+  lens at the base covers it, so it is floored at critical and nothing judged it — read it by hand ``.
+  Never write "judged by the base's version" for this one: there was no base version to judge it.
+
+When the change is guarded, the PR also gets the GitHub label `guarded` — under *Open it* below, after the PR
 exists, so a missing label permission can never stop the PR from opening.
 
 #### What this run did not prove
@@ -637,7 +653,8 @@ gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body-file .cl
 gh pr create --base "<BASE>" --head "<BRANCH>" --title "<title>" --body-file .claude/artifacts/pr-body.md --draft   # --draft
 ```
 
-Report the PR URL it prints. **When a lens fired**, label it `guarded` — creating the label first
+Report the PR URL it prints. **When the change is guarded** (a lens fired or a `LENS_IN_DIFF:`
+line was printed), label it `guarded` — creating the label first
 if the repository does not have it:
 
 ```bash
@@ -654,7 +671,7 @@ gh pr edit --add-label guarded
 
 Run the `create` only when the list did not print `guarded`. **A failure here is reported, never
 fatal**: the PR is open, and a token without label permission is a reason to say "the `guarded`
-label could not be applied" in the report, not to undo anything. No lens fired → no label step.
+label could not be applied" in the report, not to undo anything. Not guarded → no label step.
 
 Once the PR exists, remove the file — the body now lives on the pull
 request, and a stale copy is one a later run could mistake for its own:
@@ -764,14 +781,15 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
      section with the marker line from `handover_body_state.sh --section risk --marker
      .claude/artifacts/risk-source.md` under its heading, to
      `<ROOT>/.claude/artifacts/risk-section.md`; and the `## Guarded changes` section to
-     `<ROOT>/.claude/artifacts/guarded-section.md` — when no lens fires any more but the live body
+     `<ROOT>/.claude/artifacts/guarded-section.md` — when the change is no longer guarded (no lens
+     fires and no `LENS_IN_DIFF:` line) but the live body
      has a `## Guarded changes` section, that file holds the heading and `None — no lens fires on
-     the current diff.`; when no lens fires and the body has none, write no guarded file and skip
-     its splice — the Risk splice is then the last one and writes `pr-body.md` itself (below).
+     the current diff.`; when the change is not guarded and the body has none, write no guarded
+     file and skip its splice — the Risk splice is then the last one and writes `pr-body.md` itself (below).
      **A live `## Guarded changes` section carrying the marker `<!-- homebase-launcher-guarded -->`
      belongs to the launcher**, not to ship: never delete or rewrite it. Splice as usual —
      `splice_pr_section.sh` keeps that section whole, leaves the body unchanged (apart from the CR
-     / trailing-newline normalisation every splice applies) when no lens fires, and appends your lens bullets (without duplicating the launcher's) when one does. Do not
+     / trailing-newline normalisation every splice applies) when the change is not guarded, and appends your lens bullets (without duplicating the launcher's) when it is. Do not
      write the `None — no lens fires` text over it by hand.
 
    Then splice. One stale section goes straight from the fetched body to `pr-body.md`:
@@ -806,7 +824,7 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
    bash "$GANTRY/lib/splice_pr_section.sh" .claude/artifacts/pr-body-risk.md .claude/artifacts/guarded-section.md "Guarded changes" > .claude/artifacts/pr-body.md
    ```
 
-   No guarded file was written (no lens fires and the body has no `## Guarded changes`) → there is
+   No guarded file was written (the change is not guarded and the body has no `## Guarded changes`) → there is
    no second splice, so the Risk splice writes `pr-body.md` directly. Skipping it while still
    writing `pr-body-risk.md` leaves step 5 with no `## Risk` in what it sends:
 
@@ -816,7 +834,7 @@ Run from `ROOT`, with relative paths, under the same rule as *Open it* above.
 
    (Start the Risk splice from `pr-body-handover.md` or the QA splice's output instead of
    `pr-body-live.md` when those ran first; the fetched original is never overwritten.) After a
-   Risk refresh in which a lens fires, apply the `guarded` label exactly as *Open it* does,
+   Risk refresh in which the change is guarded, apply the `guarded` label exactly as *Open it* does,
    non-fatally.
 
    Each splice replaces its one section, or inserts it before `## Not proven by this run` when the
