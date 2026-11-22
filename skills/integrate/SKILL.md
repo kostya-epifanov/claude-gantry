@@ -155,12 +155,14 @@ What the classes mean when you show them:
   the base you just fetched.
 - `RISK:` is the `Risk level:` under the PR body's `## Risk` heading. **A PR with no `## Risk`
   section is skipped (`no-risk-section`), and so is one whose level is not `low`, `medium`, `high`
-  or `critical` (`risk-level:<word>` — `unassessed` is what ship writes when no review ran).** The
+  or `critical` (`risk-level:<word>` — `unassessed` is what ship writes when no review ran or the lenses could not be evaluated).** The
   integration PR's `## Risk summary` is the maximum over the PRs it merges, and a PR with no
   assessed level would make that maximum a claim nobody checked. Name every such PR in the
   checkpoint and the report, with the remedy: `/gantry:review` then `/gantry:ship` on its branch,
-  which refreshes the section on the open PR. Never merge one anyway, and never write a level for
-  it.
+  which refreshes the section on the open PR. When the PR body's `## Risk` section (from
+  `gh pr view <n> --json body`, below) carries a `Lenses: could not be evaluated` line, the remedy
+  is instead to fix the lens on the base branch, then `/gantry:ship` — re-running review does not
+  clear it. Never merge one anyway, and never write a level for it.
 
 Then read each candidate's contract — a gantry PR body carries `## What this change is for`,
 `## Deliberately not done` and `## Not proven by this run`, and those are what you resolve conflicts
