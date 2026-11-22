@@ -198,7 +198,12 @@ reviewing itself — the weakest possible reviewer. The phase skill still carrie
      ```
 
      Read `GATE_EXIT:` from its lines and treat it as `implement` treats the gate: non-zero →
-     stop and hand the failure to the user. A launcher exit of `1` or `3` → stop with `REASON:`.
+     stop and hand the failure to the user. A launcher exit of `1` or `3` **from the review
+     child** → stop with `REASON:`. From the **fix child** it is not on its own a stop: it was
+     killed or timed out, the tree may hold half its edits, and `review.md` may or may not carry an
+     `applied:` line. Still read `GATE_EXIT:` and `detect_stage.sh`'s `STATUS:` — a non-zero gate
+     or `STATUS:blocked` stops as above. Only otherwise keep the `REASON:` for the report and
+     go on to stage 5c, which gates and re-reviews the tree.
    - `clean` → the review found nothing in scope to fix. Say so and launch nothing.
    - `partial` → as `clean`: nothing in scope to fix, launch nothing — but the report says review
      coverage was reduced by a guard block, quoting the `Guard blocks:` line. Ship puts it under *Not proven*.
@@ -242,6 +247,53 @@ Read `bash "$GANTRY/lib/detect_stage.sh"` afterwards and route on `QA:`:
 
 If the phase reported **flow files**, it has already asked you (or the lead) whether to keep them;
 relay the decision in the report. A kept flow is committed by ship with the change.
+
+## Stage 5c — Re-review before ship
+
+Ship publishes `Risk level:` only from a `review.md` that `lib/review_fresh.sh` calls fresh; for a
+stale one it writes `unassessed` and `/gantry:integrate` skips the PR. The tree moves after stage
+5's review when the fix child was killed or timed out, when `qa --fix` edited code, or when fixes
+were applied by hand. This stage restores a current level.
+
+```bash
+bash "$GANTRY/lib/review_fresh.sh"
+```
+
+**Gate first, before routing on the result**, when the fix child did not finish cleanly (whatever
+`FRESH:` says) or on any `FRESH:stale` (hand edits and `qa --fix` move the tree too):
+`bash "$GANTRY/lib/run_gates.sh"`; red → stop and hand the failure to the user (remove the
+`lead:` line first under `--lead`). Neither a green review nor `unassessed` may ship edits nobody
+gated.
+
+- `FRESH:yes` → go to stage 6. `FRESH:absent` or `FRESH:error` → not this stage's case; ship
+  writes `unassessed` as it does today.
+- `FRESH:stale` → **re-review once**:
+  1. The gate above has run over this tree and is green.
+  2. Do it **once per run**, failure included: if a re-review already ran or failed in this
+     session, **or `.claude/artifacts/review-first.md` already exists** (a resumed session loses
+     the first), go to stage 6.
+  3. Copy `review.md` to `.claude/artifacts/review-first.md` — the relaunch overwrites it. Never
+     overwrite an existing `review-first.md`.
+  4. Launch the read-only child, same `--model`, `--effort` and `--plugin-dir` as stage 5, with
+     `run_in_background`:
+
+     ```bash
+     bash "$GANTRY/lib/run_phase_headless.sh" --phase review --root <worktree> --tier medium
+     ```
+
+     **Never launch `review-fix` after it.** Its findings are disclosed, not applied.
+  5. Whenever the child wrote a new `review.md` (it differs from `review-first.md`) — whatever its
+     exit and whatever the freshness — and `detect_stage.sh` says `REVIEW:pending`, invoke
+     `gantry:handover` to carry each unapplied `## Address now` item into `handover.md` (it
+     appends), noting they come from the pre-ship re-review and were not applied; ship quotes
+     `handover.md`, `review.md`'s findings it does not.
+  6. Launcher exit `1`, `2` or `3` → not a stop: copy `.claude/artifacts/review-first.md` back over
+     `review.md` (a child that died after writing it left a fresh `diff:` token, and ship would
+     publish an incomplete review's level), carry the `REASON:` to the report and go to stage 6,
+     where ship writes `unassessed`. `STATUS:blocked` after exit `0` → stop and surface it.
+  7. **Re-run `review_fresh.sh` — that is the success test**, not exit `0`, which a child that
+     wrote nothing also earns. Still stale → the one re-review is spent; ship writes `unassessed`
+     and the report says why.
 
 ## Stage 6 — Ship
 
@@ -289,7 +341,9 @@ were met — which is not the same as the hook having run, since registration is
 detector. Which review tier ran, plainly named. **The QA outcome** — `no-agent`, `unrunnable` with
 its reason, `no-scenarios`, or `exercised` with one verdict per scenario and the agent's `tools:`
 line — whether `qa --fix` changed anything after the review, and what was decided about any flow
-files. What was deferred and the `handover.md` path if there is one. The commit, the push, and the
+files. Whether stage 5c re-reviewed a stale `review.md` (tier medium, session id, findings disclosed in
+`handover.md`, none applied) and whether ship will publish a current `Risk level` or `unassessed`,
+and why. What was deferred and the `handover.md` path if there is one. The commit, the push, and the
 PR URL.
 
 Under `--lead`, also report every question sent to the lead, each reply's classification from

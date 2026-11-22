@@ -23,6 +23,7 @@ One chain of phases, three ways to run it.
 | A failing scenario | you decide | triaged; stop on `blocked` | triaged, deferred; `blocked` only on an acceptance criterion observably false |
 | Stops | after every phase | a grill conversation, then nothing | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
+| Stale review before ship | n/a | one read-only re-review, tier medium (stage 5c) | same, journaled; findings disclosed in `handover.md`, never applied |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict --fast` (implement, review-fix) |
 | No checks found | continue, flagged | continue, flagged | **refuse to ship** (exit 3) |
 | PR | ready | **draft** | **draft** |
