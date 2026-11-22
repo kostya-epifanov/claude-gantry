@@ -23,6 +23,7 @@ One chain of phases, three ways to run it.
 | A failing scenario | you decide | triaged; stop on `blocked` | triaged, deferred; `blocked` only on an acceptance criterion observably false |
 | Stops | after every phase | a grill conversation, then nothing | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
+| Stale review before ship | n/a | one read-only re-review, tier medium (stage 5c) | same, journaled; findings disclosed in `handover.md`, never applied |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict --fast` (implement, review-fix) |
 | No checks found | continue, flagged | continue, flagged | **refuse to ship** (exit 3) |
 | PR | ready | **draft** | **draft** |
@@ -216,7 +217,7 @@ absorb what review turned up is how a focused diff becomes an unreviewable one.
 the base, a fingerprint of the diff from `lib/diff_fingerprint.sh`, the source that ran, the tier,
 the two tallies, an `applied:` line carrying the post-fix `diff=` once fixes are applied, and the address-now findings (file, line, what is wrong, the failure) — or
 `None.`, so the fix step can tell "reviewed, nothing to apply" from "never reviewed".
-`lib/detect_stage.sh` reports it as `REVIEW:absent|pending|applied|clean`, and a `reviewed` task
+`lib/detect_stage.sh` reports it as `REVIEW:absent|pending|applied|clean|partial`, and a `reviewed` task
 whose file is still `pending` stays at the fix step rather than moving to ship. `lib/review_fresh.sh`
 is the freshness check `--fix` and `gantry:ship` share: a review of an older diff is a missing one, so ship
 publishes `Risk level: unassessed`.

@@ -244,6 +244,15 @@ write_review() {  # write_review <repo> <pending|clean|applied|noheading|garbage
     none-prefix) printf '# Review\nbranch: b\n\n## Address now\nNone of these are safe to skip:\n- `a.sh:3` — wrong. Failure: x.\n' ;;
     none-bold)   printf '# Review\n\n## Address now\n\n**None.**\n' ;;
     clean-risk)  printf '# Review\n\n## Address now\n\nNone.\n\n## Risk\nRisk level: high\nBlast radius:\n- Breaks if wrong: x\n- Live after merge: yes\n- Rollback: revert\n\n## Lens: security\nfloor: critical\n- Open risk: `bin/x` widens a permission.\n### What to look at\n- `bin/x`: the sudo line\n' ;;
+    partial)   printf '# Review\nbranch: b\ntallies: returned=0 verified=0 address-now=0 deferred=0 dropped=0\nGuard blocks: `git -C x probe` — blocked by the guard\n\n## Address now\n\nNone.\n' ;;
+    partial-bold) printf '# Review\nbranch: b\n**Guard blocks**: `rm x` — blocked\n\n## Address now\n\nNone.\n' ;;
+    guard-none)  printf '# Review\nbranch: b\nGuard blocks: none\n\n## Address now\n\nNone.\n' ;;
+    guard-none-bold) printf '# Review\nbranch: b\nGuard blocks: **none**.\n\n## Address now\n\nNone.\n' ;;
+    guard-none-em)   printf '# Review\nbranch: b\nGuard blocks: _none_.\n\n## Address now\n\nNone.\n' ;;
+    guard-empty) printf '# Review\nbranch: b\nGuard blocks:\n\n## Address now\n\nNone.\n' ;;
+    guard-in-body) printf '# Review\nbranch: b\n\n## Address now\n\nNone.\n\n## Risk\nRisk level: low\nGuard blocks: quoted from a finding, not a header\n' ;;
+    guard-pending) printf '# Review\nbranch: b\nGuard blocks: `x` — blocked\n\n## Address now\n- `a.sh:3` — wrong. Failure: x.\n' ;;
+    guard-applied) printf '# Review\nbranch: b\nGuard blocks: `x` — blocked\n\n## Address now\n- `a.sh:3` — wrong.\n\napplied: 2026-10-22T10:00:00Z gate=0\n' ;;
     noheading) printf '# Review\nbranch: b\n\nprose only, no section\n' ;;
     garbage)   printf '\000\001 not markdown at all' ;;
   esac >"$1/review.md"
@@ -267,6 +276,27 @@ run_stage "$rv"
 assert_contains "$STAGE_OUT" "REVIEW:clean" "None. under Address now reports clean"
 assert_contains "$STAGE_OUT" "PHASE:ship" "reviewed plus a clean file is ship"
 assert_contains "$STAGE_OUT" "NEXT:/gantry:ship" "and NEXT agrees"
+
+write_review "$rv" partial
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:partial" "a clean Address now with a Guard blocks header line reports partial"
+assert_contains "$STAGE_OUT" "PHASE:ship" "partial routes to ship like clean"
+assert_contains "$STAGE_OUT" "NEXT:/gantry:ship" "and NEXT agrees"
+write_review "$rv" partial-bold
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:partial" "a bold-wrapped Guard blocks header line still reports partial"
+for g in guard-none guard-none-bold guard-none-em guard-empty guard-in-body; do
+  write_review "$rv" "$g"
+  run_stage "$rv"
+  assert_contains "$STAGE_OUT" "REVIEW:clean" "$g is not a guard block: stays clean"
+done
+write_review "$rv" guard-pending
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:pending" "findings plus a Guard blocks line stay pending"
+assert_contains "$STAGE_OUT" "PHASE:review" "so the fix step still runs"
+write_review "$rv" guard-applied
+run_stage "$rv"
+assert_contains "$STAGE_OUT" "REVIEW:applied" "an applied: last line wins over a Guard blocks line"
 
 write_review "$rv" applied
 run_stage "$rv"
