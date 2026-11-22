@@ -146,7 +146,9 @@ assert_contains "$out" "PROBE:unavailable" "and says PROBE:unavailable"
 assert_not_contains "$out" "PROBE_DIR:" "and prints no PROBE_DIR"
 out="$(cd "$repo" && bash "$PC" create --base no-such-ref 2>/dev/null)"; rc=$?
 assert_rc 3 "$rc" "an unresolvable --base exits 3"
-[ -z "$(ls "$TMPDIR" | grep '^gantry-probe\.')" ] && _pass "a failed create leaves no temp directory" || _fail "a failed create leaked: $(ls "$TMPDIR")"
+leaked=""
+for d in "$TMPDIR"/gantry-probe.*; do [ -e "$d" ] && leaked="$leaked $d"; done
+[ -z "$leaked" ] && _pass "a failed create leaves no temp directory" || _fail "a failed create leaked:$leaked"
 
 out="$(cd "$CASE_TMP" && bash "$PC" create 2>&1)"; rc=$?
 assert_rc 2 "$rc" "outside a repo is a usage error"
