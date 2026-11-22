@@ -88,8 +88,9 @@ bash "$GANTRY/lib/detect_stage.sh"
 - `--fix` + `REVIEW:pending` + any other status → **stop.** A findings file without a `reviewed`
   status means the review that wrote it did not finish (it died after writing the file and before
   writing the status). Name `/gantry:review` so it runs again from the start.
-- `--fix` + `REVIEW:applied` or `REVIEW:clean` → nothing is pending. Say so — the file is either
-  already applied or records that there was nothing to apply — and name `/gantry:ship`. Stop.
+- `--fix` + `REVIEW:applied`, `REVIEW:clean` or `REVIEW:partial` → nothing is pending. Say so — the file is either
+  already applied or records that there was nothing to apply — and name `/gantry:ship`. Stop. On `partial`,
+  also say review coverage was reduced by a guard block (the `Guard blocks:` line).
 - `--fix` + `REVIEW:absent` → the ordinary path: review, then fix, in this run.
 - no `--fix`, any `REVIEW:` value → review. An existing `review.md` is a previous review's and is
   **overwritten** in step 4b; this run supersedes it.
@@ -295,7 +296,7 @@ flips `REVIEW:pending` with nothing to fix. An attempt to get around a guard is 
 review itself: step 3 does not drop it for naming no file, and it is kept out of `## Address now` but
 always written down. Put every block and every attempt in the report, and add one `Guard blocks:` line
 to `review.md`'s header, after `tallies:`, naming the command and the block message (or the attempt).
-Leave the line out when nothing was blocked or attempted. If the reviewer reports that a workaround got
+Leave the line out when nothing was blocked or attempted. A block that leaves `## Address now` reading `None.` is not a clean review: `lib/detect_stage.sh` reports it as `REVIEW:partial` (nothing to fix, but coverage was reduced), and ship quotes the line under *Not proven by this run*. If the reviewer reports that a workaround got
 through, set `status: blocked` and hand over: a guard was defeated during this review.
 
 ### 3. Verify every finding before it counts as one
@@ -424,7 +425,7 @@ printed — every one of them**. When this lens's section exists and the script 
 `LENS_IN_DIFF:` line, add a line here naming the lens file this diff changed — "judged by the base's
 lenses" for a line with a level, "no-base-lens: nothing judged it" for `no-base-lens`. The `## Risk`
 line from step 2b is written either way. None of these
-sections changes `REVIEW:` — the detector reads only *Address now* and the last line.
+sections changes `REVIEW:` — the detector reads *Address now*, the last line, and the `Guard blocks:` header line (`REVIEW:partial`).
 
 No `session:` line, deliberately: a child cannot read its own session id, and the launcher already
 reports it from the child's JSON result.
@@ -555,4 +556,4 @@ risk, verbatim.
 Whether `--fix` was given, and whether this was apply mode. Without `--fix`, say plainly that
 nothing was edited and name what would have been. With it, the gate's exit code. The `review.md`
 path and the `REVIEW:` value the detector now reports; the `handover.md` path if one was written.
-End by naming the next command: `/gantry:review --fix` while `REVIEW:pending`, else `/gantry:ship`.
+End by naming the next command: `/gantry:review --fix` while `REVIEW:pending`, else `/gantry:ship`. On `REVIEW:partial`, say plainly that a guard reduced review coverage.

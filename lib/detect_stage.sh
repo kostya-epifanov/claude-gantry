@@ -20,7 +20,7 @@
 #                              why every uncertain case degrades to `present`.
 #   PLAN:present|absent        plan.md at ROOT
 #   HANDOVER:present|absent    handover.md at ROOT
-#   REVIEW:absent|pending|applied|clean
+#   REVIEW:absent|pending|applied|clean|partial
 #                              review.md at ROOT — the findings gantry:review recorded as in
 #                              scope to fix, and whether the fix step still has work to do.
 #                              See review_state() for the rules.
@@ -629,6 +629,15 @@ task_is_inherited() {
 #             first non-blank line is exactly `None` — a trailing period, a
 #             bullet marker and bold wrappers tolerated. Not merely a line that
 #             starts with it: "None of these are safe to skip: …" is a finding.
+#   partial   `clean` by the rule above, but a header line before the Address now
+#             heading reads `Guard blocks: <text>` (bold wrappers tolerated) with
+#             non-empty text other than `none`: a guard blocked the reviewer, so a
+#             clean Address now means "checked less than usual", not "nothing
+#             wrong". Routes exactly like clean (nothing to fix, PHASE:ship); the
+#             value exists so the disclosure is not lost. Only evaluated when the
+#             verdict is clean, so findings plus a guard block stay `pending`, and
+#             `applied` (checked first) stays `applied`. Header lines only: the
+#             same words quoted in a finding or a Risk section do not count.
 #   pending   anything else — INCLUDING a file with no such heading, or one that
 #             will not parse at all.
 #
@@ -651,11 +660,18 @@ review_state() {
     function trim(s) {
       sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s
     }
-    BEGIN { insec = 0; found = 0; verdict = "pending"; decided = 0 }
+    BEGIN { insec = 0; found = 0; verdict = "pending"; decided = 0; guard = 0; seen_addr = 0 }
     {
       line = $0
       sub(/\r$/, "", line)
       b = trim(line)
+      if (!seen_addr && b ~ /^[*_]*[Gg]uard [Bb]locks[*_]*:/) {
+        g = b
+        sub(/^[*_]*[Gg]uard [Bb]locks[*_]*:/, "", g)
+        gsub(/^[*_[:space:]]+/, "", g); gsub(/[*_[:space:]]+$/, "", g)
+        sub(/\.$/, "", g); gsub(/[*_[:space:]]+$/, "", g)
+        if (g != "" && tolower(g) != "none") guard = 1
+      }
       if (b ~ /^#+([[:space:]]|$)/) {
         h = b
         sub(/^#+[[:space:]]*/, "", h)
@@ -663,7 +679,7 @@ review_state() {
         h = trim(h)
         sub(/:+$/, "", h)
         gsub(/^[*_]+/, "", h); gsub(/[*_]+$/, "", h)
-        if (tolower(trim(h)) == "address now") { insec = 1; found = 1 }
+        if (tolower(trim(h)) == "address now") { insec = 1; found = 1; seen_addr = 1 }
         else { insec = 0 }
         next
       }
@@ -678,7 +694,11 @@ review_state() {
       if (tolower(trim(t)) == "none") { verdict = "clean" } else { verdict = "pending" }
       decided = 1
     }
-    END { if (!found) print "pending"; else print verdict }
+    END {
+      if (!found) print "pending"
+      else if (verdict == "clean" && guard) print "partial"
+      else print verdict
+    }
   ' "$f" 2>/dev/null
 }
 
