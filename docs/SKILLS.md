@@ -254,7 +254,8 @@ uncommitted at this point and a three-dot range would come back empty.
   `implementing`.
 - **Invokes:** `gantry:handover` for everything deferred, with or without `--fix`.
 - **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`;
-  `lib/review_fresh.sh`; `lib/risk_floor.sh`.
+  `lib/review_fresh.sh`; `lib/risk_floor.sh`; `lib/probe_clone.sh`, for the throwaway clone
+  reviewers run their probes in.
 - **Shared:** its verify, triage and hand-over steps (3, 4 and 6) are the ones `qa` applies to a
   failing scenario, by reference — one procedure, two phases.
 

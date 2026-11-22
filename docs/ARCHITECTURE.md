@@ -26,7 +26,8 @@ gantry/
 │   ├── run_phase_headless.sh  a phase in a fresh `claude -p` child → labeled lines + exit code
 │   ├── diff_fingerprint.sh  one token for the diff (content-keyed, same before and after a commit)
 │   ├── review_fresh.sh      does review.md still describe this branch and diff? ship and review --fix share it
-│   └── risk_floor.sh        which review lenses a diff fires, read from the base ref — no model
+│   ├── risk_floor.sh        which review lenses a diff fires, read from the base ref — no model
+│   └── probe_clone.sh       the throwaway clone a review's probes run in — reduced coverage when it cannot be made
 ├── agents/gantry-*.md       → the delegation roster    (3)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
 └── examples/
@@ -195,10 +196,12 @@ read-only by tool list, and a review child needs to write three artifacts, so th
 not apply. Instead the launcher runs the review child under `--permission-mode dontAsk
 --permission-prompts none`, where everything that would prompt is denied, plus `--allowedTools`
 naming exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`, `handover.md`
-and `task.md`, `Skill(gantry:handover)`, and Bash rules for six read-only gantry scripts:
-`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh`, `diff_fingerprint.sh`, `review_fresh.sh` and
+and `task.md`, `Skill(gantry:handover)`, and Bash rules for seven gantry scripts:
+`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh`, `diff_fingerprint.sh`, `review_fresh.sh`,
 `risk_floor.sh` (the review-lens matcher, added in 0.8.0 so the child can decide which lenses fire
-and read a lens's body from the base ref without a `git show` rule of its own). The forms were
+and read a lens's body from the base ref without a `git show` rule of its own) and `probe_clone.sh`
+(makes and removes the throwaway clone review probes run in, BASE-466; it writes only to a temp
+directory of its own). The forms were
 probed on CLI 2.1.270 and corrected after the first real runs: an `Edit(<file>)` rule governs the
 Write tool too, but its relative form resolves against the child's *current* directory, and a `cd`
 inside one Bash call persists — a child that had wandered into a sub-package was denied the write
