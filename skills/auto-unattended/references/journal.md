@@ -122,13 +122,21 @@ orchestrator's own: `contract`, `plan`, `critique`, `implement`, `gate`, `review
 ### `gate` — a gate decision
 
 ```json
-{"ts":"2026-08-16T09:52:10Z","task":"2026-08-16-contact-form","event":"gate","result":"fail","exit":1,"attempt":1,"checks":["lint","test"],"coverage":{"roots":["app"],"verdict":"no-overlap","changed":3,"covered":0,"heuristic":true},"artifacts":[".claude/artifacts/gate-1.log"]}
+{"ts":"2026-08-16T09:52:10Z","task":"2026-08-16-contact-form","event":"gate","result":"fail","exit":1,"attempt":1,"checks":["lint","test"],"gate_mode":"fast","seconds":48,"coverage":{"roots":["app"],"verdict":"no-overlap","changed":3,"covered":0,"heuristic":true},"artifacts":[".claude/artifacts/gate-1.log"]}
 ```
 
 - `result` — `pass` | `fail` | `no-gates`, mirroring the gate script's exit code
   (`0` / `1`+ / `3` under `--strict`).
 - `exit` — the literal exit code, so the log survives a change in vocabulary.
 - `attempt` — 1-based; increments on each unattended fix-and-retry.
+- `gate_mode` — `fast` | `full`, from the gate's `== gate mode=… seconds=… ==` line: the mode
+  **handed to** the gate. The unattended chain's implement and review-fix gates run
+  `run_gates.sh --strict --fast`; a repo-owned `.claude/gates.sh` reads `GANTRY_GATE_MODE` and
+  decides what fast means, so `fast` is not proof anything was narrowed. With no `.claude/gates.sh`
+  the line says `mode=full requested=fast` and `full` is what is journaled. Absent on a line that
+  predates the field.
+- `seconds` — the gate's wall time from the same line, an integer. Absent on a line that predates
+  it.
 - `coverage` — what the gate actually read, from `lib/gate_coverage.sh` via the implement phase's
   report. See below; omit the key entirely on a run that predates it rather than inventing one.
 - `artifacts` — paths to captured output. Paths, not logs: the journal stays skimmable.
@@ -166,7 +174,7 @@ here.
 {"ts":"2026-08-16T09:48:02Z","task":"2026-08-16-contact-form","event":"decision","stage":"plan","question":"proceed with this plan?","answer":"proceed; use the existing /api/contact handler rather than a new route"}
 ```
 
-- `stage` — where the checkpoint sat: `plan` (after the plan) or `review` (before ship).
+- `stage` — where the checkpoint sat: `plan` (after the plan).
 - `question` / `answer` — one line each, in the user's terms. Record what was *decided*, not the
   full option list you rendered.
 

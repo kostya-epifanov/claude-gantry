@@ -45,6 +45,7 @@ journal_append.sh --task <id> --event <stage|phase|gate|decision|escalation|disc
                [--agent <name> ...] [--artifact <path> ...] [--session <id>]
   gate:        --result <pass|fail|no-gates> --exit <n> [--attempt <n>]
                [--check <name> ...] [--artifact <path> ...]
+               [--gate-mode <fast|full>] [--seconds <n>]
                [--coverage-verdict <v> --coverage-changed <n> --coverage-covered <n>
                 [--coverage-root <path> ...]]
   decision:    --stage <name> --question <text> --answer <text>
@@ -71,7 +72,7 @@ command -v jq >/dev/null 2>&1 || die "jq is required but was not found on PATH"
 TASK='' EVENT='' FILE=''
 FROM='' TO='' MODE='' PHASE='' RESULT='' SUMMARY='' STAGE=''
 QUESTION='' ANSWER='' REASON='' STATUS='' EXIT_CODE='' ATTEMPT='' KIND='' PR='' SESSION=''
-COV_VERDICT='' COV_CHANGED='' COV_COVERED=''
+COV_VERDICT='' COV_CHANGED='' COV_COVERED='' GATE_MODE='' SECONDS_TAKEN=''
 AGENTS=() ARTIFACTS=() CHECKS=() DETAILS=() COV_ROOTS=()
 SET_FLAGS=' '
 
@@ -109,6 +110,8 @@ while [ "$#" -gt 0 ]; do
     --exit)     need_value "$1" "$#"; EXIT_CODE="$2"; mark exit;     shift 2 ;;
     --attempt)  need_value "$1" "$#"; ATTEMPT="$2";   mark attempt;  shift 2 ;;
     --session)  need_value "$1" "$#"; SESSION="$2";   mark session;  shift 2 ;;
+    --gate-mode) need_value "$1" "$#"; GATE_MODE="$2"; mark gate-mode; shift 2 ;;
+    --seconds)  need_value "$1" "$#"; SECONDS_TAKEN="$2"; mark seconds; shift 2 ;;
     --agent)    need_value "$1" "$#"; AGENTS[${#AGENTS[@]}]="$2";       mark agent;    shift 2 ;;
     --artifact) need_value "$1" "$#"; ARTIFACTS[${#ARTIFACTS[@]}]="$2"; mark artifact; shift 2 ;;
     --check)    need_value "$1" "$#"; CHECKS[${#CHECKS[@]}]="$2";       mark check;    shift 2 ;;
@@ -144,7 +147,7 @@ case "$EVENT" in
   # 0.7.0), so a reader can `claude --resume` it. Only a phase has one.
   phase)      REQUIRED='phase result';          PERMITTED='phase result summary agent artifact session' ;;
   gate)       REQUIRED='result exit'
-              PERMITTED='result exit attempt check artifact coverage-verdict coverage-root coverage-changed coverage-covered' ;;
+              PERMITTED='result exit attempt check artifact coverage-verdict coverage-root coverage-changed coverage-covered gate-mode seconds' ;;
   decision)   REQUIRED='stage question answer'; PERMITTED='stage question answer' ;;
   escalation) REQUIRED='stage reason status';   PERMITTED='stage reason status detail' ;;
   disclosure) REQUIRED='stage kind detail';     PERMITTED='stage kind detail pr' ;;
@@ -190,6 +193,20 @@ is_int() {  # a bare integer, optionally negative; "1-2" and "" are not integers
 }
 if was_set exit;    then is_int "$EXIT_CODE" || die "--exit must be an integer, got: $EXIT_CODE"; fi
 if was_set attempt; then is_int "$ATTEMPT"   || die "--attempt must be an integer, got: $ATTEMPT"; fi
+# `gate_mode` mirrors run_gates.sh's timing line: the mode HANDED to the gate,
+# not proof a repo-owned gate narrowed anything. `seconds` is that line's
+# wall time, so it is never negative.
+if was_set gate-mode; then
+  case "$GATE_MODE" in
+    fast|full) ;;
+    *) die "--gate-mode must be fast or full, mirroring run_gates.sh's timing line, got: $GATE_MODE" ;;
+  esac
+fi
+if was_set seconds; then
+  case "$SECONDS_TAKEN" in
+    ''|*[!0-9]*) die "--seconds must be a non-negative integer, got: $SECONDS_TAKEN" ;;
+  esac
+fi
 
 # --- the gate event's coverage object ----------------------------------------
 #
@@ -298,6 +315,9 @@ case "$EVENT" in
     if was_set attempt; then FILTER="$FILTER+{attempt:\$attempt}"; set -- "$@" --argjson attempt "$ATTEMPT"; fi
     FILTER="$FILTER+{checks:\$checks}"
     set -- "$@" --argjson checks "$checks_json"
+    # Both absent, not null, when not given — a line that predates the fields.
+    if was_set gate-mode; then FILTER="$FILTER+{gate_mode:\$gate_mode}"; set -- "$@" --arg gate_mode "$GATE_MODE"; fi
+    if was_set seconds;   then FILTER="$FILTER+{seconds:\$seconds}";     set -- "$@" --argjson seconds "$SECONDS_TAKEN"; fi
     # The key is absent, not null, on a run that measured nothing — the shape
     # references/journal.md documents for a line that predates the field.
     if was_set coverage-verdict; then

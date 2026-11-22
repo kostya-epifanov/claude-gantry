@@ -23,7 +23,7 @@ each earlier state makes the later ones unreadable:
 
 | `NEXT:` | What happened | What to do |
 |---|---|---|
-| `finish-merge` | `MERGE_HEAD` exists: a session died mid-conflict | **AskUserQuestion** first. Then `git merge --abort`, and reset to that PR's pre-merge ref if one is left. Re-queue the PR. |
+| `finish-merge` | `MERGE_HEAD` exists: a session died mid-conflict | **AskUserQuestion** first (`--unattended`: rule `finish-merge`, no question). Then `git merge --abort`, and reset to that PR's pre-merge ref if one is left. Re-queue the PR. |
 | `verify` | A pre-merge ref survives on a merge that **is** in the tree: its gate never went green | Run the gate **before merging anything else**. Green: delete the ref. Red: it enters the fix loop with a fresh budget of 2, and the report says so. |
 | `merge-base` | The base branch has moved | Merge base into the lane, then gate, before any PR. |
 | `merge-items` | Nothing outstanding | Work the queue. |
@@ -40,7 +40,8 @@ worktree, so two lanes sharing one `refs/integrate/pre/21` would mean each delet
 undo ref. The paths below spell the lane out for that reason.
 
 A `rewritten` item is the one state that never resolves itself: the commits already merged are not
-in the PR's history any more. **Ask.** Merging the new head on top leaves both tellings of the same
+in the PR's history any more. **Ask** (`--unattended`: rule `rewritten`, set `status: blocked`, name it and stop — a skip would
+leave its earlier merge in the lane). Merging the new head on top leaves both tellings of the same
 change in the tree, and neither the author nor the reviewer asked for that.
 
 **None of this is read from the conversation.** A resumed run is usually a different session; the
@@ -98,7 +99,10 @@ body states it under `## What this change is for`, and any PR has a title, a dif
   table row order follows whatever the file already sorts by.
 - **A version bump both PRs made is a real decision.** Take the higher one only when the change is
   additive both ways. Otherwise it is a question.
-- **When the two intents do not settle it, ask** — AskUserQuestion, with what each option costs.
+- **When the two intents do not settle it, ask** — AskUserQuestion (`--unattended`: rule `conflict`), with what each option costs.
+  With no one to ask under `--unattended`: reset the merge out under the reset
+  guard below, delete its pre-merge ref, record `unresolved-conflict (unattended)` under `## Skipped`,
+  and skip every queued PR stacked on it — the same procedure as a red gate, with a different reason.
   Never a plain-text question: a question asked in prose ends the turn, and a turn that ends
   mid-merge meets the readiness hook on a tree full of conflict markers.
 
@@ -141,7 +145,7 @@ git reset --hard refs/integrate/integration/<date>/pre/21
 the remote tip is an ancestor of the pre-merge ref — that is, when nothing published is being
 discarded. A published merge is never reset and never reverted: reverting it would leave the source
 PR's commits reachable, so GitHub would still mark that PR merged while its change is gone. Stop
-and ask instead.
+and ask instead (`--unattended`: rule `published-reset`, set `status: blocked` and stop).
 
 Then delete the pre-merge ref, because the merge it guarded is gone:
 
@@ -182,6 +186,9 @@ unhelpful when the skill has decided to stop *because* something is wrong.
 So **set `status: blocked` before any deliberate stop** — a red baseline, a gate exit `2`, a
 rewritten PR nobody has ruled on, a reset that cannot be made safely. The status is the record of
 why the run ended, and it stops the hook from arguing with a decision the skill already made.
+Under `--unattended`, also write `integrate-stop.txt` with the rule, reason and date (SKILL.md,
+*Where the run leaves a record*): `status: blocked` holds no reason, and the next run's `lane` stop
+reads the record back.
 
 ## Base moved
 
@@ -189,7 +196,11 @@ why the run ended, and it stops the hook from arguing with a decision the skill 
 git -c rerere.enabled=true -c merge.conflictStyle=zdiff3 merge --no-ff origin/<BASE>
 ```
 
-Merge base into the lane, then gate. **Never rebase the lane** — once it has been pushed, a rebase
+Merge base into the lane, then gate. A conflict here is resolved from intent like any other — the
+base's side is whatever landed on `<BASE>`. Under `--unattended` (rule `conflict`) there is no PR to
+skip, so a conflict the intents do not settle is `git merge --abort`, `status: blocked`, and a stop.
+
+**Never rebase the lane** — once it has been pushed, a rebase
 breaks every merge-commit sha the PR body and the source-PR comments already name, and anyone who
 pulled it has to recover by hand. A lane that has never been pushed is not a special case worth a
 second procedure.

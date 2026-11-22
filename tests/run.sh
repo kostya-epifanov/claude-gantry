@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# tests/run.sh — runs every case in cases/, one section each, and exits
+# tests/run.sh — runs every case in cases/ (and any tests/test_*.sh), one section each, and exits
 # non-zero if any assertion failed.
 #
 # The suite exists because gantry's whole claim is that a guarantee belongs in
@@ -33,7 +33,7 @@ selects_case() {  # selects_case <name> — no filters means run everything
   return 1
 }
 
-for case_file in "$TESTS_DIR"/cases/*.sh; do
+for case_file in "$TESTS_DIR"/cases/*.sh "$TESTS_DIR"/test_*.sh; do
   [ -f "$case_file" ] || continue
   name="$(basename "$case_file" .sh)"
   selects_case "$name" "$@" || continue

@@ -17,7 +17,14 @@
 # bearing is exempt, because none of it produces a `<br>`: fenced code, table
 # rows, headings, thematic breaks, raw HTML, and one list item following
 # another. A line ending in two spaces or a backslash asked for the break and is
-# left alone. Blockquote markers are stripped before any of this is decided, so
+# left alone.
+#
+# The `## Risk` block's labeled lines are structure too. Since 0.8.0 ship writes
+# `Risk level:`, an optional `Floor:` and `Lenses:`, then `Blast radius:`, one
+# per line, directly under the heading — a shape a CI check in the target repo
+# parses, and one where the `<br>` GitHub renders between them is wanted. Only
+# those four labels, at the start of a line, are exempt; any other prose line
+# is still judged as prose, so a wrapped sentence beside them still fails. Blockquote markers are stripped before any of this is decided, so
 # a quoted list is judged as the list it is.
 #
 # Exit codes: 0 = no spurious break · 1 = at least one, listed on stdout
@@ -44,6 +51,7 @@ printf '%s\n' "$body" | awk '
     if (t ~ /^[ \t]*\|/)                     return "structure"   # table row
     if (t ~ /^ {0,3}([-*_])([ \t]*\1){2,}[ \t]*$/) return "structure"  # rule
     if (t ~ /^ {0,3}</)                      return "structure"   # raw HTML
+    if (t ~ /^(Risk level|Floor|Lenses|Blast radius):/) return "structure"  # the ## Risk block
     if (t ~ /^[ \t]*([-*+]|[0-9]+[.)])[ \t]+/) return "item"
     return "prose"
   }

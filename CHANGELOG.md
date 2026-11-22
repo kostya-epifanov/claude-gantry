@@ -2,26 +2,188 @@
 
 ## Unreleased
 
-**A first eval suite scores `gantry-critic` and `gantry-reviewer` instead of reading them.**
-`tests/` proves that the scripts keep their exit-code guarantees and says nothing about whether the
-agents produce good work: every edit to an agent's prose so far has been judged by reading the
-prompt, which is an opinion about a prompt rather than a measurement of its output. `evals/` holds
-five `claude plugin eval` cases — two seeded and one control for the critic, one seeded and one
-control for the reviewer. Each seeded case plants a defect with a known right answer (a plan step
-calling a helper the source does not have, an acceptance criterion no step touches, a stale caller
-outside the diff) and its grader names that defect, so it fails when the defect is not reported. A
-control's grader names the absence of one, so an agent that always finds something is caught. No
-case needs `--allow-tools` or a scaffold script, and every case declares a turn and time bound, so
-a full run has a known cost ceiling. It is a floor, not a benchmark, and the instrument for the
-later topology questions that need a score to answer.
+- **`lib/risk_floor.sh` understands `**/<name>` floor keys** (BASE-371). A key such as `**/pyproject.toml` or `**/conftest.py` used to be compared as an exact path and never matched, so ship floored `bot/pyproject.toml` lower than CI's pr-risk check and wrote a `Risk level:` CI rejected. `**/<name>` now matches `<name>` at the repo root or at any depth, in both the lens matcher and the lens-file floor, so `FILE:` lines, `FLOOR:`, the lens trigger and `## Guarded changes` agree with CI. Documented in the script header, `skills/review/SKILL.md` and `docs/SKILLS.md`. Tested in `tests/cases/risk_floor.sh`.
+- **`gantry:ship` publishes `Risk level: unassessed` when `risk_floor.sh` exits 2** (BASE-364). A malformed lens, or a script that could not run, used to leave the level to the review alone, so a broken lens plus a low review shipped `low` with no floor and no `guarded` label, and integrate would merge it. It now fails closed exactly as when no review ran: integrate skips the PR until the lens is fixed on the base branch (lenses are read from the base ref) and ship runs again. Wording-only, in `skills/ship/SKILL.md`, `skills/integrate/SKILL.md` and `docs/SKILLS.md`.
+- **Review probes run in a throwaway clone, never in the real worktree** (BASE-466, BASE-392 part 2). New `lib/probe_clone.sh`: `create [--base <ref>]` makes a `git clone --local --no-hardlinks` of the worktree under review (never `--shared`) in a temp directory, applies the uncommitted tracked changes and the untracked files, drops the remote and records `<BASE>`, and prints `PROBE_DIR:<path>`; `remove <path>` deletes it, and each `create` sweeps clones older than a day. `gantry:review` makes it once (step 2a) and hands the path to the source-2 reviewer and every lens reviewer, removes it before the status is written, and when it cannot be made records `Probe coverage: reduced coverage` and tells reviewers to run no probe; it never falls back to the real worktree. `gantry-reviewer` runs every probe only in the clone path it is given. Not covered: source 1 (`/code-review`'s own finders take no brief), and a sub-agent that ignores the rule. The headless launcher allowlists `probe_clone.sh`. Tested in `tests/cases/probe_clone.sh`.
+- **A lens file in the diff is guarded on its own** (BASE-365). `lib/risk_floor.sh` now prints `LENS_IN_DIFF:<path> <level>` — the strictest level any base lens assigns the path — or `LENS_IN_DIFF:<path> critical no-base-lens` when no base lens covers it, including a base with no lens at all. `gantry:ship` counts that level in `Risk level:` and `Floor:` (as `lens-file: <path>`), lists the file under `## Guarded changes` and adds the `guarded` label even when no lens fired, so a PR that only weakens a lens, or adds the first one, is no longer unguarded; a `no-base-lens` file is never described as judged by the base's version. `gantry:review` records it under `review.md`'s `## Risk`. Integrate's `--commits` use is unchanged. Tested in `tests/cases/risk_floor.sh`.
 
-A run spends API credit, so the gate does not run one. `scripts/check_evals.sh` is the free half:
-it reads every `case.yaml` without the CLI, a credential or the network, and fails on a tool outside
-the ungated set, a scaffold script, a missing bound, a grader the harness would silently ignore, or a
-`change.diff` that no longer applies to its fixture. `scripts/verify.sh` runs it, and
-`tests/cases/check_evals.sh` holds each of those failures to a red exit. `evals/results/` is
-git-ignored. `docs/EVALS.md` states how to run the suite, what it costs roughly, how to add a case,
-and what the scores do and do not prove.
+## 0.10.1
+
+Patch: no new skill or flag. Integration PR #64 (#61, #62, #63).
+
+- **`/gantry:integrate --unattended` records every in-lane stop** (BASE-471). Once the run's lane exists, a stop writes a three-line `integrate-stop.txt` (rule, reason, date) at the lane root, git-excluded and deleted on publish; the `lane` stop of a later run reads it and repeats the original cause instead of only "merge or remove". Tested in `tests/cases/integrate_unattended.sh`.
+- **`lib/risk_floor.sh` keeps firing on a large file set, and fails loud when its matcher fails** (BASE-363). The changed-file list now reaches awk through a temp file rather than the environment, so a diff of several thousand paths no longer hits `argument list too long` and reads as "no lens fired"; any non-zero awk exit is now exit 2. Tested in `tests/cases/risk_floor.sh`.
+- **`gantry:ship` keeps a launcher-written `## Guarded changes` section on refresh** (BASE-474). A section carrying `<!-- homebase-launcher-guarded -->` is never replaced by `None — no lens fires`; `lib/splice_pr_section.sh` leaves the body unchanged (apart from the CR / trailing-newline normalisation every splice applies), or appends only the lens bullets not already present. Tested in `tests/cases/guarded_launcher_section.sh`.
+
+## 0.10.0
+
+Minor: one new flag (`/gantry:integrate --unattended`) and a change to which PRs integrate takes. #58 (BASE-428) and #60 (BASE-429), each merged directly after its CI went green.
+
+- **`/gantry:integrate --unattended` prepares an integration and publishes a draft without asking** (BASE-429). It reverses the earlier decision to ship no such flag, for the preparing half only. Every question the supervised skill asks has one fixed rule (`skills/integrate/SKILL.md`, *Unattended mode*): the computed queue is taken as printed, the lane's parent is the base, a conflict the PRs' intents do not settle skips that PR as `unresolved-conflict (unattended)`, and a `NO-GATES` baseline, an open lane the run is not on, a force-pushed PR already in the lane, a base-into-lane conflict, a lens that cannot run or a reset of a published merge stop the run. The PR opens with `gh pr create --draft`, is never marked ready or merged, and no comments are posted on the source PRs. The report opens with `UNATTENDED: published draft <url>` or `UNATTENDED: stopped — <rule> — <reason>`. Supervised behaviour is unchanged. Tested in `tests/cases/integrate_unattended.sh`.
+
+- **`list_candidates.sh` judges CI on the latest run per check, and skips `hold`** (BASE-428). A re-run adds a second entry with the same check name to `statusCheckRollup`; only the newest (by `startedAt`, else `completedAt`) now counts, so a stale red `pr-risk` run no longer skips a PR whose later run passed. A re-run still in flight — including one queued with no timestamp yet — makes the class `pending`, which is a candidate, where it was `failing` before. `hold` joins `blocked`/`wip`/`do-not-merge` as a blocking label. Tested in `tests/cases/integrate_candidates.sh`.
+- Known limits of BASE-428, not fixed here: push and pull_request runs of one workflow share a key, so a newer green push run hides an older red pull_request run; same-named checks from different GitHub Apps share one key too.
+
+## 0.9.1
+
+Patch: one new wrapper, no new skill or flag. #52, merged directly after its CI went green.
+
+- **A box-wide heavy-slot lock around every gate** (BASE-405, #52). `lib/run_gates.sh` re-execs itself through the new `lib/heavy_slot.sh`, which takes one of `GANTRY_HEAVY_SLOTS` slots (default 1; 0 disables) before any check runs and releases it on exit, waiting while all slots are busy. Exit codes pass through unchanged. A nested gate inherits `GANTRY_HEAVY_SLOT_HELD` and does not wait on its outer gate's slot. Slot files live in `GANTRY_HEAVY_SLOT_DIR` (default `/tmp/gantry-heavy-slots-<uid>`); a process with a private `/tmp` must point it at a shared directory or the lock is per-sandbox. Each acquire prints `== heavy-slot: acquired slot=<i> slots=<N> waited=<s>s ==`. Documented in `docs/ARCHITECTURE.md`; tested in `tests/cases/heavy_slot.sh`.
+
+## 0.9.0
+
+Minor: one new flag (`run_gates.sh --fast`) and one new script (`lib/review_fresh.sh`), plus reviewer and prune fixes. Integration PR #55 (#49, #50, #51, #53, #54). #52 (BASE-405, heavy-slot lock) is not in this release: its CI failed shellcheck.
+
+- **A reviewer stops and reports when a guard blocks a command** (BASE-403, #49). `agents/gantry-reviewer.md` and the briefs `/gantry:review` gives its source-2 reviewer and each lens sub-agent say: stop and report, never rebuild, split or encode a blocked command; an attempt to is a finding about the review. A block goes in the report and one `Guard blocks:` line in `review.md`'s header, never under `## Address now`.
+- **`/gantry:prune-worktrees` counts a head merged into an `origin/integration/*` branch as merged** (BASE-407, #53). `detect_candidates.sh` names that branch in `merged_into` when no develop/master/main matched; a lane's own integration branch never counts as merged into itself. Tested in `tests/cases/prune_integration_merged.sh`.
+- **`--model` now reaches a review child's sub-agents** (BASE-370). `lib/run_phase_headless.sh` exports `CLAUDE_CODE_SUBAGENT_MODEL` from `--model` (unset without it), `/gantry:review` passes it as `model` on each dispatch, and a `MODEL:` naming more than one model is a `NOTE:`.
+
+**A stale review no longer sets the PR's risk level** (BASE-346). `gantry:ship` quoted `Risk level:` and
+the blast radius from `review.md` without checking they still described the branch, so content changes landing
+after the review left the old level on the PR — and `/gantry:integrate`'s `## Risk` summary took its
+maximum from it. A review of an older diff now counts as a missing one.
+
+- **`lib/review_fresh.sh` (new).** `FRESH:yes|stale|absent|error` for `review.md` against the tree: the
+  branch, and the token `diff_fingerprint.sh` prints for `base:`. `gantry:ship` runs it before reading the
+  review (stale or unverifiable → `Risk level: unassessed`, bullets say the risk was not assessed, nothing
+  quoted from the file, so the pr-risk check fails and integrate skips the PR until `/gantry:review` runs
+  again); `/gantry:review --fix` runs the same comparison (`--findings`). Tested in
+  `tests/cases/review_fresh.sh`; added to the review children's allowlist.
+- **`review.md`'s `applied:` line gains `diff=<token>`**, the tree after the fixes, so a fixed review
+  reads fresh and an unfixed one stale.
+- **`lib/diff_fingerprint.sh` is now content-keyed**: the token hashes each changed path's content against
+  the merge-base, not `git status` or diff text, so committing the reviewed tree (ship does) and a
+  fetch that moves the base leave it alone. Any `review.md` written before this release carries the old
+  token and reads stale: re-run `/gantry:review`.
+
+**An optional fast in-run gate for unattended runs, recorded in the journal** (BASE-420). A
+detached run paid for the full suite after implement and again after review fixes, though a full
+gate runs before merge anyway.
+
+- **`lib/run_gates.sh --fast`.** Hands `GANTRY_GATE_MODE=fast` to a repo-owned `.claude/gates.sh`,
+  which decides what its fast gate runs (`examples/gates.sh` documents the variable). Without the
+  flag the gate is handed `full` — set from the flag only, never inherited, so the readiness hook
+  and `/gantry:integrate` keep the full suite even inside an environment that carries the variable.
+  With no `.claude/gates.sh` there is nothing to narrow and the full detected suite runs. Every
+  exit path prints `== gate mode=<fast|full> requested=<fast|full> seconds=<n> ==`. Exit codes are
+  unchanged. Tested in `tests/cases/gate_fast_mode.sh`.
+- **The unattended chain uses it.** `/gantry:implement` and `/gantry:review --fix` run
+  `--strict --fast` under `mode: unattended`; supervised runs, qa, integrate and the hook do not.
+  `review.md`'s closing line gains `mode=<m> seconds=<n>`, beside BASE-346's `diff=`:
+  `applied: <date> gate=<exit> mode=<m> seconds=<n> diff=<token>`.
+- **The journal records it.** The `gate` event gains optional `gate_mode` and `seconds`
+  (`journal_append.sh --gate-mode fast|full --seconds <n>`), absent on older lines. `gate_mode` is
+  the mode handed to the gate, not proof that a repo gate narrowed anything.
+
+## 0.8.0
+
+**Review lenses, a `## Risk` section on every PR, and guarded changes** (BASE-341). The protection a
+guarded path needs is a careful read of the diff before merge, by a reader pointed at the right
+lines — not a supervised session where the approach was never in question. Every PR now carries a
+risk assessment that the agent which wrote the change never writes.
+
+- **`lib/risk_floor.sh` (new).** A target repo may keep `.claude/review-lenses/<name>.md`: `floors`
+  (path keys — a trailing `/` is a directory prefix, anything else an exact path — each with a
+  level `low < medium < high < critical`), an optional `defer: never`, and a prompt body. The
+  script reads the lenses **from the base ref**, never the worktree, matches them against the diff
+  from the merge-base (committed, working-tree and untracked changes), and prints each fired lens's
+  matched files and floor. No model is involved. `--commits` does the same for a set of commits (a
+  merge counts only the files its resolution wrote), and `--body` prints a lens's prompt from the
+  base. A malformed lens is exit 2, never a silently unguarded path. Tested in
+  `tests/cases/risk_floor.sh`.
+- **`/gantry:review`** runs each fired lens as its own fresh-context reviewer sub-agent, in
+  addition to `/code-review`, and writes `## Lens: <name>` (findings, then a *what to look at* note
+  per matched file) and, on every review, `## Risk`: `Risk level:` and a blast radius of exactly
+  *Breaks if wrong*, *Live after merge* and *Rollback*. A `defer: never` lens's findings are never
+  handed over: each is fixed, or recorded as an `Open risk:`.
+- **`/gantry:ship`** writes `## Risk` (the highest of the review's level and every fired floor,
+  one step higher for an open risk; `unassessed` when no review ran) and, when a lens fired,
+  `## Guarded changes` — every matched file from `risk_floor.sh` with its note, and every open risk
+  — and labels the PR `guarded`, creating the label if needed and never failing the PR over it. The
+  refresh of an open PR's body now covers these sections too (`handover_body_state.sh --section
+  risk`), so a PR opened before this release gains them on the next `/gantry:review` +
+  `/gantry:ship`.
+- **`/gantry:integrate`** skips a PR whose body has no `## Risk` or no assessed level
+  (`list_candidates.sh`: `RISK:` line, skips `no-risk-section` and `risk-level:<word>`), and its
+  PR carries `## Risk summary` (overall level, a `PR | Risk level | Guarded files` table, the union
+  of blast radii), `## Guarded changes` per source PR, and `## Lines written by the integration` —
+  the lenses run on exactly the integration's own commits, or `None.`.
+- **`lib/run_phase_headless.sh`** allows the review child `risk_floor.sh`, the fifth read-only
+  script on its allowlist.
+- **`scripts/check_pr_body.sh`** treats the `## Risk` block's labeled lines (`Risk level:`,
+  `Floor:`, `Lenses:`, `Blast radius:`) as structure, so the block ship writes no longer reads as
+  a hard-wrapped paragraph.
+
+**Upgrading.** PRs already open have no `## Risk`, so `/gantry:integrate` skips them until
+`/gantry:review` and then `/gantry:ship` run on their branch.
+
+**`/gantry:auto --explain` opens a supervised run with a plain-language explainer of the task**
+(BASE-332). A run started from a bare tracker id never said what it was about, so the person
+watching had to leave the session and read the issue. With the flag, the first thing the run
+prints, before it creates the worktree and also under `--here`, is a short explainer written for
+someone who has not read the issue. Nothing is written to disk and nothing is asked. `auto` only:
+`auto-unattended` does not recognise it. `tests/cases/auto_explain_order.sh` checks that the step
+sits ahead of the worktree stage.
+
+**`/gantry:auto` stops once, at the grill, and opens a draft PR** (BASE-333). The checkpoint in
+front of ship ("Commit, push, and open the PR?") is gone: by then the gate is green and review and
+QA are done, and nobody had ever answered no. The plan approval at the end of the grill is now the
+run's only human stop, and ship is invoked with `--draft`, because nobody confirmed the commit, the
+push or the PR. Under `--lead` the PR is a draft too. Stages after QA are renumbered: Ship is
+stage 6, Report stage 7.
+
+## 0.7.1
+
+**`/gantry:ship` checks that the tree is clean after every commit it makes, before it pushes**
+(BASE-141, #36). A commit takes only what was staged when it ran, so a file edited later, or left
+out by partial staging, used to be pushed without that change and without a word. This happened
+on a real lane. The new `skills/ship/scripts/assert_clean_tree.sh` runs after stage 2's commit and
+after the `--review-fix` commit. If anything is outstanding, ship names every path, including files
+left out on purpose, and stops with no push and no PR. A check that cannot run is a stop too. A
+clean tree changes nothing. `tests/test_ship_clean_tree.sh` covers it, and `tests/run.sh` now also
+runs `tests/test_*.sh`.
+
+**A headless review child leaves the worktree as it found it** (BASE-142, #35). Its finder
+sub-agents share the worktree, so `skills/review/SKILL.md` now says that what is pre-existing is
+only the diff and the `git status` from the start of the review. Nothing the child's own agents
+create or delete is reported as a lane defect. Throwaway scripts go to the harness's scratchpad, or
+are not written at all. The rule is prose only; nothing enforces it yet.
+
+**`lib/ensure_excluded.sh` takes its lock with `noclobber`, not `mkdir`** (#43). GitHub's Ubuntu
+runner now ships uutils coreutils, whose `mkdir` can report success to more than one racing caller.
+Two lanes could then rewrite `.git/info/exclude` at once, and one would lose the other's pattern.
+That turned CI red on PRs that never touched the script. The lock is now a file created under
+`set -C`, and a directory lock left behind by the old version is still cleaned up as stale.
+
+**Smaller fixes**
+- `gantry:auto-unattended` journals its stage-3 transition as `critique → implement`, not
+  `grill → implement`. Unattended runs have no grill phase (BASE-145, #37).
+- `docs/SKILLS.md` gives `/gantry:plan`'s full usage, including `--task <id>` (BASE-146, #38).
+- `/gantry:integrate`'s stage 9 example uses the lane-scoped `refs/integrate/<lane-branch>/pr/<n>`
+  ref, which the rest of the skill fetches. The old unscoped ref made stage 9 fail with exit 2
+  (BASE-147, #39).
+- `/gantry:integrate` briefs its reviewer with `origin/<BASE>..HEAD` instead of the local base, so a
+  stale local branch no longer hands the reviewer the wrong set of merges (BASE-148, #40).
+- **A first eval suite scores `gantry-critic` and `gantry-reviewer` instead of reading them.**
+  `tests/` proves that the scripts keep their exit-code guarantees and says nothing about whether the
+  agents produce good work: every edit to an agent's prose so far has been judged by reading the
+  prompt, which is an opinion about a prompt rather than a measurement of its output. `evals/` holds
+  five `claude plugin eval` cases — two seeded and one control for the critic, one seeded and one
+  control for the reviewer. Each seeded case plants a defect with a known right answer (a plan step
+  calling a helper the source does not have, an acceptance criterion no step touches, a stale caller
+  outside the diff) and its grader names that defect, so it fails when the defect is not reported. A
+  control's grader names the absence of one, so an agent that always finds something is caught. No
+  case needs `--allow-tools` or a scaffold script, and every case declares a turn and time bound, so
+  a full run has a known cost ceiling. It is a floor, not a benchmark, and the instrument for the
+  later topology questions that need a score to answer.
+
+  A run spends API credit, so the gate does not run one. `scripts/check_evals.sh` is the free half:
+  it reads every `case.yaml` without the CLI, a credential or the network, and fails on a tool outside
+  the ungated set, a scaffold script, a missing bound, a grader the harness would silently ignore, or a
+  `change.diff` that no longer applies to its fixture. `scripts/verify.sh` runs it, and
+  `tests/cases/check_evals.sh` holds each of those failures to a red exit. `evals/results/` is
+  git-ignored. `docs/EVALS.md` states how to run the suite, what it costs roughly, how to add a case,
+  and what the scores do and do not prove.
 
 ## 0.7.0
 

@@ -34,8 +34,15 @@
 # GNU coreutils, BSD/macOS and busybox, but they are verified here only on
 # Darwin — CI exercises the Linux side through the stale-lock assertion in
 # tests/cases/journal_append.sh, so a regression surfaces there rather than
-# silently disabling the break. `mkdir` itself, which is the actual mutual
-# exclusion, is POSIX-atomic everywhere.
+# silently disabling the break.
+#
+# The mutual exclusion itself is bash's own `set -C` (noclobber) redirection,
+# which opens with O_CREAT|O_EXCL inside the shell — no external binary is
+# involved. It used to be `mkdir`, on the grounds that mkdir(2) is atomic. The
+# syscall is; the `mkdir` COMMAND is whatever the box ships, and the uutils
+# coreutils that Ubuntu runner images moved to (0.10) report success to two
+# racing callers: 39 of 200 eight-way races on a GitHub runner had more than
+# one winner, and tests/cases/journal_append.sh lost an update in most runs.
 #
 # Exit codes: 0 = each pattern present exactly once · 2 = usage or environment
 # · 130/143 = interrupted or terminated, having written nothing.
@@ -84,9 +91,11 @@ mkdir -p "$(dirname "$FILE")" || die "could not create the directory holding $FI
 
 # --- lock --------------------------------------------------------------------
 #
-# `mkdir` is atomic on every POSIX filesystem and, unlike flock, is present on
-# stock macOS. The trap is SINGLE-quoted so $LOCK is expanded when the trap
-# fires rather than when it is installed (shellcheck SC2064).
+# The lock is a FILE created under noclobber (see LIMITS above for why not
+# `mkdir`); unlike flock it needs nothing beyond bash, so it works on stock
+# macOS. The breaker stays a lock of the same kind. The trap is SINGLE-quoted
+# so $LOCK is expanded when the trap fires rather than when it is installed
+# (shellcheck SC2064).
 
 LOCK="$FILE.lock"
 BREAKER="$FILE.lock.breaking"
@@ -96,9 +105,18 @@ BREAKER_HELD=0
 STALE_MINUTES=1
 TRIES=50
 
+# take <path> — create <path> only if nothing is there yet, atomically. The
+# subshell keeps `set -C` from leaking into the rewrite below, which truncates
+# $TMP with a plain `>`.
+take() { ( set -C; : > "$1" ) 2>/dev/null; }
+
+# drop <path> — remove a lock. `rmdir` covers a directory lock left behind by
+# a version of this script that used `mkdir`, so an upgrade does not wedge.
+drop() { rm -f "$1" 2>/dev/null || true; [ -d "$1" ] && rmdir "$1" 2>/dev/null; return 0; }
+
 release() {
-  if [ "$HELD" -eq 1 ]; then rmdir "$LOCK" 2>/dev/null; HELD=0; fi
-  if [ "$BREAKER_HELD" -eq 1 ]; then rmdir "$BREAKER" 2>/dev/null; BREAKER_HELD=0; fi
+  if [ "$HELD" -eq 1 ]; then drop "$LOCK"; HELD=0; fi
+  if [ "$BREAKER_HELD" -eq 1 ]; then drop "$BREAKER"; BREAKER_HELD=0; fi
   rm -f "$TMP" 2>/dev/null
 }
 
@@ -111,25 +129,25 @@ trap 'release' EXIT
 trap 'release; exit 130' INT
 trap 'release; exit 143' TERM
 
-# A lane killed between mkdir and rmdir leaves the directory forever. Without a
+# A lane killed between taking and dropping the lock leaves it forever. Without a
 # break, every later run burns its full budget and falls through to the unlocked
 # path — so under exactly the conditions the lock exists for, all lanes would
 # proceed unlocked at once and the lost update would return.
 break_if_stale() {
-  [ -d "$LOCK" ] || return 1
+  [ -e "$LOCK" ] || return 1
   [ -n "$(find "$LOCK" -maxdepth 0 -mmin +"$STALE_MINUTES" 2>/dev/null)" ] || return 1
   # Only one lane may break a given lock. Two that both saw it as stale would
-  # otherwise rmdir each other's *fresh* lock and both believe they held it —
+  # otherwise remove each other's *fresh* lock and both believe they held it —
   # the classic break-stale race, which reopens lost updates under precisely
   # the conditions the break exists for.
-  mkdir "$BREAKER" 2>/dev/null || return 1
+  take "$BREAKER" || return 1
   BREAKER_HELD=1
   # Re-check under the breaker: the holder may have finished while we waited.
   if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +"$STALE_MINUTES" 2>/dev/null)" ]; then
     printf 'ensure_excluded: breaking a stale lock (%s)\n' "$LOCK" >&2
-    rmdir "$LOCK" 2>/dev/null
+    drop "$LOCK"
   fi
-  rmdir "$BREAKER" 2>/dev/null
+  drop "$BREAKER"
   BREAKER_HELD=0
   return 0
 }
@@ -137,11 +155,11 @@ break_if_stale() {
 acquire() {
   local i=0
   while [ "$i" -lt "$TRIES" ]; do
-    if mkdir "$LOCK" 2>/dev/null; then HELD=1; return 0; fi
+    if take "$LOCK"; then HELD=1; return 0; fi
     # Probed on every failed attempt rather than only after the whole budget:
     # it breaks nothing younger than $STALE_MINUTES either way, so it is no less
     # safe, and a wedged lane recovers in well under a second instead of ten.
-    if break_if_stale && mkdir "$LOCK" 2>/dev/null; then HELD=1; return 0; fi
+    if break_if_stale && take "$LOCK"; then HELD=1; return 0; fi
     sleep 0.2
     i=$((i + 1))
   done

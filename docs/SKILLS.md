@@ -21,11 +21,11 @@ One chain of phases, three ways to run it.
 | QA runs | `/gantry:qa` when you type it | `/gantry:qa --fix`, in the driver's session | `/gantry:qa`, no `--fix` |
 | No qa agent / env failed | continue | continue; declared scenarios under *Not proven* | continue, journaled; same disclosure |
 | A failing scenario | you decide | triaged; stop on `blocked` | triaged, deferred; `blocked` only on an acceptance criterion observably false |
-| Stops | after every phase | a grill conversation, then one checkpoint | never |
+| Stops | after every phase | a grill conversation, then nothing | never |
 | Red gate | you decide | report and stop | fix and retry, capped at 2 |
-| Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict` |
+| Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict --fast` (implement, review-fix) |
 | No checks found | continue, flagged | continue, flagged | **refuse to ship** (exit 3) |
-| PR | ready | ready | **draft** |
+| PR | ready | **draft** | **draft** |
 
 Semi-auto has no driver skill — it *is* the phase skills, typed in order. The gate is a hard
 blocker in all three; unattended removes the human checkpoints, never the gate.
@@ -46,7 +46,7 @@ Both drivers take these flags, parsed from one argument string — the skill rea
 what remains is the task. The two values that have to be exact, the tracker id and an explicit
 `--branch`, come from `lib/task_id.sh`, which reads the string from a file and takes those two as
 flags only ahead of the task's first word, so a task that mentions them in prose keeps its words.
-`--lead` is the exception: `auto` only.
+`--lead` and `--explain` are the exceptions: `auto` only.
 
 | Flag | Effect |
 |---|---|
@@ -56,6 +56,7 @@ flags only ahead of the task's first word, so a task that mentions them in prose
 | `--here` (alias `--on-current`) | Skip worktree creation; run on the branch you're already on. Mutually exclusive with `--branch`. |
 | `--base <branch>` | Override the PR base branch. Passed through to `ship` and its detector. |
 | `--lead <session>` | **`auto` only.** Put every question to that lead session by message instead of a dialog, accepting only an option label, `proceed`, `stop`, or a file path. `auto-unattended` refuses it. |
+| `--explain` | **`auto` only.** Open the run with a short plain-language explainer of the task, printed before the worktree is created (and under `--here`), for someone who has not read the issue. Nothing is written or asked. `auto-unattended` does not recognise it, so there it stays in the task text. |
 | `--review-model <alias>` | The model the headless review children run on (`--model` to the child). Absent, the child inherits your default. `sonnet` is a cost-neutral choice for a review. `ship --review` takes it too. |
 | `--review-effort <level>` | The effort level for the review children (`--effort` to the child). Absent, the child inherits. `ship --review` takes it too. |
 
@@ -107,7 +108,7 @@ covers only the edits the review itself caused.
 
 ## `/gantry:plan` — the contract and the plan
 
-`/gantry:plan <task> [--lead <session>]`
+`/gantry:plan <task> [--task <id>] [--lead <session>]`
 
 Writes `task.md` (context and goal, acceptance criteria, how to verify) and then `plan.md`, asking
 whatever a genuine fork requires before any code is written. *Out of scope* and *Affected areas*
@@ -213,21 +214,36 @@ absorb what review turned up is how a focused diff becomes an unreviewable one.
 
 **`review.md` is the findings file**, written at the worktree root on every review: the branch,
 the base, a fingerprint of the diff from `lib/diff_fingerprint.sh`, the source that ran, the tier,
-the two tallies, and the address-now findings (file, line, what is wrong, the failure) — or
+the two tallies, an `applied:` line carrying the post-fix `diff=` once fixes are applied, and the address-now findings (file, line, what is wrong, the failure) — or
 `None.`, so the fix step can tell "reviewed, nothing to apply" from "never reviewed".
 `lib/detect_stage.sh` reports it as `REVIEW:absent|pending|applied|clean`, and a `reviewed` task
-whose file is still `pending` stays at the fix step rather than moving to ship.
+whose file is still `pending` stays at the fix step rather than moving to ship. `lib/review_fresh.sh`
+is the freshness check `--fix` and `gantry:ship` share: a review of an older diff is a missing one, so ship
+publishes `Risk level: unassessed`.
 
 **`--fix` is stage-aware.** With `REVIEW:pending` and `status: reviewed` it is **apply mode**: it
 checks the file's branch and fingerprint against the tree, applies the listed findings without
-reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit>` to the file. A
+reviewing again, re-runs the gate, and appends `applied: <date> gate=<exit> mode=<fast|full> seconds=<n> diff=<token>` to the file. A
 fingerprint that no longer matches is a refusal — the file describes a different diff — and so is a
 `pending` file under any other status, which means the review that wrote it did not finish. With
 `REVIEW:absent` it reviews and then fixes, as before.
 
+**Review lenses** run beside the source, never instead of it. A target repo may keep
+`.claude/review-lenses/<name>.md`: a frontmatter of `floors` — path keys (a trailing `/` is a
+directory prefix, `**/<name>` a file name at the root or any depth, anything else an exact path) each with a level `low < medium < high < critical` —
+an optional `defer: never`, and a prompt body with that repo's threat model. `lib/risk_floor.sh
+<base>` decides, with no model involved, which lenses the diff fires and which files fired them,
+reading the lens files **from the base ref** so a diff cannot rewrite the lens that judges it. Each
+fired lens runs as its own fresh-context reviewer sub-agent with the lens body as its brief, and
+writes a `## Lens: <name>` section into `review.md`: findings, then one *what to look at* note per
+matched file. A `defer: never` lens's findings are never handed over — each is fixed, or recorded as
+an open risk that reaches the PR and raises its level one step. Every review, lens or not, also
+writes `## Risk`: a `Risk level:` and a three-line blast radius (breaks if wrong, live after merge,
+rollback), from the review run rather than from the session that wrote the change.
+
 **`--headless`** is what the drivers' launcher passes: a finding whose triage is honestly
 ambiguous is deferred rather than asked about, whatever `mode:` says — a print-mode child cannot
-wait for a reply.
+wait for a reply. A `defer: never` lens's finding becomes an open risk instead.
 
 Gets the diff with `git diff <base>` plus `git status --short`, because the tree is normally
 uncommitted at this point and a three-dot range would come back empty.
@@ -237,7 +253,9 @@ uncommitted at this point and a three-dot range would come back empty.
   whose branch or fingerprint no longer matches the tree; to review a tree whose status is still
   `implementing`.
 - **Invokes:** `gantry:handover` for everything deferred, with or without `--fix`.
-- **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`.
+- **Scripts:** `lib/run_gates.sh`, after any fix it makes; `lib/diff_fingerprint.sh`;
+  `lib/review_fresh.sh`; `lib/risk_floor.sh`; `lib/probe_clone.sh`, for the throwaway clone
+  reviewers run their probes in.
 - **Shared:** its verify, triage and hand-over steps (3, 4 and 6) are the ones `qa` applies to a
   failing scenario, by reference — one procedure, two phases.
 
@@ -326,8 +344,8 @@ right.
 
 `/gantry:auto <task> [flags]`
 
-Creates the worktree, then invokes each phase skill in turn, pausing twice: after the plan has been
-grilled, and before anything outward-facing. Opens a **ready-for-review** PR.
+Creates the worktree, then invokes each phase skill in turn, pausing once: after the plan has been
+grilled. Opens a **draft** PR.
 
 **It contains no phase logic.** It is the same skills you would type, invoked in order — which is
 what stops the three ways of running from becoming three subtly different pipelines. It dispatches
@@ -345,7 +363,7 @@ child recorded, and any permission denials. `docs/ARCHITECTURE.md` § *Headless 
 - **Invokes:** `gantry:worktree`, `plan`, `plan-critique`, `grill`, `implement` and `qa --fix` in
   its session; `review` and its fix step as headless children; `gantry:ship`.
 - **Detail:** `references/orchestration.md`, shared with `auto-unattended`.
-- **`--lead <session>`:** a lane a lead session steers. Every question — the checkpoint, `grill`'s
+- **`--lead <session>`:** a lane a lead session steers. Every question — `grill`'s
   rounds, and the ones `worktree`, `plan`, `review` and `ship` ask — goes to the
   lead by `SendMessage`. A reply is not read but classified by `lib/lead_reply.sh`: an option label,
   `stop`, `proceed` at a checkpoint, or a file inside the worktree (read as data, then asked again);
@@ -409,6 +427,11 @@ Typing `/gantry:ship` **is** the go-ahead — it does not ask for stage-by-stage
 matches the *target repo's* commit conventions, including whether that repo uses trailers, which is
 exactly why the drivers delegate the tail to it instead of imposing their own style.
 
+**After every commit it makes, ship asserts the tree is clean before anything is pushed**
+(`skills/ship/scripts/assert_clean_tree.sh`). A commit takes only what was staged when it ran. If
+anything is still outstanding, ship names every path, including ones left out on purpose, and stops
+with no push and no PR. A check that cannot run is a stop too, never a pass.
+
 **Before it opens the PR, ship says what the run did not prove.** For an unattended run the body is
 the whole interface to the reviewer, so three things are composed into it rather than left to
 memory. It runs `lib/detect_stage.sh` for the `HUMAN_ONLY:` line — its own `detect_state.sh` reads
@@ -432,6 +455,18 @@ extended to cover this because it runs before ship composes anything.
 All of these are **disclosures, not refusals**: none withholds the PR, fails the gate, or blocks
 the push.
 
+**Every body carries `## Risk`**, and `## Guarded changes` when a review lens fired or the diff changes a
+lens file. The level is the highest of the review's `Risk level:`, every fired lens's floor and each
+changed lens file's own level (the strictest any base lens assigns it, or `critical` marked
+`no-base-lens` when none covers it), raised one step for any
+open risk; with no review it is `unassessed`, never a floor standing in for a judgement — and `unassessed` too
+when `lib/risk_floor.sh` exits 2 and the lenses could not be evaluated, so integrate skips the PR
+until the lens is fixed on the base branch and ship runs again. The
+guarded file list comes from `lib/risk_floor.sh`, run again by ship at ship time — every matched
+file, each with the lens's *what to look at* note — not from the model. A guarded change also puts the
+GitHub label `guarded` on the PR, created when the repo lacks it; a label that cannot be applied is
+reported, never a reason not to open the PR.
+
 **It can also bring an existing body up to date.** The body used to be write-once: composed at
 `gh pr create` and never touched again. But `handover.md` is normally written *after* the PR opens,
 because `/gantry:review` is what produces one — so the body went on saying no handover existed
@@ -440,7 +475,9 @@ from a prune. A refresh sub-stage, entered both when stage 4 finds a PR already 
 asks `lib/handover_body_state.sh` whether the body carries the current handover and rewrites **only
 the `## Deliberately not done` section** when it does not, through `lib/splice_pr_section.sh`. The
 same check, under `--section qa`, covers `## Exercised by this run`: a `/gantry:qa` re-run after
-the PR opened would otherwise leave the body reporting the old outcome. `## Not proven by this run`
+the PR opened would otherwise leave the body reporting the old outcome. Under `--section risk` it
+covers `## Risk` and `## Guarded changes`, digesting the text ship composes for the tree as it now
+is — so a PR opened before lenses existed gains the sections, and a re-review reaches the body. `## Not proven by this run`
 is never rewritten; when it goes out of date, the report names the line. The
 answer is a digest marker ship leaves in the body as an HTML comment, so a body that is already
 current is edited **not at all**, a hand-edit inside the section survives, and an ambiguous heading
@@ -452,15 +489,16 @@ branch whose PR is already open.
   bundle several unrelated changes without asking how to split them; to splice a body whose
   handover heading appears more than once; to edit a body it could not first read back from
   GitHub — an empty fetch would otherwise read as "no handover section" and replace the whole body
-  with that one section.
+  with that one section; to push while any path is still outstanding after one of its commits.
 - **Degrades:** with `gh` missing or unauthenticated it still commits and pushes, then prints the
   `gh pr create` command for you.
-- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`), plus
+- **Scripts:** `scripts/detect_state.sh` (read-only; also used by `sync`) and
+  `scripts/assert_clean_tree.sh` (read-only; the post-commit check), plus
   `lib/handover_body_state.sh` and `lib/splice_pr_section.sh` for the refresh.
 
 ## `/gantry:integrate` — N pull requests into one
 
-`/gantry:integrate [<pr#> ...] [--base <branch>]`
+`/gantry:integrate [<pr#> ...] [--base <branch>] [--unattended]`
 
 Reads the open PRs, states why each unready one is out, plans a merge order **before touching
 anything**, then merges the rest one at a time with `--no-ff` into a fresh `integration/<date>`
@@ -468,6 +506,14 @@ branch cut from a freshly fetched base. The gate runs after every merge, so a re
 that PR or to its meeting with the ones already in — not to the pile. It ends at one pull request
 whose body carries the included table, every skip with its reason, every conflict resolution, and
 the source PRs' combined *Not proven by this run* and *Deliberately not done* sections.
+
+It also carries the risk up. **`## Risk summary`** gives the overall level — the highest of the
+included PRs' own levels — a `PR | Risk level | Guarded files` table and the union of their blast
+radii; **`## Guarded changes`** collects each source PR's guarded files, linked to the PR; and
+**`## Lines written by the integration`** runs the repo's review lenses (`lib/risk_floor.sh
+--commits`) on exactly the commits the integration wrote — conflict resolutions and its own fixes —
+and records their notes, or `None.`. A PR whose body has no `## Risk`, or an `unassessed` level, is
+skipped and named, never merged.
 
 The problem it exists for: `auto-unattended` leaves a stack of drafts, each cut from the base and
 each checked alone. **A green check on a PR says nothing about the combined tree** — and the boring
@@ -490,9 +536,9 @@ Three scripts carry the parts that must be reproducible, and all three take loca
 as well as PR numbers, which is how `tests/cases/` proves them against fixture repos with no `gh`:
 
 - `scripts/list_candidates.sh` — `gh` JSON (or `--json <file>`) to one labeled line per field, with
-  a verdict per PR. Skips: changes requested, a `blocked`/`wip`/`do-not-merge` label, failing CI on
-  the head commit, a stacked parent that is not itself selected (to a fixpoint, so grandchildren
-  go too), and a base that is neither the target nor another candidate's head. **A draft is a
+  a verdict per PR. Skips: changes requested, a `blocked`/`wip`/`do-not-merge`/`hold` label, failing CI on
+  the head commit (judged on the latest run of each check, so a re-run that passed clears an older red one), a body with no `## Risk` section or no assessed `Risk level:`, a stacked parent
+  that is not itself selected (to a fixpoint, so grandchildren go too), and a base that is neither the target nor another candidate's head. **A draft is a
   candidate** — unattended runs open drafts, and those are the PRs this gathers. `CI:none` is a
   candidate too, and is carried through as its own class everywhere it is shown: the PR's own checks
   never ran, so the gate on the combined tree is the only one its code has had.
@@ -505,15 +551,15 @@ as well as PR numbers, which is how `tests/cases/` proves them against fixture r
   pre-merge ref shows a merge whose gate never went green. Plus `MERGE_IN_PROGRESS` and how far base
   has moved. Its refs are named after the lane's branch, because `refs/` lives in the git directory
   every worktree shares — two lanes on one `refs/integrate/pre/21` would each delete the other's only
-  undo ref, and two lanes at once is a state the skill offers you.
+  undo ref, and two lanes at once is a state the supervised skill offers you (`--unattended` refuses it).
 
 - **Refuses:** to push to, close, rebase or edit a source PR's branch — the only write is one
-  comment, after you confirm it; to squash or rebase anywhere; to take `--ours` or `--theirs`
+  comment, after you confirm it (`--unattended` writes none); to squash or rebase anywhere; to take `--ours` or `--theirs`
   wholesale, or drop a hunk; to merge the integration PR itself; to reset a merge that has already
   been published, or to revert one (which would leave the source PR marked merged with its change
   gone).
 - **Checkpoints:** two. The queue, before anything is created, and the pull request, before anything
-  outward-facing.
+  outward-facing. `--unattended` answers both by fixed rules (below).
 - **Invokes:** `gantry:worktree` for the lane, the reviewer role for the resolutions,
   `gantry:handover` for findings that belong to a source PR's author.
 - **Gate:** `lib/run_gates.sh --strict`, once as a baseline on the fresh lane, again after every
@@ -523,13 +569,38 @@ as well as PR numbers, which is how `tests/cases/` proves them against fixture r
   attempt.
 - **Detail:** `references/merge-loop.md` and `references/pr-body.md`.
 
-**There is no `--unattended` flag, and this is the same argument as `--autonomous`.** A flag that
-removes both checkpoints is one word away from a command you meant to supervise — and here the two
-decisions it would remove are the ones with the least recoverable consequences: which PRs to merge
-at all, and whether to publish a merge of other people's work. Conflict resolution is judgment
-about somebody else's intent, read out of a PR body they wrote; getting it wrong produces a tree
-that compiles and means something different. A headless variant is written up in the handover of
-the change that added this skill, not shipped as a flag.
+**`--unattended` prepares; it never decides what ships.** The flag exists because both integrations
+on 2026-11-16 waited hours on the two checkpoints. The owner's decision is that *preparing* an
+integration can run unattended and *merging* stays theirs, so the mode removes the questions and
+keeps every guard: the baseline and every merge are gated `--strict`, a red merge gets two fix
+attempts and is then reset out, the lens review of the integration's own lines still runs, and
+the PR is opened as a **draft** that it never marks ready and never merges. Each place the
+supervised skill would ask has one fixed rule, written as a table in `skills/integrate/SKILL.md`
+under *Unattended mode*:
+
+- **Queue and parent.** The computed queue is taken as printed; on a fresh run an empty queue stops
+  the run before a lane exists, while on a re-run it means everything is in and the run goes on to
+  publish. The lane's parent is `<BASE>`, and a base that moved is re-planned, not re-asked.
+- **Where no rule is safe, stop or skip — never guess.** An open lane the run is not on, a `NO-GATES`
+  baseline, a lens that cannot run, a reset that would discard a published merge, a PR force-pushed
+  after its merge went into the lane (`rewritten` — a skip would leave the stale merge in), and a
+  base-into-lane conflict the intents do not settle all **stop** (`status: blocked` once `task.md`
+  exists). A conflict the two PRs' stated intents do not settle skips that PR as
+  `unresolved-conflict (unattended)`, with its stacked children. Nothing is resolved by taking a side.
+- **Publish.** `gh pr create --draft`, with a body that says it was prepared unwatched — *draft means
+  unwatched, not unverified*. A source PR that moved while the loop ran is re-merged once, through
+  the gate and the review again. **No comments are posted on the source PRs.**
+- **The caller's signal.** The report's first line is `UNATTENDED: published draft <url>` or
+  `UNATTENDED: stopped — <rule> — <reason>`, on every stop, because a stop before stage 5 has no
+  `task.md` to mark; `<rule>` is the rule's name, or the stage's (`stage-1`) when no rule applies.
+  Once the run's lane exists, a stop also writes `integrate-stop.txt` (rule, reason, date) at the
+  lane's root, a publish deletes it, and the next run's `lane` stop repeats it.
+  A scheduled run that starts outside an open lane therefore stops, by design, until the owner merges
+  or removes it.
+
+The same argument as `--autonomous` still holds for the *merge*, which is why there is no flag for
+it: conflict resolution is judgment about somebody else's intent, and publishing it for a human to
+read is the most the unattended mode does.
 
 **Merge the integration PR with a merge commit.** Then every source PR's head reaches the base and
 GitHub marks those PRs merged by itself, drafts included — observed twice here, on PRs #11 and #4.
@@ -580,7 +651,7 @@ then the optional external profile resolver, then `ship`'s detection.
 
 `/gantry:prune-worktrees`
 
-Buckets every worktree (stale at 7+ days idle, or merged into develop/master/main), summarises each
+Buckets every worktree (stale at 7+ days idle, or merged into develop/master/main or an origin/integration/* branch), summarises each
 candidate's last five commits and **which chain artifacts it is holding**, then asks: review
 individually, prune all, or abort. Review is batched in groups of four with **nothing checked by
 default**, and every selected path is archived, re-checked with `git status --porcelain`, and

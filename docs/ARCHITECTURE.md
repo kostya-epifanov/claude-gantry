@@ -24,7 +24,10 @@ gantry/
 │   ├── lead_reply.sh        a lead's reply → one accepted token, or rejected
 │   ├── ensure_excluded.sh   idempotent, race-free .git/info/exclude writes
 │   ├── run_phase_headless.sh  a phase in a fresh `claude -p` child → labeled lines + exit code
-│   └── diff_fingerprint.sh  one token for the diff, so review.md can be tied to it
+│   ├── diff_fingerprint.sh  one token for the diff (content-keyed, same before and after a commit)
+│   ├── review_fresh.sh      does review.md still describe this branch and diff? ship and review --fix share it
+│   ├── risk_floor.sh        which review lenses a diff fires, read from the base ref — no model
+│   └── probe_clone.sh       the throwaway clone a review's probes run in — reduced coverage when it cannot be made
 ├── agents/gantry-*.md       → the delegation roster    (3)
 ├── hooks/hooks.json         → Stop + SubagentStop      (2)
 └── examples/
@@ -78,7 +81,7 @@ they dispatch the same phase skills a human would type.
 ```mermaid
 flowchart TB
   subgraph drivers ["the two drivers — dispatch only, no phase logic"]
-    A["gantry:auto — a grill conversation, then one checkpoint"]
+    A["gantry:auto — a grill conversation, then nothing; draft PR"]
     U["gantry:auto-unattended — never pauses, draft PR"]
   end
   subgraph chain ["the phase skills — one procedure, whoever runs it"]
@@ -144,8 +147,7 @@ One consequence worth stating, because it is easy to get backwards: a skill's `a
 carries `Agent` not because it dispatches phases, but because the phases it invokes dispatch their
 own agents, and a tool the driver has not allowed is one the phase cannot reach.
 
-Drawn out, with the one checkpoint `auto` adds, the grill conversation that carries the plan
-approval, and where each phase's sub-job goes:
+Drawn out, with the grill conversation that carries the plan approval, and where each phase's sub-job goes:
 
 ```mermaid
 flowchart TD
@@ -167,9 +169,8 @@ flowchart TD
   R -. "if /code-review is absent" .-> RV
   W --> P
   G -.- K1{{"grill's last question<br/>IS the plan approval"}}
-  R -.- K2{{"auto pauses here:<br/>confirm the PR"}}
   R --> S["gantry:ship"]
-  S --> A(["auto → ready PR"])
+  S --> A(["auto → draft PR"])
   S --> U(["auto-unattended → draft PR"])
 ```
 
@@ -195,8 +196,12 @@ read-only by tool list, and a review child needs to write three artifacts, so th
 not apply. Instead the launcher runs the review child under `--permission-mode dontAsk
 --permission-prompts none`, where everything that would prompt is denied, plus `--allowedTools`
 naming exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`, `handover.md`
-and `task.md`, `Skill(gantry:handover)`, and Bash rules for four read-only gantry scripts:
-`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh` and `diff_fingerprint.sh`. The forms were
+and `task.md`, `Skill(gantry:handover)`, and Bash rules for seven gantry scripts:
+`run_gates.sh`, `ensure_excluded.sh`, `detect_stage.sh`, `diff_fingerprint.sh`, `review_fresh.sh`,
+`risk_floor.sh` (the review-lens matcher, added in 0.8.0 so the child can decide which lenses fire
+and read a lens's body from the base ref without a `git show` rule of its own) and `probe_clone.sh`
+(makes and removes the throwaway clone review probes run in, BASE-466; it writes only to a temp
+directory of its own). The forms were
 probed on CLI 2.1.270 and corrected after the first real runs: an `Edit(<file>)` rule governs the
 Write tool too, but its relative form resolves against the child's *current* directory, and a `cd`
 inside one Bash call persists — a child that had wandered into a sub-package was denied the write
@@ -228,7 +233,10 @@ exposed — the phase still works, it is just back where it was.
 its review children on Opus because a `/model` command in an unrelated session had just saved that
 default, and the review ran on a model nobody chose for it. The drivers therefore pass `--model`
 every time — `--review-model`'s alias when given, otherwise their own model — and the launcher
-raises a `NOTE:` when nobody did.
+raises a `NOTE:` when nobody did. `--model` is also exported as `CLAUDE_CODE_SUBAGENT_MODEL`
+(unset when no `--model`), so the sub-agents the child starts are meant to follow the pin (not proven: that the variable
+outranks a sub-agent's own frontmatter `model:`, and `gantry-reviewer` pins one); a `MODEL:` line
+naming more than one model raises a `NOTE:`.
 
 **What the orchestrator's context holds afterwards.** The launcher's labeled lines — `SESSION:`,
 `MODEL:`, `EFFORT:`, `TURNS:`, `SUBTYPE:`, `COST_USD:`, `DENIALS:` and one `DENIED:` per denial,
@@ -265,7 +273,7 @@ the launcher prints it. Whether gantry's own `Stop` hook fires inside a `-p` chi
 and it is inert in both children by status anyway, since the hook arms only on `implementing` and
 `gantry:review` refuses that status. And `review.md` is tied to a diff by `lib/diff_fingerprint.sh`:
 the fix step refuses when the branch or the token no longer matches, so stale findings are never
-applied to a tree that moved.
+applied to a tree that moved. `lib/review_fresh.sh` is that comparison as one script: `gantry:ship` runs it too, and a stale review is published as `Risk level: unassessed`.
 
 ## ship is a stage machine
 
@@ -463,6 +471,31 @@ print NO-GATES  ──▶ exit 0, or exit 3 under --strict
 The subproject scan is why a monorepo with `app/pubspec.yaml` and `landing/package.json` is covered
 rather than silently green. The scan prunes `node_modules`, `build`, `.dart_tool` and friends.
 
+### The heavy slot
+
+Before any of that, `run_gates.sh` re-execs itself through `lib/heavy_slot.sh`, a box-wide counting
+lock: at most `GANTRY_HEAVY_SLOTS` gates (default `1`; `0` disables it) run at once on the box, in
+any repo or lane. A gate that finds every slot busy waits, and its transcript names each holder
+(PID, how long it has held the slot, the root it gates); once it runs, the transcript carries
+`== heavy-slot: acquired slot=<i> slots=<N> waited=<s>s ==` for the journal to read. It exists
+because a gate is the heaviest thing a lane does, and several lanes gating at once took an 8 GB box
+out of memory on 2026-11-15.
+
+- **Nested gates skip it.** `GANTRY_HEAVY_SLOT_HELD` is exported to everything the gate starts, and
+  `run_gates.sh` does not take a slot while it is set. gantry's own gate runs tests that call
+  `run_gates.sh`; without this they would wait forever on the slot their outer run holds.
+  `tests/lib.sh` sets it by default for the same reason.
+- **Slots are files** in `GANTRY_HEAVY_SLOT_DIR` (default `/tmp/gantry-heavy-slots-<uid>`, not
+  `$TMPDIR`, which can be per-session), created with noclobber like `ensure_excluded.sh`'s lock.
+  A slot is freed when its holder's PID is gone, not by age, since a gate can hold one for many
+  minutes.
+- **It fails open.** An unusable slot directory runs the gate unlocked, with one note in the
+  transcript. The lock guards memory, not correctness.
+- **Limits.** Box-wide only among processes sharing this `/tmp` and PID namespace: a private `/tmp`
+  makes it per-sandbox, a holder in another PID namespace looks dead. There is no wait timeout, so
+  a caller's own timeout includes the wait — the readiness hook's harness timeout among them, and a
+  hook killed that way lets the stop through unchecked. Under heavy contention that is a real gap.
+
 ## The agent roster
 
 Three agents ship, and **every one of them is read-only**. The tool list is the boundary — not an
@@ -473,7 +506,7 @@ however it is prompted.
 |---|---|---|---|---|
 | `gantry-explorer` | Read, Grep, Glob | haiku | `gantry:plan`, when the surface is unfamiliar or wide | read-only scout; produces the text for `task.md`'s Affected areas. Physically cannot write it. |
 | `gantry-critic` | Read, Grep, Glob | opus | `gantry:plan-critique`, always | attacks a plan it did not write. Given no planning context, on purpose. Returns findings; the phase triages and revises. |
-| `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable — from inside the headless review child | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
+| `gantry-reviewer` | Read, Grep, Glob, Bash | opus | `gantry:review`, when `/code-review` is unavailable — from inside the headless review child; and once per fired review lens, with the lens body as its brief (also `gantry:integrate`, on the integration's own commits) | reads a diff it did not write. Writes nothing — `Bash` is for reading. |
 
 There is deliberately no planner or implementer agent. Writing is what those phases *are*, so an
 agent around one is either writable — and then the roster's guarantee is prose again — or unable to

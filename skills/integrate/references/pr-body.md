@@ -28,6 +28,14 @@ because that is what people search for.
 **An opening line.** What this is: N pull requests merged one at a time into a branch cut from
 `<base>`, with the repo's checks run after every merge.
 
+**Under `--unattended`, a second line, always.** The PR was prepared with nobody watching, is a draft,
+and has not been merged or approved by anyone; every conflict resolution and every skip made by a
+rule rather than a person is listed below for a reader who was not there. **Draft means unwatched,
+not unverified**: no person watched it, and the gate after every merge and the automated review
+(stage 8's reviewer and lenses) did run. Name any PR still `stale` at
+publish time, and say that no comment was posted on the source PRs. `scripts/check_pr_body.sh` reads
+it like any other body.
+
 **`## Included`** — one table row per PR: number and title, its merge commit sha, whether it
 conflicted (y/n), the gate result after it, and its own CI class at the time it was taken
 (`passing`, `pending`, `none`). That last column is a disclosure, not decoration: `none` means that
@@ -48,6 +56,28 @@ needed it. Skip the heading when there were none.
 **`## Docs`** — the `integrate: docs` commit, sha and subject, and one line per surface it
 reconciled and the PR it was for; or the literal `no docs change needed`. Never skipped, unlike
 *Fixes*: an absent heading would be indistinguishable from a run that never looked.
+
+**`## Risk summary`** — the exact heading; a CI check in the target repo looks for it on any
+`integration/*` branch. First line `Risk level: <level>`, the **maximum** over the included PRs'
+own `Risk level:` lines (`low < medium < high < critical`), raised to the floor of any lens that
+fired on the integration's own lines when that is higher. Then a table with exactly the columns
+`PR`, `Risk level` and `Guarded files`: one row per included PR, its level copied from its body,
+and its guarded files as the comma-separated paths from its `## Guarded changes` section (or
+`none`). Then `Blast radius:` and the union of the included PRs' blast-radius bullets, each
+prefixed with the PR it came from, duplicates removed. Every included PR has a level — stage 2
+skipped the ones that do not.
+
+**`## Guarded changes`** — only when any included PR has one, or a lens fired on the integration's
+own lines. One sub-list per source PR, introduced by a link to that PR (`#21`), carrying its own
+`## Guarded changes` bullets verbatim, its `Open risk:` lines included. A reader who must read the
+guarded lines before merging finds every one of them here, without opening N pull requests.
+
+**`## Lines written by the integration`** — never skipped. The lens notes from stage 8 on the
+integration's own commits: for each lens that fired, the lens name, then one bullet per matched
+file with the commit it is in and what to look at, then the lens's findings and what was done about
+each. When `risk_floor.sh --commits` printed nothing, the section is the single line `None.` —
+which is information: the merges resolved nothing and the lane's own commits touched no guarded
+path.
 
 **`## Not proven by this run`** — the exact heading, because its absence is meant to be
 information. It carries every source PR's own `## Not proven by this run` items, attributed to the
@@ -86,3 +116,5 @@ close, no edit of its branch. Short, and enough to act on:
 > is merged with a merge commit, GitHub will mark this one merged automatically.
 
 A re-run does not comment again on a PR it has already commented on.
+
+**Under `--unattended`, none.** No comment is posted on any source PR; the body says so instead.

@@ -29,13 +29,31 @@
 #   PR:<n> / TITLE: / URL: / DRAFT:yes|no / BASE_REF: / HEAD_REF: / HEAD_SHA:
 #   CREATED:<iso> <epoch> / MERGEABLE: / REVIEW: / LABELS:<a,b>|none
 #   CI:passing|failing|pending|none / STACKED_ON:<n>|none
-#   CONTRACT:gantry|none / VERDICT:candidate|skip <reason> / END
+#   CONTRACT:gantry|none / RISK:<level>|none / VERDICT:candidate|skip <reason> / END
 #   INTEGRATION_PR:<n> <head-ref> <base-ref> <url>
 #   CANDIDATES:<n ...>|none
 #   SKIPPED:<n ...>|none
 #
+# CI IS JUDGED ON THE LATEST RUN PER CHECK. A re-run adds a second entry with the
+# same check name to the rollup; only the newest (startedAt, else completedAt)
+# counts, so a stale red run no longer outweighs a later green one. Blocking
+# labels: blocked, wip, do-not-merge, hold (case-insensitive).
+#
 # SKIP REASONS, first match wins: not-open · integration-pr · changes-requested ·
-# label:<name> · ci-failing · stacked-parent-not-selected:<n> · base:<ref>.
+# label:<name> · ci-failing · no-risk-section · risk-level:<word> ·
+# stacked-parent-not-selected:<n> · base:<ref>.
+#
+# NO `## Risk`, NO MERGE. Since 0.8.0 every gantry PR body carries a `## Risk`
+# section whose `Risk level:` is one of low|medium|high|critical, written from
+# an independent review. The integration PR's `## Risk summary` is the max over
+# the PRs it merges, so a PR with no level would make that max a lie. RISK: is
+# read from the FIRST `Risk level:` line inside the section headed exactly
+# `## Risk` (not `## Risk summary`), outside fenced blocks; the section ends at
+# the next `#` or `##` heading. No such section → `RISK:none`, skip
+# `no-risk-section`. A level outside the four — `unassessed`, which ship writes
+# when no review ran, or a typo — → `RISK:<word>`, skip `risk-level:<word>`.
+# The remedy for either is `/gantry:review` then `/gantry:ship` on that branch,
+# which refreshes the section on the open PR.
 #
 # TARGETING THE BASE IS NEVER STACKING. `headRefName` carries no owner prefix, so
 # a fork's own `master` arrives as the head branch named `master` — see
@@ -109,7 +127,7 @@ fi
 command -v python3 >/dev/null 2>&1 || die "python3 is required to read the PR JSON"
 
 python3 - "$TMP/prs.json" "$BASE_NAME" "$NUMBERS" <<'PY'
-import json, sys, datetime
+import json, re, sys, datetime
 
 path, base, numbers_raw = sys.argv[1], sys.argv[2], sys.argv[3]
 explicit = [int(n) for n in numbers_raw.split()]
@@ -124,41 +142,109 @@ if not isinstance(prs, list):
     sys.stderr.write("list_candidates: the PR JSON is not a list\n")
     sys.exit(2)
 
-BLOCKING_LABELS = ("blocked", "wip", "do-not-merge")
+BLOCKING_LABELS = ("blocked", "wip", "do-not-merge", "hold")
 FAILING = ("FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE",
            "ERROR")
 
 def one_line(s):
     return " ".join(str(s or "").split())
 
+def _stamp(c):
+    """Sort key for one check entry: when it started, else when it completed.
+
+    A running check has no completedAt (gh prints the zero date), so startedAt
+    is the primary key; the zero date counts as absent. ISO-8601 UTC strings
+    sort lexically."""
+    for k in ("startedAt", "completedAt"):
+        v = c.get(k) or ""
+        if v and not v.startswith("0001-"):
+            return v
+    return ""
+
+def is_status(c):
+    """True for a commit StatusContext, False for a CheckRun."""
+    return c.get("__typename") == "StatusContext" or "state" in c
+
+def in_flight(c):
+    """True while the check has not finished (queued, running, or expected)."""
+    if is_status(c):
+        return (c.get("state") or "").upper() in ("PENDING", "EXPECTED")
+    status = (c.get("status") or "").upper()
+    return bool(status) and status != "COMPLETED"
+
+def latest_per_check(rollup):
+    """Keep only the newest entry per check.
+
+    A re-run of a check is a second CheckRun with the same name on the same
+    head SHA, and the rollup lists both. An old red run must not outweigh the
+    newer green one (BASE-428: a stale pr-risk failure skipped every PR even
+    though the later run passed). Key: (workflowName, name) for a CheckRun,
+    context for a StatusContext. Order: an in-flight entry with no timestamp
+    (a queued re-run, both dates gh's zero date) is newest of all; otherwise
+    _stamp(), i.e. startedAt then completedAt; on a tie or no timestamps the
+    later list position wins."""
+    best = {}
+    for i, c in enumerate(rollup):
+        if is_status(c):
+            key = ("ctx", c.get("context"))
+        else:
+            key = ("run", c.get("workflowName") or "", c.get("name"))
+        stamp = _stamp(c)
+        rank = (not stamp and in_flight(c), stamp, i)
+        if key not in best or rank >= best[key][0]:
+            best[key] = (rank, c)
+    return [c for _, c in best.values()]
+
 def ci_class(rollup):
     """The head commit's checks, collapsed to one word.
 
-    Any failing wins, then any pending; an empty rollup is `none`, which is a
+    Only the latest run of each check counts (see latest_per_check). Then any
+    failing wins, then any pending; an empty rollup is `none`, which is a
     real and different answer from `passing`."""
     if not rollup:
         return "none"
-    seen = pending = failing = False
-    for c in rollup:
-        seen = True
-        if c.get("__typename") == "StatusContext" or "state" in c:
-            state = (c.get("state") or "").upper()
-            if state in ("PENDING", "EXPECTED"):
-                pending = True
-            elif state in FAILING:
+    pending = failing = False
+    for c in latest_per_check(rollup):
+        if in_flight(c):
+            pending = True
+        elif is_status(c):
+            if (c.get("state") or "").upper() in FAILING:
                 failing = True
-        else:
-            status = (c.get("status") or "").upper()
-            conclusion = (c.get("conclusion") or "").upper()
-            if status and status != "COMPLETED":
-                pending = True
-            elif conclusion in FAILING:
-                failing = True
+        elif (c.get("conclusion") or "").upper() in FAILING:
+            failing = True
     if failing:
         return "failing"
     if pending:
         return "pending"
-    return "passing" if seen else "none"
+    return "passing"
+
+RISK_LEVELS = ("low", "medium", "high", "critical")
+FENCE = re.compile(r"^ {0,3}(```|~~~)")
+RISK_LINE = re.compile(r"^\s*[-*]?\s*\**Risk level:\**\s*(.*)$", re.IGNORECASE)
+
+def risk_of(body):
+    """The `Risk level:` under the exact `## Risk` heading, or None if no section.
+
+    Returns the lower-cased first word of the value (bold and backticks
+    stripped), or "" when the section exists with no level line."""
+    insec = found = infence = False
+    for raw in (body or "").replace("\r", "").split("\n"):
+        line = raw.rstrip()
+        if FENCE.match(line):
+            infence = not infence
+            continue
+        if infence:
+            continue
+        if re.match(r"^#{1,2}(\s|$)", line):
+            insec = line.strip() == "## Risk"
+            found = found or insec
+            continue
+        if insec:
+            m = RISK_LINE.match(line)
+            if m:
+                words = m.group(1).strip().strip("*`").split()
+                return words[0].strip("*`.").lower() if words else ""
+    return "" if found else None
 
 def epoch(iso):
     if not iso:
@@ -232,7 +318,8 @@ for pr in selected:
     review = (pr.get("reviewDecision") or "NONE").upper()
     parent = parent_of(pr)
     facts[n] = dict(pr=pr, labels=labels, ci=ci, review=review,
-                    parent=parent["number"] if parent else None)
+                    parent=parent["number"] if parent else None,
+                    risk=risk_of(pr.get("body")))
 
     if review == "CHANGES_REQUESTED":
         verdicts[n] = "skip changes-requested"
@@ -243,6 +330,13 @@ for pr in selected:
         continue
     if ci == "failing":
         verdicts[n] = "skip ci-failing"
+        continue
+    risk = facts[n]["risk"]
+    if risk is None:
+        verdicts[n] = "skip no-risk-section"
+        continue
+    if risk not in RISK_LEVELS:
+        verdicts[n] = "skip risk-level:%s" % (risk or "missing")
         continue
     verdicts[n] = "candidate"
 
@@ -301,6 +395,8 @@ for n in sorted(list(facts) + missing + integration_asked):
     out.append("STACKED_ON:%s" % (f["parent"] if f["parent"] is not None else "none"))
     out.append("CONTRACT:%s" % ("gantry" if "## What this change is for" in (pr.get("body") or "")
                                 else "none"))
+    r = f["risk"]
+    out.append("RISK:%s" % ("none" if r is None else (r or "missing")))
     out.append("VERDICT:%s" % verdicts[n])
     out.append("END")
 

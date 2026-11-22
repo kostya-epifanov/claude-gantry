@@ -80,7 +80,7 @@ bash tests/run.sh                 # every case, one line each
 bash tests/run.sh hook_           # just the cases whose name matches
 ```
 
-Each case is standalone — `bash tests/cases/<name>.sh` runs one on its own. A change to
+Each case is standalone — `bash tests/cases/<name>.sh` runs one on its own (a `tests/test_*.sh` file runs the same way). A change to
 `lib/run_gates.sh` or `hooks/readiness-gate.sh` should arrive with a case, and the honest check on a
 new one is that it fails before your fix and passes after.
 

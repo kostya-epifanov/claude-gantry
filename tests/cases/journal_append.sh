@@ -300,11 +300,23 @@ assert_eq 1 "$(grep -c '^\.claude/artifacts/$' "$SAME")" "8 concurrent writers l
 # A lock left behind by a killed lane must not wedge every later run.
 STALE="$CASE_TMP/exclude-stale"
 : > "$STALE"
-mkdir -p "$STALE.lock"
+: > "$STALE.lock"
 touch -t 200001010000 "$STALE.lock"
 run_exclude --file "$STALE" journal.jsonl
 assert_rc 0 "$E_RC" "a stale lock is broken rather than wedging the run"
 assert_eq 1 "$(grep -c '^journal\.jsonl$' "$STALE")" "and the pattern is still written exactly once"
+assert_path_absent "$STALE.lock" "and the lock is gone afterwards"
+
+# The lock used to be a directory made with `mkdir`. One left behind by that
+# version must be broken the same way, not wedge the first run after upgrading.
+STALE_DIR="$CASE_TMP/exclude-stale-dir"
+: > "$STALE_DIR"
+mkdir -p "$STALE_DIR.lock"
+touch -t 200001010000 "$STALE_DIR.lock"
+run_exclude --file "$STALE_DIR" journal.jsonl
+assert_rc 0 "$E_RC" "a stale directory lock from the mkdir version is broken too"
+assert_eq 1 "$(grep -c '^journal\.jsonl$' "$STALE_DIR")" "and the pattern is written exactly once"
+assert_path_absent "$STALE_DIR.lock" "and the old directory lock is removed"
 
 run_exclude --file "$CASE_TMP/nope"
 assert_rc 2 "$E_RC" "calling it with no pattern is a usage error"
@@ -429,6 +441,32 @@ run_journal --task T --event stage --to implement \
   --coverage-verdict overlap --coverage-changed 1 --coverage-covered 1 --file "$CASE_TMP/w.jsonl"
 assert_rc 2 "$J_RC" "coverage is refused on a stage event"
 
+# --- the gate event's gate_mode and seconds ----------------------------------
+#
+# Since BASE-420 an unattended gate may run fast, and the journal says which
+# mode was handed to the gate and how long it took. Both fields are optional
+# and absent when not given, the shape a line predating them already has.
+
+GM="$CASE_TMP/gate-mode.jsonl"
+run_journal --task T --event gate --result pass --exit 0 --gate-mode fast --seconds 42 --file "$GM"
+assert_rc 0 "$J_RC" "a gate event with --gate-mode and --seconds is accepted"
+assert_eq fast "$(jqf "$GM" .gate_mode)" "gate_mode survives"
+assert_eq number "$(jqf "$GM" '.seconds | type')" "seconds is a number, not a string"
+assert_eq 42 "$(jqf "$GM" .seconds)" "seconds survives"
+
+GA="$CASE_TMP/gate-mode-absent.jsonl"
+run_journal --task T --event gate --result pass --exit 0 --file "$GA"
+assert_eq false "$(jqf "$GA" 'has("gate_mode") or has("seconds")')" "both are absent, not null, when not given"
+
+run_journal --task T --event gate --result pass --exit 0 --gate-mode quick --file "$CASE_TMP/w.jsonl"
+assert_rc 2 "$J_RC" "a gate mode outside fast|full is refused"
+run_journal --task T --event gate --result pass --exit 0 --seconds -1 --file "$CASE_TMP/w.jsonl"
+assert_rc 2 "$J_RC" "a negative duration is refused"
+run_journal --task T --event gate --result pass --exit 0 --seconds 1.5 --file "$CASE_TMP/w.jsonl"
+assert_rc 2 "$J_RC" "a fractional duration is refused"
+run_journal --task T --event stage --to implement --gate-mode fast --file "$CASE_TMP/w.jsonl"
+assert_rc 2 "$J_RC" "gate_mode is refused on a stage event"
+
 # --- the phase event's session field -------------------------------------------------
 #
 # Since 0.7.0 the review phase runs in a headless child session, and the
@@ -478,11 +516,12 @@ for doc in "$GANTRY_ROOT/skills/auto-unattended/SKILL.md" \
     # <...> marks a value the caller substitutes. Three of them are TYPED and
     # the script validates them, so an opaque token would make this check fail
     # on a correctly documented command: --exit and the coverage counts need
-    # integers, and --coverage-verdict needs one of gate_coverage.sh's six
-    # words. Everything else takes a single opaque token.
+    # integers, --coverage-verdict needs one of gate_coverage.sh's six
+    # words, and --gate-mode needs fast or full. Everything else takes a single opaque token.
     args="$(printf '%s' "$args" | sed \
       -e 's/<literal exit code>/0/' \
       -e 's/<verdict>/overlap/' \
+      -e 's/<fast|full>/fast/' \
       -e 's/<n>/0/g' \
       -e 's/<[^>]*>/PLACEHOLDER/g')"
     rm -f "$DOCLINE"

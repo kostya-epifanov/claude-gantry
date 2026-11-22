@@ -22,8 +22,13 @@
 #               task.md, plus Skill(gantry:handover), plus the Bash rules
 #   review-fix  acceptEdits (the fix step must edit code) + Skill(gantry:handover) + the Bash rules
 #
-# The Bash rules name four gantry scripts — the gate, the exclusion writer, the
-# stage detector and the diff fingerprint — and each is emitted TWICE, in the
+# The Bash rules name seven gantry scripts — the gate, the exclusion writer, the
+# stage detector, the diff fingerprint, the freshness check (review_fresh.sh), the lens matcher (risk_floor.sh,
+# which the review runs to decide which review lenses fire and which prints a
+# lens's body from the base ref) and the probe-clone maker (probe_clone.sh, which
+# writes only to a temp directory of its own) — none of them edits a tracked file (the
+# exclusion writer writes .git/info/exclude, and the gate runs the repo's own checks in the
+# worktree), and each is emitted TWICE, in the
 # unquoted and the double-quoted path form, because a rule matches the literal
 # command text and a skill may write either (probed: `Bash(bash <abs>:*)` let
 # `bash <abs>` through and denied `bash "<abs>"`). Nothing else Bash is allowed
@@ -48,7 +53,8 @@
 #   DENIALS:<n>           DENIED:<tool> <command or path>   (one per denial)
 #   GATE_EXIT:<n>         (review-fix only, from review.md's `applied:` line)
 #   RESULT_FILE:<path>
-#   NOTE:<one line>       (zero or more: the model nobody pinned, the detach,
+#   NOTE:<one line>       (zero or more: the model nobody pinned, a MODEL: naming
+#                          more than one model, the detach,
 #                          an attach to a child an earlier launcher left running)
 #   REASON:<one line>         (on failure only)
 #   RESULT_BEGIN … RESULT_END
@@ -135,6 +141,20 @@ fi
 # when nobody said. MODEL: in the output reports what actually ran.
 [ -n "$MODEL" ] || note 'no --model given: the child takes the user default from settings.json, NOT the model of whoever launched it'
 
+# --model PINS THE CHILD, NOT THE SUB-AGENTS IT STARTS. Those (the lens reviewers,
+# /code-review's finders) took the user default from settings.json, so a review
+# "run on Sonnet" was partly done by Opus (BASE-348: 5 of 8 children reported
+# MODEL:claude-opus-5-5,claude-sonnet-5-5). CLAUDE_CODE_SUBAGENT_MODEL pins them
+# too; it is exported here, so the setsid path, the inline path and review-fix all
+# inherit it. With no --model it is UNSET, not passed through: a value left in the
+# caller's environment must not silently choose the sub-agents' model. The review
+# skill reads this variable and passes it as `model` on each dispatch.
+if [ -n "$MODEL" ]; then
+  export CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
+else
+  unset CLAUDE_CODE_SUBAGENT_MODEL
+fi
+
 command -v jq >/dev/null 2>&1 || die "jq is required but was not found on PATH"
 
 # `claude` on PATH first, then the executable the running harness reports. The
@@ -215,11 +235,22 @@ or a \`\$GANTRY\` in the path is denied however correct the path it resolves to.
 denied anyway, say so in your report and name the script — do not work around it silently, and do
 not invent a value the script was supposed to produce."
 
+# THE SUB-AGENT MODEL GOES IN THE PROMPT, not behind a `printenv`: the child runs
+# under dontAsk and a Bash call to read its own environment is denied. The Agent
+# tool's `model` argument takes aliases only, so a full model id is not passed on
+# (the exported variable still pins the finders); the child is told so by omission.
+case "$MODEL" in
+  sonnet|opus|haiku|fable)
+    PROMPT="$PROMPT
+
+Sub-agent model: pass \`model: $MODEL\` on every Agent dispatch you make (review sub-agent, lens reviewers)." ;;
+esac
+
 # The rules name the plugin root the CHILD will resolve: the --plugin-dir when
 # one is forwarded (it wins over an install), else this script's own root.
 RULE_ROOT="${PLUGIN_DIR:-$GANTRY}"
 RULES=()
-for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh; do
+for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh review_fresh.sh risk_floor.sh probe_clone.sh; do
   RULES[${#RULES[@]}]="Bash(bash $RULE_ROOT/lib/$script:*)"
   RULES[${#RULES[@]}]="Bash(bash \"$RULE_ROOT/lib/$script\":*)"
   # The variable spelling, literally: the skill's own text says
@@ -363,6 +394,9 @@ if [ -s "$RESULT_FILE" ] && jq -e 'type == "object"' "$RESULT_FILE" >/dev/null 2
   jqr() { jq -r "$1" "$RESULT_FILE" 2>/dev/null; }
   SESSION="$(jqr '.session_id // "-"')"
   MODEL_USED="$(jqr '(.modelUsage // {}) | keys | if length == 0 then "-" else join(",") end')"
+  case "$MODEL_USED" in
+    *,*) note "more than one model ran ($MODEL_USED)${MODEL:+ with --model $MODEL pinned}: cost and behaviour are not those of one model" ;;
+  esac
   TURNS="$(jqr '.num_turns // "-"')"
   SUBTYPE="$(jqr '.subtype // "-"')"
   COST="$(jqr '.total_cost_usd // "-"')"

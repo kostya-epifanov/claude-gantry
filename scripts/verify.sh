@@ -114,7 +114,7 @@ out="$(repo_files '*.md' -z | xargs -0 grep -InE '\.md:[0-9]+' 2>/dev/null)"
 [ -z "$out" ] && ok "none" || { bad "line-number citations found"; printf '%s\n' "$out"; }
 
 head2 "no leftovers from the extraction"
-out="$(repo_files -z -- ':!scripts' | xargs -0 grep -InE '\bkit:|\$KIT\b|kit@skills-dir|homebase|raw_specs|OPEN-QUESTIONS|Slice [0-9]' 2>/dev/null)"
+out="$(repo_files -z -- ':!scripts' | xargs -0 grep -InE '\bkit:|\$KIT\b|kit@skills-dir|homebase|raw_specs|OPEN-QUESTIONS|Slice [0-9]' 2>/dev/null | sed 's/homebase-launcher-guarded//g' | grep -E '\bkit:|\$KIT\b|kit@skills-dir|homebase|raw_specs|OPEN-QUESTIONS|Slice [0-9]')"
 [ -z "$out" ] && ok "none" || { bad "pre-rename references survive"; printf '%s\n' "$out"; }
 
 head2 "ship reviews only when asked"

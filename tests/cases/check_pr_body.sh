@@ -30,6 +30,21 @@ check "$(body flowing 'One paragraph on one long line, however long it runs.
 And a second one, also on one line.')"
 assert_rc 0 "$RC" "one line per paragraph passes"
 
+# The ## Risk block ship writes (0.8.0) is one labeled line each, on purpose.
+check "$(body risk '## Risk
+<!-- gantry:risk sha256=abc -->
+Risk level: high
+Floor: high (lens security: bin/x)
+Blast radius:
+- Breaks if wrong: x
+- Live after merge: yes
+- Rollback: revert')"
+assert_rc 0 "$RC" "the Risk block's labeled lines are structure, not a wrapped paragraph"
+check "$(body risk-wrapped 'Risk level: high
+and then a sentence that somebody wrapped
+onto a third line.')"
+assert_rc 1 "$RC" "a wrapped sentence after a Risk label still fails"
+
 check "$(body wrapped 'A paragraph that somebody wrapped
 at a column, the way every .md file here is wrapped.')"
 assert_rc 1 "$RC" "a wrapped paragraph fails"
