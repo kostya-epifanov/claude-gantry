@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`gantry:ship` publishes `Risk level: unassessed` when `risk_floor.sh` exits 2** (BASE-364). A malformed lens, or a script that could not run, used to leave the level to the review alone, so a broken lens plus a low review shipped `low` with no floor and no `guarded` label, and integrate would merge it. It now fails closed exactly as when no review ran: integrate skips the PR until the lens is fixed on the base branch (lenses are read from the base ref) and ship runs again. Wording-only, in `skills/ship/SKILL.md`, `skills/integrate/SKILL.md` and `docs/SKILLS.md`.
+
 - **A lens file in the diff is guarded on its own** (BASE-365). `lib/risk_floor.sh` now prints `LENS_IN_DIFF:<path> <level>` — the strictest level any base lens assigns the path — or `LENS_IN_DIFF:<path> critical no-base-lens` when no base lens covers it, including a base with no lens at all. `gantry:ship` counts that level in `Risk level:` and `Floor:` (as `lens-file: <path>`), lists the file under `## Guarded changes` and adds the `guarded` label even when no lens fired, so a PR that only weakens a lens, or adds the first one, is no longer unguarded; a `no-base-lens` file is never described as judged by the base's version. `gantry:review` records it under `review.md`'s `## Risk`. Integrate's `--commits` use is unchanged. Tested in `tests/cases/risk_floor.sh`.
 
 ## 0.10.1

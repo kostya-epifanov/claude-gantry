@@ -400,7 +400,11 @@ fired: `<level>` is the strictest level any base lens assigns that path, and
 with no lens at all — so nothing could judge it. **Exit `2` is not "nothing fired"**: a lens is
 malformed or the script could not run. Then the `## Risk` section says `Lenses: could not be
 evaluated — <the stderr line>`, the same sentence goes under `## Not proven by this run`, and no
-`guarded` label is claimed either way.
+`guarded` label is claimed either way. The level is then **`unassessed`**, whatever the review or the
+floors say — the same fail-closed policy as no review, because a lens that never ran is a guard that
+never ran. A fresh `review.md`'s blast-radius bullets are still quoted. Lenses are read from the base
+ref, so the remedy is to fix the lens on the base branch (or clear the stderr cause) and run ship
+again; until then `/gantry:integrate` skips the PR.
 
 **First, is the review current?** A review of an older diff is a missing one, not a lower one:
 
@@ -433,11 +437,14 @@ a `[lens <name>]` finding in its `## Address now` that was never applied — the
 `defer: never` promised each finding would be fixed or shown; an unapplied one is shown.
 
 **No review assessed the risk** — there is no `review.md`, or it has no `## Risk` section (a review
-from before 0.8.0, or a bare `/gantry:ship`) — then the level is **`unassessed`**, whatever the
+from before 0.8.0, or a bare `/gantry:ship`) — **or `risk_floor.sh` exited `2` and the lenses
+`could not be evaluated`** (above) — then the level is **`unassessed`**, whatever the
 floors say. The level is the review's judgement, and a floor written in its place would pass a CI
 check with a level nobody assessed. `unassessed` is never combined into a max. A PR shipped that way
-is skipped by `/gantry:integrate` until `/gantry:review` runs and the next `/gantry:ship` refreshes
-the section, and the report says so.
+is skipped by `/gantry:integrate` until the cause is cleared and the next `/gantry:ship` refreshes
+the section, and the report says so with the remedy for its cause: with no current review, run
+`/gantry:review`; with lenses that could not be evaluated, fix the lens on the base branch (or clear
+the stderr cause) — re-running review does not help there (see above).
 
 **The section**, with these exact headings and labels:
 
@@ -456,8 +463,11 @@ Blast radius:
   then each lens file in the diff as `lens-file: <path>` — hyphenated, so it never reads as a lens
   named `file` — e.g. `Floor: critical (lens security: bin/x; lens-file: .claude/review-lenses/new.md)`.
   Its level is the highest of the `FLOOR:` lines and the `LENS_IN_DIFF:` levels.
-- The three `Blast radius:` bullets are quoted from `review.md`. When no review assessed the risk,
-  each says `not assessed — no review ran on this diff` (or the stale/error wording above).
+- The three `Blast radius:` bullets are quoted from `review.md`. When there is no current review
+  (no `review.md`, no `## Risk` section, or `review_fresh.sh` stale/error), each says
+  `not assessed — no review ran on this diff` (or the stale/error wording above). Lenses that could
+  not be evaluated are the exception: the level is `unassessed`, but a fresh review's bullets are
+  still quoted.
 - The marker line is how a later run can tell whether this section is current (see *Refresh*
   below). Compose the section **without** it first, together with the `## Guarded changes` section
   when there is one, and write that text with the Write tool to
@@ -920,7 +930,8 @@ so an omission here becomes an omission in an append-only log.
 
 **The risk**: the `Risk level:` the body carries and what set it (the review's level, which lens
 floor, a one-step raise for open risks — or `unassessed`, and that integrate will skip the PR until
-a review runs); every lens that fired and its matched-file count; whether `risk_floor.sh` could not
+a review runs or, when the lenses could not be evaluated, until the lens is fixed on the base and ship
+runs again); every lens that fired and its matched-file count; whether `risk_floor.sh` could not
 evaluate the lenses; whether the `guarded` label was applied, or why not; and on a refresh, whether
 the Risk section was refreshed.
 

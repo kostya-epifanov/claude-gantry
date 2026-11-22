@@ -458,7 +458,9 @@ the push.
 lens file. The level is the highest of the review's `Risk level:`, every fired lens's floor and each
 changed lens file's own level (the strictest any base lens assigns it, or `critical` marked
 `no-base-lens` when none covers it), raised one step for any
-open risk; with no review it is `unassessed`, never a floor standing in for a judgement. The
+open risk; with no review it is `unassessed`, never a floor standing in for a judgement — and `unassessed` too
+when `lib/risk_floor.sh` exits 2 and the lenses could not be evaluated, so integrate skips the PR
+until the lens is fixed on the base branch and ship runs again. The
 guarded file list comes from `lib/risk_floor.sh`, run again by ship at ship time — every matched
 file, each with the lens's *what to look at* note — not from the model. A guarded change also puts the
 GitHub label `guarded` on the PR, created when the repo lacks it; a label that cannot be applied is
