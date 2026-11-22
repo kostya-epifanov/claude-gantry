@@ -35,6 +35,7 @@ often it stops, and one phase: `grill` is human-only, so `gantry:auto-unattended
 | A failing scenario | you decide | the phase triages; stop on `blocked` | the phase triages and defers; `blocked` only on an acceptance criterion observably false |
 | Stops | after every phase | a grill conversation, then nothing | never |
 | Red gate | you decide | stop and report | fix, capped at 2 attempts |
+| Stale review before ship | n/a | one read-only re-review, tier medium (stage 5c) | same, journaled; findings disclosed in `handover.md`, never applied |
 | Open fork | `implement` warns; you decide | settled inside `grill`, in priced options | **stop**, journal `escalation`, `blocked` |
 | Gate invocation | `run_gates.sh` | `run_gates.sh` | `run_gates.sh --strict --fast` (implement, review-fix) |
 | No gates found | continue, flagged | continue, flagged | **refuse to push** |

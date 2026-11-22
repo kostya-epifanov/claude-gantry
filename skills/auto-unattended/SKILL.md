@@ -305,7 +305,14 @@ independent scrutiny at all.
   literal code, exactly as stage 4 does. When that line carries no `mode=` or no `seconds=` (an
   older-format `applied: … gate=<exit>`), omit `--gate-mode` or `--seconds` from the journal call —
   never invent a value for either; non-zero after the child's own two attempts → `status:
-  blocked`, journal the `escalation`, stop. A launcher exit of `1` or `3` is the same stop as above.
+  blocked`, journal the `escalation`, stop. A launcher exit of `1` or `3` **from the fix child** is
+  not on its own that stop: the child was killed or timed out, so the tree may hold half its edits
+  and `review.md` may or may not carry an `applied:` line (a child that hit its limit after the
+  gate has written one). Journal the phase `failed` with its `REASON:`, then still read
+  `GATE_EXIT:` and `bash "$GANTRY/lib/detect_stage.sh"`'s `STATUS:` — a non-zero gate, or
+  `STATUS:blocked`, stops the run exactly as above. Only otherwise, **do not** set `blocked` and
+  go on to stage 5c, which gates the tree and re-reviews it. (A review child's exit `1` or `3`, above,
+  still stops the run.)
 - `REVIEW:clean` → nothing in scope to fix; say so, launch nothing.
 
 ```bash
@@ -358,6 +365,69 @@ bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event escalation --stage
 If `qa.md` lists **flow files**, the phase kept them in the tree and wrote a `handover.md` item
 naming each one and the wiring it still needs; nobody was present to ask. Say so in the report —
 a flow in a draft PR that nothing runs yet is the loop half-closed, and the reviewer closes it.
+
+## Stage 5c — Re-review before ship
+
+Ship publishes `Risk level:` only from a `review.md` that `lib/review_fresh.sh` calls fresh; for a
+stale one it writes `unassessed`, and `/gantry:integrate` skips such a PR. The tree changes after
+stage 5's review when the fix child was killed or timed out (its `applied: … diff=<token>` line
+never got written), or when someone applied fixes by hand. This stage restores a current level.
+
+```bash
+bash "$GANTRY/lib/review_fresh.sh"
+```
+
+**Gate first, before routing on the result**, whenever the tree may hold edits no gate covered:
+the fix child did not finish cleanly (whatever `FRESH:` says, `error` and `absent` included), or
+`FRESH:stale` (hand-applied fixes move the tree just as a killed child does). Run
+`bash "$GANTRY/lib/run_gates.sh" --strict --fast`, journaled as a `gate` event with the literal
+exit code, as in stage 4. Non-zero → `status: blocked`, journal the `escalation`, stop: nobody has
+run a gate over these edits, and neither a fresh Risk level nor `unassessed` may ship them unproven.
+
+- `FRESH:yes` → nothing more to do; go to stage 6. `FRESH:absent` or `FRESH:error` → not this
+  stage's case; go to stage 6, where ship writes `unassessed` as it does today.
+- `FRESH:stale` → **re-review once**, in this order:
+  1. The gate above has run over this tree and is green.
+  2. **Once per run, failures included.** If the journal already holds a `re-review` phase event of
+     any result, **or `.claude/artifacts/review-first.md` already exists** (a driver that died after
+     step 3 journals nothing), do not launch again; go to stage 6.
+  3. Keep the first review's evidence: copy `review.md` to `.claude/artifacts/review-first.md`
+     (the relaunch overwrites it, and the launcher deletes the first child's result files). Never
+     overwrite an existing `review-first.md`.
+  4. Launch the read-only child, same `--model`, `--effort` and `--plugin-dir` as stage 5, with the
+     Bash tool's `run_in_background`, and wait for the notification:
+
+     ```bash
+     bash "$GANTRY/lib/run_phase_headless.sh" --phase review --root <worktree> --tier medium
+     ```
+
+     **Never launch `review-fix` after it.** Its findings are disclosed, not applied, so the loop
+     cannot recurse.
+  5. **Disclose what it found — whatever the exit and whatever the freshness.** Whenever the child
+     wrote a new `review.md` (it differs from `review-first.md`), its findings are real even if the
+     run then failed or the file reads stale. Under `--headless` only deferred findings reach
+     `handover.md`; in-scope ones stay in `review.md` under `## Address now`, which ship does not
+     quote. If `detect_stage.sh` says `REVIEW:pending`, invoke `gantry:handover` to carry each
+     unapplied `## Address now` item into `handover.md` (it appends), saying they come from the
+     pre-ship re-review and were not applied.
+  6. Launcher exit `1`, `2` or `3` → journal `--phase re-review --result failed`, then **copy
+     `.claude/artifacts/review-first.md` back over `review.md`**: a child that died after writing
+     `review.md` left a fresh `diff:` token and the `reviewed` status from stage 5, so ship would
+     otherwise publish an incomplete review's level. The restored file is stale, so ship writes
+     `unassessed`; report why and go to stage 6. Not a block. `STATUS:blocked` after exit `0` → the
+     re-review found the change unsafe; stop as in stage 5.
+  7. **Re-run `bash "$GANTRY/lib/review_fresh.sh"` — that is the success test, not the launcher's
+     exit `0`**, which a child that wrote nothing also earns (the old `review.md` and `reviewed`
+     status already satisfy the launcher's artifact check). `FRESH:yes` → ship will quote the new
+     level. Still stale → the one re-review is spent; go to stage 6 and report that ship writes
+     `unassessed` because `review.md` is still stale after it.
+
+```bash
+bash "$GANTRY/lib/journal_append.sh" --task <task-id> --event phase --phase re-review --result ok --session <re-review child session id> --summary <what it found; that none was applied> --artifact review.md --artifact handover.md
+```
+
+Omit `--session` when the launcher printed `SESSION:-`, as in stage 5. Write `--result failed` with
+the launcher's `REASON:` as the summary when it did not complete.
 
 ## Stage 6 — Ship
 
@@ -415,6 +485,10 @@ Written for someone who was not here, because nobody was:
   none was passed), the gate exit the fix child recorded, and every permission denial verbatim
   from the launcher's `DENIED:` lines. A denial never fails the launcher on its own; it is reported
   so the reader can weigh what the review could not do.
+- **The re-review** (stage 5c): whether `review.md` was stale before ship, whether the one
+  re-review ran, its session id and the gate exit if the tree was gated first, its findings
+  (disclosed through `handover.md`, never applied), and whether ship will publish a current
+  `Risk level` or `unassessed` — with the reason.
 - **Every assumption `plan` or `plan-critique` had to make** because there was nobody to ask. Genuine
   design forks are not on this list — those stop the run rather than becoming assumptions — but
   the judgement calls inside a plan still are, and the reader of a draft PR needs them.
