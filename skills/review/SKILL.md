@@ -109,6 +109,48 @@ preferring the `origin/` ref whenever one exists. Say which it was; `review.md` 
 
 Read the untracked files too. A new file nobody reviewed is the easiest place for a defect to hide.
 
+### 2a. Make the probe clone
+
+A **probe** is any command that executes code or git experiments to check a claim — the repo's tests,
+a script, a build, a `git` command that writes. Reviewers sometimes run them, and in the real
+worktree a command that slips past a guard can change the lane's files and its shared `.git`. So
+every probe runs in a **throwaway clone** instead, and nothing else about reading changes: reviewers
+still read files, `git diff`, `git status` and `git log` in the real worktree.
+
+Make it once, before the first dispatch, with the `<BASE>` step 1 resolved (and, in a headless
+child, as the whole command, as step 1 says):
+
+```bash
+bash "$GANTRY/lib/probe_clone.sh" create --base <BASE>
+```
+
+- Exit `0` prints `PROBE_DIR:<path>`. The clone is made with `git clone --local --no-hardlinks`
+  (never `--shared`), carries the reviewed HEAD plus the uncommitted and untracked changes, has no
+  remote, and resolves `<BASE>` to the same commit. Give that path to **every sub-agent** you
+  dispatch in 2 and 2b, tell it that all its probes run there — with the clone as the working
+  directory (`cd <clone> && …` or `git -C <clone> …`) — and nowhere else, that the clone is
+  shared with the other reviewers (so nobody moves a HEAD or cleans it), and that it holds no
+  gitignored artefacts, so a build or test that fails for want of dependencies is an environment fact,
+  not a finding.
+- **Any other outcome means no clone**: exit `3` (`PROBE:unavailable <reason>`), exit `2` (a usage
+  error — an empty or unknown argument, or not inside a repo), any other non-zero exit, output with
+  no `PROBE_DIR:` line, or the command denied. **Record reduced
+  coverage** — a `Probe coverage: reduced coverage — <reason>` line in `review.md`'s header and in
+  the report — and tell every sub-agent to run **no probe at all** and to read only. **Never fall back
+  to probing in the real worktree**, whatever the reason and however much a probe would help.
+- A reviewer that reports a probe it could not run in the clone (a compound command a headless
+  boundary denied, for instance) is also reduced coverage, written the same way.
+
+The scripts this skill and the chain run themselves — `detect_stage.sh`, `risk_floor.sh`,
+`diff_fingerprint.sh`, `review_fresh.sh`, step 1's `git diff` / `git status`, and step 5's gate on
+the fixed tree — are not probes and run in the real worktree. Apply mode (`--fix` with
+`REVIEW:pending`) skips steps 2–4 and makes no clone.
+
+**Source 1 is not covered.** `/code-review` starts its own finders from a bare command, and this
+skill has no brief to hand them a clone path through. Say so in the report whenever source 1 ran:
+the clone covers source 2, the lens reviewers and `gantry-reviewer`, and says nothing about a
+finder `/code-review` starts.
+
 ### 2. Get an independent review
 
 Three **sources**, in order of independence. **Say which one ran** — they are not equivalent, and
@@ -149,6 +191,7 @@ about the thing it exists to record.)
    otherwise `gantry-reviewer`. Give it the worktree path, the base branch, and `task.md`'s path —
    let it read the diff itself. Ask for correctness defects first, then reuse and simplification,
    each with a concrete failure or a concrete saving.
+   Give it the probe clone path from step 2a (or the instruction to run no probe).
    Tell it that when a guard blocks a command it stops and reports, and never rebuilds, splits or
    encodes the command. A guard block it reports is not a finding about the diff and not an
    address-now item: see *Guard blocks* below.
@@ -226,7 +269,8 @@ by this run*.
   ```
 
 - the worktree path, `<BASE>`, and `task.md`'s path — it reads the diff itself;
-- the `FILE:` lines that fired the lens.
+- the `FILE:` lines that fired the lens;
+- the probe clone path from step 2a, or the instruction to run no probe.
 
 Ask it for findings against the lens, each with the file, the line and the concrete failure, and
 for **one "what to look at" note per matched file**: the specific lines and what a reader should
@@ -330,6 +374,7 @@ source: code-review | gantry-reviewer | self-review
 tier: <tier>
 tallies: returned=<n> verified=<n> address-now=<n> deferred=<n> dropped=<n>
 Guard blocks: <command and block message>   (only when a guard blocked something)
+Probe coverage: reduced coverage — <reason>   (only when step 2a made no clone, or a probe could not run in it)
 
 ## Address now
 - `<path>:<line>` — <what is wrong>. Failure: <inputs → wrong result>.
@@ -453,6 +498,19 @@ body, which ship composes.
 
 Nothing deferred → no `handover.md`. An empty handover file is noise in that body.
 
+### 6b. Remove the probe clone
+
+If step 2a made one, remove it now, and on **every** stop before this point as well — a blocked
+status, an early return, a failed child:
+
+```bash
+bash "$GANTRY/lib/probe_clone.sh" remove <the PROBE_DIR path>
+```
+
+It deletes the clone and its temp directory. Nothing was made in apply mode, so nothing is removed.
+A review that dies before reaching this leaves a clone behind; the next `create` sweeps any older
+than a day.
+
 ### 7. Record the status
 
 Set `task.md` frontmatter to `status: reviewed` — **always, `--fix` or not.** The review happened;
@@ -482,6 +540,9 @@ say what happened when you invoked it; "unavailable" with no cause is how a down
 Then how many were addressed, deferred, and dropped — and under `--headless`, how many were
 deferred because they would otherwise have been asked about. A run that reports "12 findings" when
 5 were untrue has told the reader something false about the diff.
+
+**Probe coverage**: whether the probe clone was made and removed, or `reduced coverage` and why;
+that source 1's finders are not covered by it, when source 1 ran.
 
 **Guard blocks**: each command a guard blocked and its message, any attempt to get around one, and
 whether a workaround got through (which sets `status: blocked`); or that none occurred.
