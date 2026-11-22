@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **A lens file in the diff is guarded on its own** (BASE-365). `lib/risk_floor.sh` now prints `LENS_IN_DIFF:<path> <level>` — the strictest level any base lens assigns the path — or `LENS_IN_DIFF:<path> critical no-base-lens` when no base lens covers it, including a base with no lens at all. `gantry:ship` counts that level in `Risk level:` and `Floor:` (as `lens-file: <path>`), lists the file under `## Guarded changes` and adds the `guarded` label even when no lens fired, so a PR that only weakens a lens, or adds the first one, is no longer unguarded; a `no-base-lens` file is never described as judged by the base's version. `gantry:review` records it under `review.md`'s `## Risk`. Integrate's `--commits` use is unchanged. Tested in `tests/cases/risk_floor.sh`.
+
 ## 0.10.1
 
 Patch: no new skill or flag. Integration PR #64 (#61, #62, #63).

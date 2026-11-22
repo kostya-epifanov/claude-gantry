@@ -99,7 +99,8 @@ assert_contains "$RF_OUT" "FILE:bin/tool medium" "a lens edited only in the work
 # The lens file itself sits under `.claude/`, a critical key of the BASE lens — so
 # the edit is guarded by the old text, which is the point.
 assert_contains "$RF_OUT" "FILE:.claude/review-lenses/security.md critical" "the lens edit is judged by the base lens's own keys"
-assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/security.md" "the edited lens is reported as in the diff"
+assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/security.md critical" "the edited lens is reported as in the diff, at the base lens's level for its path"
+assert_not_contains "$RF_OUT" "no-base-lens" "...and a base lens covers it, so it is not no-base-lens"
 commit_all "$repo" "commit the lens edit"
 rf "$repo" master
 assert_contains "$RF_OUT" "FILE:bin/tool medium" "...nor once that edit is committed on the branch"
@@ -109,7 +110,7 @@ printf -- '---\nname: extra\nfloors:\n  "README": critical\n---\nbody\n' > "$rep
 printf 'y\n' >> "$repo/README"
 rf "$repo" master
 assert_not_contains "$RF_OUT" "LENS:extra" "a lens added only in the worktree does not fire"
-assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/extra.md" "...and is reported as in the diff"
+assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/extra.md critical" "...and is reported as in the diff, floored by the base lens"
 
 # --- the merge-base, not the base tip ----------------------------------------------------
 mb="$(mkrepo rf-mb)"
@@ -271,6 +272,84 @@ assert_rc 2 "$RF_RC" "a matcher that cannot run is exit 2"
 [ -z "$RF_OUT" ] && _pass "...and prints nothing" || _fail "a failed matcher printed: $RF_OUT"
 assert_contains "$(cat "$CASE_TMP/shim.err")" "the lens matcher failed on lens security" \
   "...and the exit 2 is the matcher's own, not an earlier step's"
+
+# --- a lens file in the diff is guarded on its own ------------------------------------
+# The first lens added to a base with no lens at all: nothing at the base can judge
+# it, so it is critical and marked no-base-lens — not silence.
+first="$(mkrepo rf-first)"
+git -C "$first" branch -m master >/dev/null 2>&1
+mkdir -p "$first/bin"; printf 'x\n' > "$first/bin/tool"
+commit_all "$first" "a base with no lens"
+git -C "$first" checkout -q -b feat/lens >/dev/null 2>&1
+mkdir -p "$first/.claude/review-lenses"
+printf -- '---\nname: first\nfloors:\n  "bin/": high\n---\nbody\n' > "$first/.claude/review-lenses/first.md"
+rf "$first" master
+assert_rc 0 "$RF_RC" "the first lens added to a lens-less base is answered"
+assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/first.md critical no-base-lens" \
+  "the first lens in a repo is critical, no-base-lens"
+assert_not_contains "$RF_OUT" "LENS:first" "...and the new lens does not judge itself"
+RF_OUT="$(cd "$first" && TMPDIR="$CASE_TMP/no-such-dir" bash "$RF" master 2>/dev/null)"
+RF_RC=$?
+assert_rc 0 "$RF_RC" "a lens file in the diff of a lens-less base needs no writable temp directory"
+assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/first.md critical no-base-lens" \
+  "...and still reports it"
+commit_all "$first" "add the first lens"
+sha="$(git -C "$first" rev-parse HEAD)"
+rf "$first" --commits master "$sha"
+assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/first.md critical no-base-lens" \
+  "--commits reports a lens added to a lens-less base the same way"
+
+# The floor is the strictest any base lens assigns — not always critical.
+lv="$(mkrepo rf-level)"
+git -C "$lv" branch -m master >/dev/null 2>&1
+mkdir -p "$lv/.claude/review-lenses" "$lv/bin"
+printf 'x\n' > "$lv/bin/tool"
+printf -- '---\nname: a\nfloors:\n  "bin/": medium\n  ".claude/review-lenses/": high\n---\nbody\n' > "$lv/.claude/review-lenses/a.md"
+printf -- '---\nname: b\nfloors:\n  ".claude/review-lenses/b.md": low\n  "setup.sh": critical\n---\nbody\n' > "$lv/.claude/review-lenses/b.md"
+printf -- '---\nname: c\nfloors:\n  "bin/": low\n---\nbody\n' > "$lv/.claude/review-lenses/c.md"
+commit_all "$lv" "three lenses"
+git -C "$lv" checkout -q -b feat/edit >/dev/null 2>&1
+printf 'more\n' >> "$lv/.claude/review-lenses/b.md"
+rf "$lv" master
+assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/b.md high" \
+  "a lens file takes the strictest level any base lens assigns its path"
+assert_not_contains "$RF_OUT" "no-base-lens" "...and is not no-base-lens"
+
+# A base whose lenses cover nothing under .claude/: an edit to one is no-base-lens.
+nc="$(mkrepo rf-nocover)"
+git -C "$nc" branch -m master >/dev/null 2>&1
+mkdir -p "$nc/.claude/review-lenses" "$nc/bin"
+printf 'x\n' > "$nc/bin/tool"
+printf -- '---\nname: bin\nfloors:\n  "bin/": medium\n---\nbody\n' > "$nc/.claude/review-lenses/bin.md"
+commit_all "$nc" "a lens that guards only bin/"
+git -C "$nc" checkout -q -b feat/weaken >/dev/null 2>&1
+git -C "$nc" rm -q .claude/review-lenses/bin.md
+rf "$nc" master
+assert_rc 0 "$RF_RC" "deleting a lens no base lens covers is answered"
+assert_contains "$RF_OUT" "LENS_IN_DIFF:.claude/review-lenses/bin.md critical no-base-lens" \
+  "a deleted lens no base lens covers is critical, no-base-lens"
+[ "$(printf '%s\n' "$RF_OUT" | grep -c .)" = 1 ] && _pass "...and is the only line (no lens fired)" \
+  || _fail "a lens-only diff printed more than its one line: $RF_OUT"
+
+# Only a `.md` file under the lens directory is a lens: a .gitkeep or a note beside
+# the lenses is not floored as one.
+git -C "$nc" checkout -q -f master >/dev/null 2>&1
+git -C "$nc" checkout -q -b feat/notalens >/dev/null 2>&1
+: > "$nc/.claude/review-lenses/.gitkeep"
+printf 'notes\n' > "$nc/.claude/review-lenses/notes.txt"
+rf "$nc" master
+assert_rc 0 "$RF_RC" "a non-lens file under the lens directory is answered"
+[ -z "$RF_OUT" ] && _pass "...and prints nothing (it is not a lens)" \
+  || _fail "a non-lens file under the lens directory printed: $RF_OUT"
+
+# The lens-file floor failing is exit 2, never a missing line. The -F shim fails only
+# awk calls given -F; on a lens-less base the matcher never runs, so this is the
+# lens-file floor's own failure.
+RF_OUT="$(cd "$first" && PATH="$shimdir:$PATH" bash "$RF" master 2>"$CASE_TMP/shim2.err")"
+RF_RC=$?
+assert_rc 2 "$RF_RC" "a lens-file floor that cannot run is exit 2"
+[ -z "$RF_OUT" ] && _pass "...and prints nothing" || _fail "a failed lens-file floor printed: $RF_OUT"
+assert_contains "$(cat "$CASE_TMP/shim2.err")" "the lens-file floor failed" "...and names the lens-file floor"
 
 # --- no lenses at all, and usage --------------------------------------------------------
 plainrepo="$(mkrepo rf-nolens)"

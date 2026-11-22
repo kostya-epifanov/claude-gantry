@@ -196,11 +196,18 @@ bash "$GANTRY/lib/risk_floor.sh" <BASE>
 ```
 
 It prints one block per lens that fired — `LENS:<name>`, `FLOOR:<level>`, `DEFER:never` when the
-lens says so, one `FILE:<path> <level>` per matched file, `END` — and nothing at all when no lens
-fired. **Lens files are read from the base ref** (`git show <BASE>:.claude/review-lenses/…`), never
+lens says so, one `FILE:<path> <level>` per matched file, `END` — then any `LENS_IN_DIFF:` lines
+(below), and nothing at all when no lens fired and no lens file is in the diff. **Lens files are read from the base ref** (`git show <BASE>:.claude/review-lenses/…`), never
 from the worktree, so a diff that adds or edits a lens does not get to judge itself with the new
-text. The script reports that case as a `LENS_IN_DIFF:<path>` line; when you see one, say in
-`review.md` that this lens's change was judged by the base's lenses, not by itself.
+text. The script reports that case as a `LENS_IN_DIFF:<path> <level>` line — the strictest level
+any base lens assigns that path — or as `LENS_IN_DIFF:<path> critical no-base-lens` when no base lens
+covers it (including a base with no lens at all). The lens file is guarded on its own, whether or
+not any lens fired. Record each one as a line under `review.md`'s `## Risk` (there may be no
+`## Lens:` section to put it in) — a plain line, not a bullet, after `Risk level:` (and after
+`Lenses:` when present) and before `Blast radius:`, as the `## Risk` template in step 4b shows:
+`Lens file in diff: <path> — <level>, judged by the base's lenses, not by itself`, or for
+`no-base-lens`, `Lens file in diff: <path> — critical, no-base-lens: no lens at the base covers it,
+so nothing judged it`. Never say a `no-base-lens` file was judged by the base's version.
 
 **Exit `2`, or the command denied, is not "no lens fired".** It means a lens is malformed, the base
 did not resolve, or the script could not run — and an unevaluated lens is exactly a guarded path
@@ -341,16 +348,18 @@ assessment. This session writes it — the review run, never the session that wr
 ```
 ## Risk
 Risk level: <low|medium|high|critical>
+Lens file in diff: <path> — <level>, …   (one per LENS_IN_DIFF: line; none when there is none)
 Blast radius:
 - Breaks if wrong: <what fails, for whom, if this change is wrong>
 - Live after merge: <yes|no> — <how: what runs it, and when>
 - Rollback: <how to undo it, and whether a revert is enough>
 ```
 
-`Risk level:` is your judgement of the diff, not the floor — ship takes the max of it and every
-fired lens's floor, so do not inflate it to meet one. `Blast radius:` has **exactly** those three
+`Risk level:` is your judgement of the diff, not the floor — ship takes the max of it, every
+fired lens's floor and every `LENS_IN_DIFF:` level, so do not inflate it to meet one. `Blast radius:` has **exactly** those three
 bullets. When step 2b could not evaluate the lenses, add `Lenses: could not be evaluated — <reason>`
-as the line after `Risk level:`.
+as the line after `Risk level:`, ahead of any `Lens file in diff:` lines. Neither is a bullet, and
+both go before `Blast radius:`, so its three bullets stay exactly three.
 
 Then one section per lens that fired, in the order the script printed them:
 
@@ -365,8 +374,10 @@ floor: <FLOOR from the script>
 
 Findings first (or `No findings.`), an `- Open risk:` line for each `defer: never` finding that is
 not in *Address now*, then `### What to look at` with **one bullet per `FILE:` line the script
-printed — every one of them**. When the script printed a `LENS_IN_DIFF:` line, add a line here
-saying which lens file this diff changed and that the base's version judged it. None of these
+printed — every one of them**. When this lens's section exists and the script printed a
+`LENS_IN_DIFF:` line, add a line here naming the lens file this diff changed — "judged by the base's
+lenses" for a line with a level, "no-base-lens: nothing judged it" for `no-base-lens`. The `## Risk`
+line from step 2b is written either way. None of these
 sections changes `REVIEW:` — the detector reads only *Address now* and the last line.
 
 No `session:` line, deliberately: a child cannot read its own session id, and the launcher already
