@@ -169,7 +169,8 @@ that a tool boundary means something:
 | qa | the repo's `qa` agent, **only if the repo defines one** — gantry ships no default | driving the built app through the task's e2e scenarios | `.claude/agents/qa.md` — the one role with no `gantry-` fallback |
 
 **Every agent gantry ships is read-only.** `gantry-explorer` and `gantry-critic` have `Read, Grep,
-Glob`; `gantry-reviewer` adds `Bash` to read git and run checks.
+Glob`; `gantry-reviewer` adds `Bash` to read git, and to run checks only inside the throwaway
+probe clone the review phase makes (`lib/probe_clone.sh`) — never in the worktree under review.
 None can write, however it is prompted — a boundary prose cannot enforce. Writing therefore happens
 in the phase skill, in the caller's own context, where it is visible rather than reported.
 
@@ -210,9 +211,9 @@ harness rather than by prose: the review child runs under `--permission-mode don
 allowlist of exactly `Edit(<artifact>)` and `Edit(//<root>/<artifact>)` for `review.md`,
 `handover.md` and `task.md` (the relative form resolves against the child's current directory,
 which a `cd` moves; the absolute form holds wherever the shell ended up), `Skill(gantry:handover)`
-(a plugin skill is denied under `dontAsk` without it), and Bash rules for six read-only gantry
-scripts (the gate, the exclusion writer, the stage detector, the diff fingerprint, the freshness check `review_fresh.sh`, the review-lens
-matcher `risk_floor.sh` — each in both
+(a plugin skill is denied under `dontAsk` without it), and Bash rules for seven gantry scripts
+that edit no tracked file (the gate, the exclusion writer, the stage detector, the diff fingerprint, the freshness check `review_fresh.sh`, the review-lens
+matcher `risk_floor.sh`, the probe-clone maker `probe_clone.sh` — each in both
 quote forms, because a rule matches the literal command). It can write the chain's artifacts and
 nothing else. The fix step is a **second child**, `gantry:review --fix`
 under `acceptEdits` with the same Bash rules, which applies what `review.md` lists and re-runs the

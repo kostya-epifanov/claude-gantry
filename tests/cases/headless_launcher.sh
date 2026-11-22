@@ -195,7 +195,7 @@ for a in review.md handover.md task.md; do
   argv_has "Edit(//$repo_top/$a)" "Edit(//<root>/$a) is one element: the absolute form survives a cd inside the child"
 done
 argv_has "Skill(gantry:handover)" "Skill(gantry:handover) is one element: the nested plugin skill is allowed under dontAsk"
-for s in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh review_fresh.sh risk_floor.sh; do
+for s in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh review_fresh.sh risk_floor.sh probe_clone.sh; do
   argv_has "Bash(bash $GANTRY_ROOT/lib/$s:*)" "the unquoted Bash rule for $s is verbatim"
   argv_has "Bash(bash \"$GANTRY_ROOT/lib/$s\":*)" "the double-quoted Bash rule for $s is verbatim"
 done
@@ -312,7 +312,7 @@ argv_lacks "dontAsk" "and not dontAsk"
 argv_lacks_prefix "Edit(" "the fix child has no Edit( rule"
 argv_has "Skill(gantry:handover)" "the fix child may invoke gantry:handover too"
 argv_has "gantry-review-fix-feat-headless" "its --name says review-fix"
-for s in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh review_fresh.sh risk_floor.sh; do
+for s in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh review_fresh.sh risk_floor.sh probe_clone.sh; do
   argv_has "Bash(bash $GANTRY_ROOT/lib/$s:*)" "the fix child keeps the unquoted Bash rule for $s"
   argv_has "Bash(bash \"$GANTRY_ROOT/lib/$s\":*)" "and the double-quoted one"
 done
@@ -485,7 +485,7 @@ fi
 
 run_launcher review "$SUCCESS_JSON" 0 --phase review --root "$repo"
 load_argv
-for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh review_fresh.sh risk_floor.sh; do
+for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh review_fresh.sh risk_floor.sh probe_clone.sh; do
   argv_has 'Bash(bash $GANTRY/lib/'"$script"':*)' \
     "the \$GANTRY rule for $script is emitted verbatim, for a child that uses the variable"
   argv_has 'Bash(bash "$GANTRY/lib/'"$script"'":*)' \

@@ -22,10 +22,13 @@
 #               task.md, plus Skill(gantry:handover), plus the Bash rules
 #   review-fix  acceptEdits (the fix step must edit code) + Skill(gantry:handover) + the Bash rules
 #
-# The Bash rules name six gantry scripts — the gate, the exclusion writer, the
-# stage detector, the diff fingerprint, the freshness check (review_fresh.sh), and the lens matcher (risk_floor.sh,
+# The Bash rules name seven gantry scripts — the gate, the exclusion writer, the
+# stage detector, the diff fingerprint, the freshness check (review_fresh.sh), the lens matcher (risk_floor.sh,
 # which the review runs to decide which review lenses fire and which prints a
-# lens's body from the base ref) — all read-only, and each is emitted TWICE, in the
+# lens's body from the base ref) and the probe-clone maker (probe_clone.sh, which
+# writes only to a temp directory of its own) — none of them edits a tracked file (the
+# exclusion writer writes .git/info/exclude, and the gate runs the repo's own checks in the
+# worktree), and each is emitted TWICE, in the
 # unquoted and the double-quoted path form, because a rule matches the literal
 # command text and a skill may write either (probed: `Bash(bash <abs>:*)` let
 # `bash <abs>` through and denied `bash "<abs>"`). Nothing else Bash is allowed
@@ -247,7 +250,7 @@ esac
 # one is forwarded (it wins over an install), else this script's own root.
 RULE_ROOT="${PLUGIN_DIR:-$GANTRY}"
 RULES=()
-for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh review_fresh.sh risk_floor.sh; do
+for script in run_gates.sh ensure_excluded.sh detect_stage.sh diff_fingerprint.sh review_fresh.sh risk_floor.sh probe_clone.sh; do
   RULES[${#RULES[@]}]="Bash(bash $RULE_ROOT/lib/$script:*)"
   RULES[${#RULES[@]}]="Bash(bash \"$RULE_ROOT/lib/$script\":*)"
   # The variable spelling, literally: the skill's own text says
