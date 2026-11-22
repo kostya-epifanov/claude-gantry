@@ -48,7 +48,8 @@
 #
 # LENSES ARE READ FROM THE BASE REF, NEVER THE WORKTREE. `git ls-tree <base>` and
 # `git show <base>:<path>`. A diff that adds, edits or deletes a lens does not
-# get to judge itself with the new text; it is reported instead (LENS_IN_DIFF).
+# get to judge itself with the new text; it is reported instead (LENS_IN_DIFF),
+# floored by the base's lenses — or critical, marked no-base-lens, when none covers it.
 #
 # THE FILE SET.
 #   working form  `git diff --name-only --no-renames <merge-base of base and
@@ -72,7 +73,16 @@
 #   FILE:<path> <level>          one per matched file, with its own level
 #   END
 #
-# then one `LENS_IN_DIFF:<path>` per lens file the file set itself touches.
+# then one line per lens file the file set itself touches, in path order:
+#
+#   LENS_IN_DIFF:<path> <level>                 the strictest level any base lens's
+#                                               key assigns to <path>
+#   LENS_IN_DIFF:<path> critical no-base-lens   no base lens covers <path>, including
+#                                               a base with no lens at all
+#
+# A lens file in the diff is guarded on its own: ship counts that level in the
+# floor, lists the file under `## Guarded changes` and labels the PR, whether or
+# not any lens block fired.
 # A file set touching no lens key and no lens file prints NOTHING, exit 0.
 #
 # Exit codes: 0 = answered (possibly with no output) · 2 = usage, not a
@@ -316,9 +326,50 @@ while [ "$i" -lt "${#LENS_PARSED[@]}" ]; do
   i=$((i + 1))
 done
 
-IN_DIFF="$(printf '%s\n' "$FILES" | grep -E "^$LENS_DIR/" || true)"
-[ -n "$OUT" ] && printf '%s' "$OUT"
+# --- lens files in the file set: guarded on their own --------------------------------
+# A lens file the diff adds, edits or deletes is floored by the base's lenses: the
+# strictest level any base lens's key assigns to its path. When no base lens covers
+# it — including a base with no lens at all — it is `critical no-base-lens`: a lens
+# change nothing at the base could judge is the least-checked change there is. Keys
+# and paths reach awk on stdin, not through FILES_TMP, which exists only when a
+# base lens does. A failing awk is exit 2, never a missing line.
+# Only a `.md` file there is a lens — the same set LENSES counts — so a `.gitkeep` or
+# a note beside the lenses is not floored as one.
+IN_DIFF="$(printf '%s\n' "$FILES" | grep -E '^\.claude/review-lenses/.*\.md$' || true)"
+IN_DIFF_OUT=""
 if [ -n "$IN_DIFF" ]; then
-  printf '%s\n' "$IN_DIFF" | sed 's/^/LENS_IN_DIFF:/'
+  IN_DIFF_OUT="$(
+    {
+      i=0
+      while [ "$i" -lt "${#LENS_PARSED[@]}" ]; do
+        printf '%s\n' "${LENS_PARSED[$i]}" | grep '^KEY	' || true
+        i=$((i + 1))
+      done
+      printf '%s\n' "$IN_DIFF" | sed 's/^/PATH	/'
+    } | awk -F '\t' '
+      BEGIN {
+        rank["low"] = 1; rank["medium"] = 2; rank["high"] = 3; rank["critical"] = 4
+        name_of[1] = "low"; name_of[2] = "medium"; name_of[3] = "high"; name_of[4] = "critical"
+        nk = 0
+      }
+      $1 == "KEY"  { nk++; K[nk] = $2; L[nk] = rank[$3]; next }
+      $1 == "PATH" {
+        f = substr($0, 6); best = 0
+        for (j = 1; j <= nk; j++) {
+          k = K[j]
+          if (substr(k, length(k), 1) == "/") hit = (substr(f, 1, length(k)) == k)
+          else hit = (f == k)
+          if (hit && L[j] > best) best = L[j]
+        }
+        if (best > 0) print "LENS_IN_DIFF:" f " " name_of[best]
+        else print "LENS_IN_DIFF:" f " critical no-base-lens"
+      }
+    '
+  )" || die "the lens-file floor failed on ${IN_DIFF%%
+*}"
+  [ -n "$IN_DIFF_OUT" ] || die "the lens-file floor printed nothing for ${IN_DIFF%%
+*}"
 fi
+[ -n "$OUT" ] && printf '%s' "$OUT"
+[ -n "$IN_DIFF_OUT" ] && printf '%s\n' "$IN_DIFF_OUT"
 exit 0

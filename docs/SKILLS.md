@@ -454,11 +454,13 @@ extended to cover this because it runs before ship composes anything.
 All of these are **disclosures, not refusals**: none withholds the PR, fails the gate, or blocks
 the push.
 
-**Every body carries `## Risk`**, and `## Guarded changes` when a review lens fired. The level is
-the highest of the review's `Risk level:` and every fired lens's floor, raised one step for any
+**Every body carries `## Risk`**, and `## Guarded changes` when a review lens fired or the diff changes a
+lens file. The level is the highest of the review's `Risk level:`, every fired lens's floor and each
+changed lens file's own level (the strictest any base lens assigns it, or `critical` marked
+`no-base-lens` when none covers it), raised one step for any
 open risk; with no review it is `unassessed`, never a floor standing in for a judgement. The
 guarded file list comes from `lib/risk_floor.sh`, run again by ship at ship time — every matched
-file, each with the lens's *what to look at* note — not from the model. A fired lens also puts the
+file, each with the lens's *what to look at* note — not from the model. A guarded change also puts the
 GitHub label `guarded` on the PR, created when the repo lacks it; a label that cannot be applied is
 reported, never a reason not to open the PR.
 
